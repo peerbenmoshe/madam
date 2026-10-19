@@ -1,0 +1,20 @@
+# Secrets: never committed
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+frontend/dist/
+backend/internal/web/assets/
+/bin/
+coverage/
+*.out
+
+# Local tool settings
+.claude/settings.local.json
+.vscode/
+
+# OS noise
+.DS_Store
+Thumbs.db
