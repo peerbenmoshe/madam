@@ -61,6 +61,9 @@ A mobile-friendly web app that digitizes a paper FAM (Fertility Awareness Method
   - **The repository is public from day one**, reversing "private until v1." On GitHub's free plan, protected branches exist only on public repositories. The secret risk that motivated "private" is handled by `.gitignore` from the first commit and GitHub's push protection (`tech-stack.md` §12).
   - **The documents refer to "the first user,"** never by name or relationship, because the repository and its full history are public.
   - **Git talks to GitHub over HTTPS**, with `gh` as the credential helper. Commits are signed with an SSH key, so GitHub shows them as verified.
+  - **Cloud Run region: `europe-west1` (Belgium).** A Tier 1 pricing region, so the free allowance stretches further than in Frankfurt (Tier 2). Chosen after reading Google's terms and pricing pages (`tech-stack.md` §7).
+  - **Cost guardrails: budget alert + Cloud Run spend cap.** An alerts-only budget only sends email; the spend cap actually pauses Cloud Run when exceeded. Accepted cost: if the cap ever triggers, the app goes dark until it is lifted by hand. Plus min instances 0, max instances 2, an Artifact Registry cleanup policy, and images built by us rather than through Cloud Build.
+  - **Google's Starter Tier rejected.** It needs no billing account, but only works through AI Studio deployments with a Google-managed, locked-down project.
 
 ## v1 in one paragraph
 
@@ -101,9 +104,11 @@ Almost everything from steps 1–3 is now closed. What's left falls into three k
 - Who owns tables created by goose migrations on Supabase, and how to create a non-owner application role.
 - Whether the invite code reaches Supabase's "before user created" hook.
 - Cloud Run cold-start time.
+- Whether the Cloud Run spend cap counts usage before the free-tier discount (check after the first month).
 
 **Genuinely still open:**
 
+- **Supabase region** — the EU region closest to Belgium among those Supabase offers. Decided when creating the projects; Frankfurt is the fallback.
 - **Outgoing SSH is reset from the development laptop**, on every network tested and from both WSL and Windows; the cause is not yet found. Git works around it over HTTPS. It matters again if Supabase's direct Postgres connection is affected the same way, which gets tested during Supabase setup.
 - The Supabase restore window (docs say a year, older sources say 90 days).
 - **Legal and privacy check before opening sign-up publicly** — GDPR (health data is a special category) and Israel's Privacy Protection Law after Amendment 13. Attached to public sign-up, not to v1.
@@ -113,5 +118,5 @@ Almost everything from steps 1–3 is now closed. What's left falls into three k
 1. **Spec:** v1 features and screens. ✅ Done (`spec-v1.md`).
 2. **Tech stack:** options, then Pe'er chooses. ✅ Done (`tech-stack.md`).
 3. **Data model:** tables and relationships. ✅ Done (`data-model.md`).
-4. **Rules, CLAUDE.md, and repo setup.** Documents done (`fam-rules.md`, `CLAUDE.md`, `build-order.md`, all four docs amended). ← in progress: machine, repository and cloud setup.
+4. **Rules, CLAUDE.md, and repo setup.** Documents done (`fam-rules.md`, `CLAUDE.md`, `build-order.md`, all four docs amended). ← in progress: machine, repository and cloud setup. Google Cloud billing reviewed; region and cost guardrails decided.
 5. **Build in Claude Code.**
