@@ -28,10 +28,10 @@ the document is wrong, change it *first*, in the same PR, with the tests.
 
 ## Stack
 
-Go 1.22+ with chi · Supabase PostgreSQL (EU) · sqlc + pgx · goose migrations ·
-Supabase Auth (JWT) · React + TypeScript + Tailwind + Recharts, embedded in the
-binary with `go:embed` · Google Cloud Run (`europe-west1`, Belgium) · GitHub
-Actions.
+Go 1.27 with chi · Supabase PostgreSQL 17 (Frankfurt) · sqlc + pgx · goose
+migrations · Supabase Auth (JWT) · React + TypeScript + Tailwind + Recharts,
+embedded in the binary with `go:embed` · Google Cloud Run (`europe-west1`,
+Belgium) · GitHub Actions.
 
 ## Layout
 
@@ -82,6 +82,8 @@ hand-edit generated code.
   it's a solo project. `main` is protected and always deployable. Commit messages
   say what changed ("Add adjusted-temperature calculation"), not "stuff".
 - **Secrets:** never in Git. `.env` locally, Cloud Run config in production.
+  `.claude/settings.json` denies reading `.env` files; don't try to work around
+  it. The production database URL is never in a local `.env`.
 - **New table checklist:** does it cascade on user delete? Does it have an RLS
   policy? Is every query filtered by `user_id`?
 - **Deploying:** build the image ourselves and push it; never
@@ -111,6 +113,15 @@ hand-edit generated code.
   transaction.
 - **Everything derived is derived on read**: cycle days, cycle lengths, adjusted
   temperatures, late/early status, all statistics. Never store them.
+- **The development machine has no IPv6.** Supabase's direct connection is
+  IPv6-only on the free plan, so from the laptop use the **shared pooler in
+  session mode** (pooler host, port 5432). The transaction pooler (port 6543)
+  does not support prepared statements, which pgx uses by default.
+- **Local Postgres needs a readiness wait.** A started container is not a ready
+  database. Poll with `pg_isready`; never `sleep N`. This is the classic cause of
+  flaky first runs and CI.
+- **Git talks to GitHub over HTTPS only.** SSH connections are reset from this
+  laptop; don't switch the remote to `git@github.com:`.
 - **Cloud Run has a spend cap.** If the deployed app suddenly stops answering and
   nothing changed in the code, check Billing → Budgets for an **Enforced** spend
   cap before debugging anything else. It pauses Cloud Run until lifted by hand.
@@ -145,7 +156,9 @@ Carry these forward; answer them in the build, don't assume.
 - Who owns tables created by goose migrations on Supabase, and how to create a
   non-owner application role.
 - Whether the sign-up invite code reaches Supabase's "before user created" hook.
+- How Cloud Run connects to Supabase: session pooler, transaction pooler with
+  prepared statements off, or direct (only if Cloud Run egress has IPv6).
+- Query latency between Cloud Run (Belgium) and Supabase (Frankfurt).
 - Cloud Run cold-start time once the skeleton is deployed.
-- Whether the Cloud Run spend cap counts usage before the free-tier discount
-  (check the billing reports after the first month).
-- Which EU region Supabase offers closest to Belgium.
+- The first month's billing report: confirm the spend cap measured gross usage
+  and the bill stayed at zero.

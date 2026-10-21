@@ -12,6 +12,11 @@ _Amended during Google Cloud setup (Oct 2026): 0b now deploys to `europe-west1`
 (Belgium) and includes the cost guardrails — alert, spend cap, instance limits and
 the Artifact Registry cleanup policy (`tech-stack.md` §7)._
 
+_Amended at the end of setup (Oct 2026): the accounts and cloud resources now
+exist. Both Supabase projects (Frankfurt) and both budgets were created during
+setup, so 0b and 0c start from there. 0a gains four decisions surfaced while
+installing the tools._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -53,14 +58,37 @@ One query. Not a logging framework, not a metrics stack, not an abstraction for 
 second database that will never exist. If a step starts growing, it has stopped
 being a skeleton.
 
+**Already in place from setup:** the tools in WSL (`tech-stack.md` §10), the
+public repository with `main` protected, squash-merge only, secret scanning and
+push protection on, `.claude/settings.json` denying reads of `.env`; both
+Supabase projects; the Google Cloud project with the Cloud Run and Artifact
+Registry APIs enabled, `gcloud` logged in, and both budgets created.
+
 ### 0a — Local skeleton
 
 Go module, chi router, `GET /healthz` returning `ok`. `Makefile` with `dev`,
 `test`, `lint`, `build`. GitHub Actions running build + test + lint on push.
 
-The repository already exists from setup: public, `main` protected, squash-merge
-only, with `.gitignore`, `CLAUDE.md` and `docs/` committed. Once CI exists, add
-its check to `main`'s protection as a required status check.
+Decisions to make in this step's plan, not by default:
+
+- **The `go` line in `go.mod`.** Pin it to **1.27**, deliberately. Since Go 1.21
+  the toolchain downloads a newer version automatically when `go.mod` asks for
+  one, so this line is a real decision, not boilerplate.
+- **Pin the dev tools.** `goose`, `sqlc` and `golangci-lint` were installed
+  globally with `@latest` during setup, so the laptop and CI could drift apart.
+  Go 1.24+ supports `tool` directives in `go.mod`, run as `go tool <name>`, which
+  pins one version for everyone. Decide whether to use them.
+- **Local Postgres.** Use the `postgres:17` image, matching Supabase's major
+  version. The Makefile must **wait for readiness with `pg_isready`**, never a
+  fixed `sleep` — a started container is not yet an accepting database.
+- **Environment variables.** Name them here and add `.env.example` (committed,
+  no real values). There are two development databases — the local container and
+  the `madam-dev` Supabase project — so decide how each is selected.
+
+Also decide whether to turn on **Dependabot** now that there will be dependencies.
+
+Once CI exists, add its check to `main`'s protection as a **required status
+check**.
 
 *Done when:* `make test` passes locally and CI is green on a pull request.
 
@@ -74,26 +102,37 @@ its check to `main`'s protection as a required status check.
   an image.
 - `gcloud run deploy` to **`europe-west1` (Belgium)**, request-based billing (the
   default), **min instances 0, max instances 2**.
-- **Cost guardrails:** an alerts-only budget of ~$5 on the billing account, and a
-  **spend cap budget of ~$5 on Cloud Run** in the project. The alert alone does
-  not stop spending; the cap does (`tech-stack.md` §7).
+- **Cost guardrails: already created during setup.** An alerts-only budget of
+  ₪15 on the billing account, and a spend cap budget of ₪15 on Cloud Run in the
+  project, status **Configured** (`tech-stack.md` §7). Nothing to create here;
+  just don't remove them.
 
-*Done when:* a public HTTPS URL returns `ok`, and the Budgets page shows the spend
-cap as **Configured**.
+*Done when:* a public HTTPS URL returns `ok`, and the spend cap still shows
+**Configured**.
 *Verification items:* measure the cold-start time and write the number into
-`CLAUDE.md`. After the first full month, check the billing reports to see whether
-the spend cap counts usage before the free-tier discount.
+`CLAUDE.md`. After the first full month, check the billing report.
 
 ### 0c — Database connected
 
-Two Supabase projects (production and development), in the EU region closest to
-Belgium (to be checked which Supabase offers; Frankfurt is the fallback), Data API
-off. goose migration `00001` creating the `users` table only. `sqlc.yaml`, one
+**The two Supabase projects already exist** (`madam-dev` and `madam-prod`,
+Frankfurt, Data API off, automatic RLS off — `tech-stack.md` §5). Connection
+strings and passwords are in Pe'er's password manager, not in the repository.
+
+goose migration `00001` creating the `users` table only. `sqlc.yaml`, one
 generated query, called from the health endpoint.
+
+**Decide how Cloud Run connects** (`tech-stack.md` §5, Connecting): the session
+pooler, the transaction pooler with prepared statements turned off in pgx, or the
+direct connection if Cloud Run's outbound traffic has IPv6. The laptop has no
+IPv6, so it always uses the session pooler.
+
+**Decide how migrations reach production** — from the laptop, or from CI. The
+production URL must never sit in a local `.env`.
 
 *Done when:* the deployed URL reads a row from Supabase.
 *Verification items:* pgx/sqlc mappings for `INTEGER`, `DATE`, `TIME`, `TEXT[]`;
-who owns tables created by goose on Supabase.
+who owns tables created by goose on Supabase; query latency between Belgium and
+Frankfurt.
 
 ### 0d — Isolation plumbing
 
@@ -263,11 +302,6 @@ Two need the first user, not us:
 - **The direction of the correction** — early adds, late subtracts. Confirm before
   Slice 6 ships, because a sign error would be visibly wrong to her.
 - **The palette on her phone**, early in the morning. Before Slice 6.
-
-One needs a decision at setup time:
-
-- **The Supabase region** — the EU region closest to Belgium among those Supabase
-  offers (0c).
 
 The rest are in `CLAUDE.md`'s verification list and are attached to the steps
 above where they get answered.
