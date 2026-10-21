@@ -8,6 +8,10 @@ _Amended during setup: the repository is public from day one and already exists
 before Phase 0 starts (§2, 0a), so Slice 10 is a final review pass rather than
 the moment the repository goes public._
 
+_Amended during Google Cloud setup (Oct 2026): 0b now deploys to `europe-west1`
+(Belgium) and includes the cost guardrails — alert, spend cap, instance limits and
+the Artifact Registry cleanup policy (`tech-stack.md` §7)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -62,16 +66,29 @@ its check to `main`'s protection as a required status check.
 
 ### 0b — Deployed
 
-Dockerfile, `gcloud run deploy`, budget alert set at ~$5.
+- Dockerfile. The image is **built by us** (locally or in GitHub Actions) and
+  pushed to Artifact Registry — not `gcloud run deploy --source`, which goes
+  through Cloud Build and is billed separately.
+- An Artifact Registry repository in `europe-west1` with a **cleanup policy that
+  keeps only the last few images**. Free storage is 0.5 GB, and every deploy adds
+  an image.
+- `gcloud run deploy` to **`europe-west1` (Belgium)**, request-based billing (the
+  default), **min instances 0, max instances 2**.
+- **Cost guardrails:** an alerts-only budget of ~$5 on the billing account, and a
+  **spend cap budget of ~$5 on Cloud Run** in the project. The alert alone does
+  not stop spending; the cap does (`tech-stack.md` §7).
 
-*Done when:* a public HTTPS URL returns `ok`.
-*Verification item:* measure the cold-start time and write the number into
-`CLAUDE.md`.
+*Done when:* a public HTTPS URL returns `ok`, and the Budgets page shows the spend
+cap as **Configured**.
+*Verification items:* measure the cold-start time and write the number into
+`CLAUDE.md`. After the first full month, check the billing reports to see whether
+the spend cap counts usage before the free-tier discount.
 
 ### 0c — Database connected
 
-Two Supabase projects (production and development), EU region, Data API off.
-goose migration `00001` creating the `users` table only. `sqlc.yaml`, one
+Two Supabase projects (production and development), in the EU region closest to
+Belgium (to be checked which Supabase offers; Frankfurt is the fallback), Data API
+off. goose migration `00001` creating the `users` table only. `sqlc.yaml`, one
 generated query, called from the health endpoint.
 
 *Done when:* the deployed URL reads a row from Supabase.
@@ -246,6 +263,11 @@ Two need the first user, not us:
 - **The direction of the correction** — early adds, late subtracts. Confirm before
   Slice 6 ships, because a sign error would be visibly wrong to her.
 - **The palette on her phone**, early in the morning. Before Slice 6.
+
+One needs a decision at setup time:
+
+- **The Supabase region** — the EU region closest to Belgium among those Supabase
+  offers (0c).
 
 The rest are in `CLAUDE.md`'s verification list and are attached to the steps
 above where they get answered.
