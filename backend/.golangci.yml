@@ -1,0 +1,10 @@
+version: "2"
+
+# The "standard" default linters (errcheck, govet, ineffassign, staticcheck,
+# unused), plus gofmt as a formatter check. Add linters one at a time, with a reason.
+linters:
+  default: standard
+
+formatters:
+  enable:
+    - gofmt

@@ -61,7 +61,23 @@ make lint           # golangci-lint + eslint
 make migrate-up     # goose up against $DATABASE_URL
 make sqlc           # regenerate db/ from the .sql files
 make build          # frontend build + go build with embedded assets
+make db-up          # start local postgres; returns once pg_isready passes
+make db-down        # stop it (data kept); db-reset also deletes the data
 ```
+
+This list is the end state. Targets arrive phase by phase (`docs/build-order.md`):
+`migrate-up` and `sqlc` in 0c, and the frontend parts of `dev`, `lint` and `build` in 0e.
+
+**Choosing the database:** every target defaults to the local container
+(`DB=local`). Add `DB=dev` to use the `madam-dev` Supabase project, whose URL is
+`MADAM_DEV_DATABASE_URL` in `.env`. The app only reads `DATABASE_URL`, which the
+Makefile sets from `DB`. No `DB` value points at production. Names are in
+`.env.example`.
+
+**Pinned tools:** golangci-lint's version is `GOLANGCI_LINT_VERSION` in the
+Makefile, and the same value appears in `.github/workflows/ci.yml`; change both
+together. goose and sqlc will be `tool` directives in a separate `tools/go.mod`
+from 0c.
 
 Regenerate with `make sqlc` after touching any `.sql` file or migration. Never
 hand-edit generated code.

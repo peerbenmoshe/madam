@@ -744,13 +744,26 @@ Notes:
 | Go | 1.27.1 | Official tarball, `/usr/local/go` |
 | Node / npm | 24 LTS / 11 | `nvm` (shadows a Windows npm that is also on PATH) |
 | Docker | 29.4 (Desktop 4.71), Compose 5.1 | Docker Desktop with WSL integration |
-| goose | 3.29 | `go install` (unpinned — see `build-order.md` 0a) |
-| sqlc | 1.31 | `go install` (unpinned) |
-| golangci-lint | 2.15 | Official install script (unpinned) |
+| goose | 3.29 | `go install` (global copy; pinned in `tools/go.mod` from 0c, see below) |
+| sqlc | 1.31 | `go install` (global copy; pinned in `tools/go.mod` from 0c) |
+| golangci-lint | 2.15 | Official install script (global copy). The project pins **v2.15.0**: `make lint` installs that exact binary into `bin/`, and CI uses `golangci-lint-action` with the same version |
 | psql | 14 | Ubuntu's `postgresql-client` — older than the server, fine for ad-hoc queries |
 | gh | 2.102 | GitHub's apt repository |
 | gcloud | SDK 590 | Google's apt repository |
 | Claude Code | 2.1.x | Native installer, auto-updating |
+
+**Pinning the dev tools (decided in Phase 0a).** A global `@latest` install lets
+the laptop and CI drift apart, so the project pins its own versions:
+
+- **golangci-lint** is pinned as a **binary**. Its docs say `go tool` and `tool`
+  directive installs "aren't guaranteed to work" and recommend the binary.
+- **goose and sqlc** will be `tool` directives in a **separate `tools/go.mod`**,
+  run through the Makefile, so their large dependency trees stay out of the app's
+  `go.sum`. They're added in 0c, when they're first used.
+
+**The `go` line is `go 1.27`**, not the `go 1.27.1` that `go mod init` writes. It
+is the minimum language version, so any 1.27.x toolchain satisfies it and nothing
+is downloaded automatically. CI reads it from `go.mod`.
 
 ### Network quirks of this machine
 
