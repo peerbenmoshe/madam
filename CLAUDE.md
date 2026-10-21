@@ -19,6 +19,7 @@ to behave. It is not the spec.
 | `docs/data-model.md` | Tables, columns, constraints, and the reasoning. |
 | `docs/tech-stack.md` | Stack decisions, rejected options, accepted trade-offs. |
 | `docs/build-order.md` | What gets built next, in what order, and its acceptance criteria. |
+| `docs/build-log.md` | Retrospective: what was decided and learned in each phase, in order. |
 
 **Never implement a FAM rule from memory or from this file — read
 `docs/fam-rules.md`.** If code and that document disagree, the document wins. If
@@ -153,6 +154,14 @@ understanding the diff, not for finishing fast.
 
 - **Explain before the diff.** What you're changing, why, and what you considered
   instead — in plain language, a few sentences, not a wall.
+- **Explain every command.** For any command you suggest or run (shell, `git`,
+  `gh`, `docker`, `make`, `gcloud`, ...), say what it does, why it's needed, and
+  what each non-obvious flag or argument means. Don't assume he already knows the
+  tool. This matters most for commands he runs himself, especially with `sudo`.
+- **Keep `docs/build-log.md` current.** When a phase or slice finishes, or a
+  significant decision or surprise happens, add a short entry covering what was
+  decided, why, and what was learned. It's a retrospective of the core process,
+  not a diary: leave out routine steps and small errors.
 - **Propose options when there's a real choice.** Give the trade-offs and let him
   pick. Don't silently choose and move on.
 - **Label assumptions as assumptions.** If you don't know something, say so
