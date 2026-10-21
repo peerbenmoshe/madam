@@ -18,6 +18,12 @@ _Amended during Google Cloud setup (Oct 2026), after checking Google's terms and
 - _§7 gains what the free tier does **not** cover: egress to Israel, Artifact Registry beyond 0.5 GB, and Cloud Build._
 - _Google's new **Starter Tier** was considered and rejected (§7)._
 
+_Amended at the end of setup (Oct 2026), recording what was actually created and measured:_
+- _**Supabase region is Frankfurt (`eu-central-1`)**; PostgreSQL **17**; project options recorded, including why "automatic RLS" is off (§5)._
+- _New **"Connecting"** subsection: the development machine has no IPv6, so it uses Supabase's session pooler (§5)._
+- _Budgets are **₪15** (the billing account is in shekels), and Google's docs settle that the spend cap counts usage before the free-tier discount (§7)._
+- _§10 records the installed tools and the machine's network quirks; §12 records secret scanning and push protection as verified._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -29,15 +35,15 @@ stack questions; `project-brief.md` only summarises it.
 | Layer | Choice |
 |---|---|
 | Architecture | REST + JSON API, separate frontend app, one repo |
-| Backend language | Go |
+| Backend language | Go (1.27) |
 | HTTP layer | chi |
 | Auth | Supabase Auth (managed) |
-| Database | Supabase PostgreSQL, EU region, free plan |
+| Database | Supabase PostgreSQL 17, **Frankfurt (`eu-central-1`)**, free plan |
 | DB access | sqlc (+ pgx driver) |
 | Migrations | goose |
 | Isolation | `user_id` filter in every query **+ Row Level Security** |
 | API hosting | Google Cloud Run (container), **`europe-west1` (Belgium)** |
-| Cost guardrails | **Budget alert + Cloud Run spend cap**, min instances 0, max instances 2 |
+| Cost guardrails | **Budget alert + Cloud Run spend cap** (₪15 each), min instances 0, max instances 2 |
 | Frontend framework | React (TypeScript) |
 | Styling | Tailwind, design tokens |
 | Charting | **Recharts** |
@@ -268,6 +274,10 @@ are integers in thousandths of a degree, because Go has no decimal type and
 `NUMERIC` would force a third-party library into the domain logic. See
 `data-model.md` §8.2 and §4.4.
 
+**Version: PostgreSQL 17** (17.11 at setup). The local development container uses
+the `postgres:17` image to match, so a migration that works on the laptop can't
+fail in production on syntax the server doesn't support.
+
 Rejected: SQLite (awkward on cloud hosts, weaker constraints), MySQL (no
 advantage here), MongoDB (the data is not document-shaped).
 
@@ -277,20 +287,32 @@ The PostgreSQL instance that comes with the Supabase project, in an **EU region*
 — close enough to Israel for good latency, and expected to simplify the GDPR
 check (to be confirmed by the legal research, not assumed).
 
-**Cloud Run sits in Belgium (`europe-west1`, §7)**, so the database should sit as
-close to Belgium as Supabase allows. Every API request makes at least one round
-trip to the database, so the distance between the two is paid on every query.
-*Not yet checked:* which EU regions Supabase currently offers. Choose the one
-closest to Belgium when creating the projects; Frankfurt is an acceptable fallback.
-*Assumption, to measure:* Belgium–Frankfurt adds a few milliseconds per query,
-which is invisible to a person at this request volume.
+**Region: Frankfurt (`eu-central-1`)**, for both projects, created during setup.
+Cloud Run sits in Belgium (`europe-west1`, §7), so every query crosses from Belgium
+to Frankfurt. Supabase may offer Paris, which is marginally closer on the map;
+the difference is expected to be a millisecond or two per query, so the projects
+were not recreated. *Assumption, to measure in Phase 0c:* the Belgium–Frankfurt
+round trip is invisible to a person at this request volume.
 
-**Security note.** Supabase also offers an auto-generated Data API that can expose
-tables directly to browsers. We do not want that: our Go API is the only door.
-From **30 May 2026**, new projects no longer expose public-schema tables to the
-Data API automatically — tables need an explicit per-role grant — and apps using a
-direct PostgreSQL connection are unaffected. Verify this is off when creating the
-project.
+**Two projects, both free:** `madam-dev` and `madam-prod`. The free plan's limit
+is two free projects **per person**, counted across every organisation where
+Pe'er is an owner or administrator; paused projects don't count. Both slots are
+now in use, and the keepalive job (below) keeps them from pausing, so a future
+project means pausing or deleting one of these, or paying.
+
+**Project options chosen at creation:**
+
+- **Data API: off.** Supabase also offers an auto-generated Data API that can
+  expose tables directly to browsers. We do not want that: our Go API is the only
+  door. Verified off on both projects after creation.
+- **"Automatically expose new tables": off.** The same reasoning. From **30 May
+  2026** this is the default for new projects anyway, and apps using a direct
+  PostgreSQL connection are unaffected.
+- **"Enable automatic RLS": off.** It installs an event trigger that enables RLS
+  on every new table in `public`. Rejected because it is schema behaviour that
+  lives outside Git, the local Postgres container wouldn't have it, and every
+  migration already enables **and forces** RLS explicitly — the trigger only
+  enables it, and writes no policies. Reversible later with SQL.
 
 **Database roles (step 4).** Because RLS is in, the API must connect as a role
 that **does not own the tables**, and the tables carry `FORCE ROW LEVEL SECURITY`.
@@ -298,6 +320,27 @@ Postgres lets table owners bypass row security unless forced, so connecting as t
 owner would mean RLS is enabled and doing nothing. *Unverified:* who ends up
 owning tables created by goose migrations on Supabase, and how straightforward
 creating a separate application role is there. On the setup checklist.
+
+### Connecting
+
+Supabase offers several connection methods, and the choice is forced by the
+network:
+
+| Method | Port | Network | Notes |
+|---|---|---|---|
+| Direct connection | 5432 | **IPv6 only** on the free plan (IPv4 is a paid add-on) | Supabase's recommendation for long-running servers |
+| Shared pooler, **session mode** | 5432 | IPv4 | Behaves like a direct connection |
+| Shared pooler, transaction mode | 6543 | IPv4 | **No prepared statements** — pgx uses them by default, so they must be switched off |
+
+- **The development machine has no IPv6** (WSL's default networking), so from the
+  laptop the only working option is the **session pooler**. A connection through
+  it was tested from WSL during setup and works.
+- **Cloud Run's choice is open**, decided in Phase 0c: the session pooler, the
+  transaction pooler with prepared statements off, or the direct connection if
+  Cloud Run's outbound traffic has IPv6. *Not checked yet.*
+- Connection strings and database passwords live in Pe'er's password manager,
+  never in the repository. The passwords use letters and digits only, so they can
+  sit inside a connection URL without escaping.
 
 ### Plan and backups
 
@@ -430,8 +473,8 @@ Checked against Google's terms and pricing pages in October 2026.
   images is part of the skeleton.**
 - **Cloud Build** is billed separately. It is what `gcloud run deploy --source`
   uses behind the scenes. We build the image ourselves (locally or in GitHub
-  Actions) and push it, so Cloud Build is not involved. *Its free tier was not
-  checked.*
+  Actions) and push it, so Cloud Build is not involved, and its API is not
+  enabled. *Its free tier was not checked.*
 - **The contract.** Under the Google Cloud Terms of Service (§2.6), Google may
   change Cloud Run's fees at any time; the 30-day notice in that clause applies to
   Workspace-type products only. "Free" is a published price, not a contractual
@@ -439,25 +482,31 @@ Checked against Google's terms and pricing pages in October 2026.
 - **Inactivity termination** (ToS §8.4) needs 60 days with no network activity *and*
   no fees. Daily use and the keepalive job make it irrelevant.
 
-### Cost guardrails (decided during setup)
+### Cost guardrails (decided and created during setup)
 
 **Budget alerts do not stop spending.** Google's own documentation says an
 alerts-only budget does not cap usage — it sends an email. An earlier version of
 this document treated "set a budget alert" as protection; it is only a smoke
 detector, not a sprinkler. So we use both:
 
-1. **Alerts-only budget, ~$5, on the billing account.** Emails at the default
-   thresholds. Covers every service, including the ones a cap cannot stop.
-2. **Spend cap budget, ~$5, on Cloud Run in the production project.** When the
-   estimated spend passes the amount, Cloud Run is **paused for the rest of the
-   month** until the cap is lifted by hand. It resets automatically at the start of
-   the next month.
+1. **Alerts-only budget, ₪15, on the whole billing account** (`global-alert`).
+   Emails at 50%, 90% and 100% of actual spend, plus 100% of forecasted spend.
+   It counts savings such as the free tier, so it watches the **real bill**.
+   Covers every service, including the ones a cap cannot stop.
+2. **Spend cap budget, ₪15, on Cloud Run in the project** (`cloud-run-spend-cap`),
+   status **Configured**. When the estimated spend passes the amount, Cloud Run is
+   **paused for the rest of the month** until the cap is lifted by hand. It
+   resets automatically at the start of the next month.
 3. **Minimum instances: 0.** A warm minimum instance is billed while idle — the
    most common way to accidentally pay for a quiet app.
 4. **Maximum instances: 2.** The URL and repository are public, and bots will probe
    both. Capping instances caps how fast a flood of requests can spend money.
 5. **Request-based billing** (the default). Instance-based billing charges for the
    whole lifetime of every instance and has different free-tier numbers.
+
+The amounts are in shekels because the billing account's currency is ILS; ₪15 is
+roughly $4 (exchange rate not checked at the time of writing), in line with the
+"about $5" originally planned.
 
 Accepted cost of the cap, chosen by Pe'er: **if it ever triggers, the app goes dark
 for the first user** until it is lifted. A dark app is a far better failure than a
@@ -468,11 +517,16 @@ Known limits of the spend cap:
 - It covers **one service in one project**, so Artifact Registry storage and egress
   are covered by the alert (1) only.
 - It does not pause persistent resources such as stored images.
-- It is enforced on **gross, estimated** cost. *Our reading, unverified:* "gross"
-  means before the free-tier discount is subtracted, so the cap measures full
-  usage rather than the $0 bill. Expected gross Cloud Run cost is a few cents a
-  month, so $5 still leaves a large margin. **Check the billing reports after the
-  first month** to confirm.
+- Google's documentation says it uses **gross, estimated costs, excluding savings
+  and credits** — so it counts usage *before* the free-tier discount. A ₪15 cap
+  therefore means ₪15 of full-price Cloud Run usage, against an expected gross
+  cost of a few cents a month: still a large margin. **Check the first month's
+  billing report** to confirm in practice.
+- Enforcement isn't instant, because cost reporting lags; a small overshoot past
+  the amount can still be billed.
+- To lift it: Budgets & alerts → **View spend cap details** → **Lift spend cap**.
+  Cloud Run may take up to an hour to return. A budget can't be edited or deleted
+  while its cap is enforced.
 
 ### Considered and rejected: Starter Tier
 
@@ -621,8 +675,8 @@ Also part of the skeleton:
 - the **Supabase keepalive job** (section 5), for both projects;
 - the **non-owner application role** and the transaction wrapper, so RLS has
   somewhere to stand from the first migration onward;
-- the **cost guardrails** (section 7): alert, spend cap, instance limits, and the
-  Artifact Registry cleanup policy.
+- the **cost guardrails** (section 7): instance limits and the Artifact Registry
+  cleanup policy. The two budgets were already created during setup.
 
 Two environments:
 
@@ -635,23 +689,30 @@ Rules:
 - **Never test against production data.** Use a **separate Supabase project for
   development**, clearly named, so a bad migration cannot touch her history. The
   keepalive job should cover this project too.
+- **The production database URL never goes into a local `.env`.** Production
+  credentials live in Cloud Run configuration and, for the keepalive job, in
+  GitHub Actions secrets. How migrations reach production is decided in Phase 0c.
 - No staging environment for v1; local plus production is enough for one user.
 
-### Setup checklist (details in the setup session)
+### Setup checklist
+
+_Status: the setup items below were completed in October 2026 and verified by a
+pre-flight check. Items marked **(Phase 0)** belong to the build, not to setup._
 
 - Go (from the official tarball on go.dev — **not `apt`**, which ships an old
-  version; we need 1.22+), Node (via `nvm`), Docker, `gcloud`, `goose`, `sqlc`.
+  version), Node (via `nvm`), Docker, `gcloud`, `goose`, `sqlc`. ✅
 - Google Cloud: create a project, enable the Cloud Run and Artifact Registry APIs,
-  install and log in to `gcloud`, add a Dockerfile, create an Artifact Registry
-  repository in `europe-west1` **with a cleanup policy**, push the image, then
+  install and log in to `gcloud`, create **an alerts-only budget on the billing
+  account and a spend cap budget on Cloud Run** in the project. ✅
+  **(Phase 0)** Add a Dockerfile, create an Artifact Registry repository in
+  `europe-west1` **with a cleanup policy**, push the image, then
   `gcloud run deploy` to `europe-west1` with **min instances 0 and max instances
-  2**. Set environment variables in Cloud Run. Create **an alerts-only budget (~$5)
-  on the billing account and a spend cap budget (~$5) on Cloud Run** in the
-  project.
-- Supabase: two projects (prod and dev), the EU region closest to Belgium, Data
-  API off, and the non-owner application role.
+  2**, and set environment variables in Cloud Run.
+- Supabase: two projects (prod and dev), Frankfurt, Data API off. ✅
+  **(Phase 0)** The non-owner application role.
 - Secrets (database URL, invite code, Supabase keys) live in Cloud Run
-  configuration and a local `.env` — **never in Git**.
+  configuration and a local `.env` — **never in Git**. **(Phase 0)** Variable
+  names and `.env.example`.
 
 ---
 
@@ -670,10 +731,41 @@ Notes:
 
 - Ubuntu 22.04 is fine, with the Go and Node installation caveats above.
 - Enable Docker Desktop's **WSL integration** for the distribution, so `docker`
-  works from the Ubuntu shell.
+  works from the Ubuntu shell. **Docker Desktop must be running** on Windows;
+  otherwise `docker` in Ubuntu only prints a "could not be found" message.
 - VS Code with the WSL extension edits WSL files natively (`code .` from inside WSL).
 - **Git credentials, SSH keys and the `gcloud` login live inside WSL** and do not
   carry over from the Windows side. One-time setup.
+
+### What's installed (October 2026)
+
+| Tool | Version | Installed via |
+|---|---|---|
+| Go | 1.27.1 | Official tarball, `/usr/local/go` |
+| Node / npm | 24 LTS / 11 | `nvm` (shadows a Windows npm that is also on PATH) |
+| Docker | 29.4 (Desktop 4.71), Compose 5.1 | Docker Desktop with WSL integration |
+| goose | 3.29 | `go install` (unpinned — see `build-order.md` 0a) |
+| sqlc | 1.31 | `go install` (unpinned) |
+| golangci-lint | 2.15 | Official install script (unpinned) |
+| psql | 14 | Ubuntu's `postgresql-client` — older than the server, fine for ad-hoc queries |
+| gh | 2.102 | GitHub's apt repository |
+| gcloud | SDK 590 | Google's apt repository |
+| Claude Code | 2.1.x | Native installer, auto-updating |
+
+### Network quirks of this machine
+
+Found during setup; each one cost real time, so they are written down.
+
+- **DNS:** WSL uses Windows' DNS through DNS tunneling (`nameserver
+  10.255.255.254`). A hardcoded `8.8.8.8` broke resolution on networks that block
+  outside DNS servers, and was removed.
+- **apt over HTTPS:** plain-HTTP connections to Ubuntu's package mirrors failed
+  from this laptop, so `/etc/apt/sources.list` uses `https://` mirrors.
+- **No IPv6** inside WSL (default NAT networking). Most tools fall back to IPv4
+  silently; Supabase's direct connection cannot (§5, Connecting).
+- **Outgoing SSH is reset**, on every network tested, from both WSL and Windows,
+  including GitHub's SSH-over-443 endpoint. The cause was never found. Git uses
+  HTTPS (§12); Postgres connections are unaffected.
 
 ---
 
@@ -732,20 +824,26 @@ Also hosts the Supabase keepalive job (section 5).
 
 ### Git workflow
 
-- `main` is always deployable and protected; no direct pushes.
+- `main` is always deployable and protected; no direct pushes. Branch protection:
+  a pull request is required (no approvals, since there is one person), linear
+  history, and no bypass for admins. Required status checks are added once CI
+  exists (`build-order.md` 0a).
 - One **short-lived branch per chunk of work**: `feature/daily-entry`,
   `fix/ghost-toggle`. Branch when a change takes more than one commit, is
-  experimental, or might be thrown away. Delete after merging — long-lived branches
-  are how solo projects rot.
+  experimental, or might be thrown away. Branches are deleted automatically after
+  merging — long-lived branches are how solo projects rot. The PR page keeps the
+  full history, and "Restore branch" is there if ever needed.
 - **Merge via pull request, even solo.** The PR page is where diffs get reviewed
   and "why" gets asked, and where CI runs.
-- **Squash merge**, so each feature lands as one clean commit.
+- **Squash merge only** (the other merge methods are disabled in the repository
+  settings), so each feature lands as one clean commit. Reverting a feature means
+  reverting that one commit.
 - Small commits, clear messages ("Add adjusted-temperature calculation", not "stuff").
 - `.gitignore` excludes `.env`, binaries and `node_modules`. **No secrets in Git, ever.**
 - Git talks to GitHub **over HTTPS**, with `gh` as the credential helper, and
-  commits are **signed with an SSH key** so GitHub marks them verified. (SSH
-  transport to GitHub is reset from the development laptop; see
-  `project-brief.md`, open items.)
+  commits are **signed with an SSH key** so GitHub marks them verified. Commits use
+  GitHub's noreply email address, so no personal email is published in the
+  history. (SSH transport to GitHub is reset from the development laptop; §10.)
 - Tag `v1.0.0` when she starts relying on it.
 
 Rejected: **git-flow** (permanent `develop` branch, release branches) as overkill
@@ -766,10 +864,13 @@ to a public repo are in the history forever**, and public repos are scanned by
 bots within minutes. The defences, all in place before the first commit:
 
 - `.gitignore` excludes `.env` and every `.env.*` except `.env.example`, from the
-  first commit onward.
-- GitHub **push protection** rejects pushes that contain recognised secret
-  formats. *To verify* in the repository's security settings rather than assume
-  it is on.
+  first commit onward. Tested: a dummy `.env` did not appear in `git status`.
+- GitHub **secret scanning and push protection** reject pushes that contain
+  recognised secret formats. Verified **enabled** on the repository.
+- **Claude Code is denied reading `.env` files** by `.claude/settings.json`
+  (committed). Tested: a read attempt was blocked. It is a guardrail, not a vault:
+  it covers Claude's file tools and the shell commands Claude Code recognises, not
+  a script that opens the file by itself.
 - Secrets live only in a local `.env` and in Cloud Run configuration (§9) — never
   in the documents, `CLAUDE.md`, or test fixtures.
 - **If a secret is ever pushed: rotate it first**, then clean the history.
@@ -785,17 +886,16 @@ confirm RLS policies exist on every table, check the README.
 
 ---
 
-## 13. Open items after step 4
+## 13. Open items after setup
 
 Decided at step 4 and no longer open: the charting library (§8.3), the free plan
 (§5), the palette (§8.2), the Figma handoff (§11), Row Level Security
-(`data-model.md` §9), and repository visibility (§12). Decided during Google
-Cloud setup: the Cloud Run region and the cost guardrails (§7).
+(`data-model.md` §9), and repository visibility (§12). Decided during setup: the
+Cloud Run region and the cost guardrails (§7), the Supabase region and project
+options (§5).
 
 **Still genuinely open:**
 
-- **Supabase region** — which EU regions Supabase offers, and which is closest to
-  Belgium (§5). Decide when creating the projects.
 - **Supabase restore window** — docs say one year, older sources say 90 days.
   Re-check before relying on it.
 - **Palette contrast in practice** — the numbers in §8.2 set the limits; the first
@@ -804,9 +904,11 @@ Cloud setup: the Cloud Run region and the cost guardrails (§7).
 **Moved to the build's verification list** (answers require measuring, not
 deciding — also listed in `CLAUDE.md`):
 
+- How Cloud Run connects to Supabase (§5, Connecting), and the Belgium–Frankfurt
+  query latency.
 - Cold-start time on Cloud Run, once the skeleton is deployed.
-- Whether the spend cap counts usage **before** the free-tier discount — check the
-  billing reports after the first month (§7).
+- The first month's billing report: confirm the spend cap measured gross usage and
+  the bill stayed at zero (§7).
 - Whether the typed invite code reaches Supabase's "before user created" hook.
 - Who owns tables created by goose migrations on Supabase, and how to create a
   non-owner application role.
