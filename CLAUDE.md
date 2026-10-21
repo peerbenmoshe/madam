@@ -30,7 +30,8 @@ the document is wrong, change it *first*, in the same PR, with the tests.
 
 Go 1.22+ with chi · Supabase PostgreSQL (EU) · sqlc + pgx · goose migrations ·
 Supabase Auth (JWT) · React + TypeScript + Tailwind + Recharts, embedded in the
-binary with `go:embed` · Google Cloud Run · GitHub Actions.
+binary with `go:embed` · Google Cloud Run (`europe-west1`, Belgium) · GitHub
+Actions.
 
 ## Layout
 
@@ -44,7 +45,7 @@ backend/
   migrations/        goose migrations, numbered, never edited once merged
 frontend/
   src/               React app
-docs/                the four documents above
+docs/                the documents above
 ```
 
 `internal/fam` is the heart. It takes plain values and returns plain values, so
@@ -83,6 +84,9 @@ hand-edit generated code.
 - **Secrets:** never in Git. `.env` locally, Cloud Run config in production.
 - **New table checklist:** does it cascade on user delete? Does it have an RLS
   policy? Is every query filtered by `user_id`?
+- **Deploying:** build the image ourselves and push it; never
+  `gcloud run deploy --source` (it uses Cloud Build, billed separately). Keep min
+  instances at 0 and max instances at 2 (`docs/tech-stack.md` §7).
 
 ---
 
@@ -107,6 +111,9 @@ hand-edit generated code.
   transaction.
 - **Everything derived is derived on read**: cycle days, cycle lengths, adjusted
   temperatures, late/early status, all statistics. Never store them.
+- **Cloud Run has a spend cap.** If the deployed app suddenly stops answering and
+  nothing changed in the code, check Billing → Budgets for an **Enforced** spend
+  cap before debugging anything else. It pauses Cloud Run until lifted by hand.
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
@@ -139,3 +146,6 @@ Carry these forward; answer them in the build, don't assume.
   non-owner application role.
 - Whether the sign-up invite code reaches Supabase's "before user created" hook.
 - Cloud Run cold-start time once the skeleton is deployed.
+- Whether the Cloud Run spend cap counts usage before the free-tier discount
+  (check the billing reports after the first month).
+- Which EU region Supabase offers closest to Belgium.

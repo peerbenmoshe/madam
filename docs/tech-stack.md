@@ -12,6 +12,12 @@ _Amended at step 4 (rules and setup):_
 - _§13's open-items list is rewritten: most items are now either decided or moved to the build's verification list._
 - _**The repository is public from day one**, reversing "private until v1" (§12). Decided during machine and repository setup._
 
+_Amended during Google Cloud setup (Oct 2026), after checking Google's terms and pricing pages:_
+- _**Cloud Run region is `europe-west1` (Belgium)**, a Tier 1 pricing region. Frankfurt, previously implied, is Tier 2 (§7)._
+- _**A budget alert does not stop spending.** The previous "set a budget alert" was a false safety net. Cost protection is now an alert **plus a Cloud Run spend cap** (§7)._
+- _§7 gains what the free tier does **not** cover: egress to Israel, Artifact Registry beyond 0.5 GB, and Cloud Build._
+- _Google's new **Starter Tier** was considered and rejected (§7)._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -30,7 +36,8 @@ stack questions; `project-brief.md` only summarises it.
 | DB access | sqlc (+ pgx driver) |
 | Migrations | goose |
 | Isolation | `user_id` filter in every query **+ Row Level Security** |
-| API hosting | Google Cloud Run (container) |
+| API hosting | Google Cloud Run (container), **`europe-west1` (Belgium)** |
+| Cost guardrails | **Budget alert + Cloud Run spend cap**, min instances 0, max instances 2 |
 | Frontend framework | React (TypeScript) |
 | Styling | Tailwind, design tokens |
 | Charting | **Recharts** |
@@ -266,10 +273,17 @@ advantage here), MongoDB (the data is not document-shaped).
 
 ### Hosting and region
 
-The PostgreSQL instance that comes with the Supabase project, in an **EU region
-(e.g. Frankfurt)** — close enough to Israel for good latency, and expected to
-simplify the GDPR check (to be confirmed by the legal research, not assumed). The
-Cloud Run service should sit in the same region.
+The PostgreSQL instance that comes with the Supabase project, in an **EU region**
+— close enough to Israel for good latency, and expected to simplify the GDPR
+check (to be confirmed by the legal research, not assumed).
+
+**Cloud Run sits in Belgium (`europe-west1`, §7)**, so the database should sit as
+close to Belgium as Supabase allows. Every API request makes at least one round
+trip to the database, so the distance between the two is paid on every query.
+*Not yet checked:* which EU regions Supabase currently offers. Choose the one
+closest to Belgium when creating the projects; Frankfurt is an acceptable fallback.
+*Assumption, to measure:* Belgium–Frankfurt adds a few milliseconds per query,
+which is invisible to a person at this request volume.
 
 **Security note.** Supabase also offers an auto-generated Data API that can expose
 tables directly to browsers. We do not want that: our Go API is the only door.
@@ -383,20 +397,94 @@ Driver: `pgx`.
 The API is packaged as a **container** and run by Google. It scales to zero when
 idle and wakes on the next request.
 
-### Why
+**Region: `europe-west1` (Belgium)**, decided during setup. Cloud Run's free tier
+is a dollar amount computed at **Tier 1** prices; Frankfurt (`europe-west3`) is a
+**Tier 2** region, so the same free allowance buys fewer seconds there. Belgium is
+Tier 1 and in the EU. At Madam's volume either region would stay free — Belgium
+was chosen as the margin of safety, at the cost of slightly more distance to the
+database (§5).
 
-- The always-free monthly allowance (180,000 vCPU-seconds, 360,000 GiB-seconds,
-  2 million requests) far exceeds Madam's needs, and it **resets monthly rather
-  than expiring**. The allowance applies per billing account as a spending
-  discount, so EU regions qualify.
+### Why Cloud Run
+
+- The always-free monthly allowance, with **request-based billing** (the default):
+  **180,000 vCPU-seconds, 360,000 GiB-seconds and 2 million requests**. It resets
+  monthly rather than expiring, is aggregated per billing account, and is applied
+  as a spending-based discount. Madam's expected use is a few hundred vCPU-seconds a
+  month (*estimate*, not measured).
 - Automatic HTTPS, no server administration, no certificate management.
 - Containers are the industry-standard packaging format and a genuinely portable
   skill.
 
+### What the free tier does *not* cover
+
+Checked against Google's terms and pricing pages in October 2026.
+
+- **Outbound data to Israel.** Cloud Run's free egress is 1 GiB per month **within
+  North America** only. Traffic from Belgium to her phone is billed at Premium tier
+  internet rates — about $0.12/GiB according to a secondary source; the exact rate
+  for Middle East destinations is unverified. Even a pessimistic 50 MB a month is
+  well under one cent.
+- **Artifact Registry**, where the container images live: free up to **0.5 GB per
+  billing account**, then $0.10 per GB per month. Every deploy adds an image and
+  nothing deletes old ones automatically. **A cleanup policy keeping the last few
+  images is part of the skeleton.**
+- **Cloud Build** is billed separately. It is what `gcloud run deploy --source`
+  uses behind the scenes. We build the image ourselves (locally or in GitHub
+  Actions) and push it, so Cloud Build is not involved. *Its free tier was not
+  checked.*
+- **The contract.** Under the Google Cloud Terms of Service (§2.6), Google may
+  change Cloud Run's fees at any time; the 30-day notice in that clause applies to
+  Workspace-type products only. "Free" is a published price, not a contractual
+  promise. The card on file is liable for whatever the bill says.
+- **Inactivity termination** (ToS §8.4) needs 60 days with no network activity *and*
+  no fees. Daily use and the keepalive job make it irrelevant.
+
+### Cost guardrails (decided during setup)
+
+**Budget alerts do not stop spending.** Google's own documentation says an
+alerts-only budget does not cap usage — it sends an email. An earlier version of
+this document treated "set a budget alert" as protection; it is only a smoke
+detector, not a sprinkler. So we use both:
+
+1. **Alerts-only budget, ~$5, on the billing account.** Emails at the default
+   thresholds. Covers every service, including the ones a cap cannot stop.
+2. **Spend cap budget, ~$5, on Cloud Run in the production project.** When the
+   estimated spend passes the amount, Cloud Run is **paused for the rest of the
+   month** until the cap is lifted by hand. It resets automatically at the start of
+   the next month.
+3. **Minimum instances: 0.** A warm minimum instance is billed while idle — the
+   most common way to accidentally pay for a quiet app.
+4. **Maximum instances: 2.** The URL and repository are public, and bots will probe
+   both. Capping instances caps how fast a flood of requests can spend money.
+5. **Request-based billing** (the default). Instance-based billing charges for the
+   whole lifetime of every instance and has different free-tier numbers.
+
+Accepted cost of the cap, chosen by Pe'er: **if it ever triggers, the app goes dark
+for the first user** until it is lifted. A dark app is a far better failure than a
+surprise bill, and the guardrails above make triggering it unlikely.
+
+Known limits of the spend cap:
+
+- It covers **one service in one project**, so Artifact Registry storage and egress
+  are covered by the alert (1) only.
+- It does not pause persistent resources such as stored images.
+- It is enforced on **gross, estimated** cost. *Our reading, unverified:* "gross"
+  means before the free-tier discount is subtracted, so the cap measures full
+  usage rather than the $0 bill. Expected gross Cloud Run cost is a few cents a
+  month, so $5 still leaves a large margin. **Check the billing reports after the
+  first month** to confirm.
+
+### Considered and rejected: Starter Tier
+
+Google's new Starter Tier runs apps with no billing account at all, under separate
+terms. It does not fit: it is offered only through Google AI Studio deployments,
+regions, IAM, quotas and enabled APIs are fixed by Google, no other APIs can be
+enabled in the project, and its terms limit it to business, trade or professional
+use. Our own Dockerfile and deployment pipeline need a standard project.
+
 ### Costs and unknowns
 
-- A Google Cloud account with a card on file is required. **Set a budget alert
-  (~$5) immediately.**
+- A Google Cloud account with a card on file is required.
 - **Cold start** on the first request after idle. *Assumption:* a second or two,
   since Go starts fast. To be measured.
 - Custom domains may need extra setup depending on region.
@@ -532,7 +620,9 @@ Also part of the skeleton:
 
 - the **Supabase keepalive job** (section 5), for both projects;
 - the **non-owner application role** and the transaction wrapper, so RLS has
-  somewhere to stand from the first migration onward.
+  somewhere to stand from the first migration onward;
+- the **cost guardrails** (section 7): alert, spend cap, instance limits, and the
+  Artifact Registry cleanup policy.
 
 Two environments:
 
@@ -552,10 +642,14 @@ Rules:
 - Go (from the official tarball on go.dev — **not `apt`**, which ships an old
   version; we need 1.22+), Node (via `nvm`), Docker, `gcloud`, `goose`, `sqlc`.
 - Google Cloud: create a project, enable the Cloud Run and Artifact Registry APIs,
-  install and log in to `gcloud`, add a Dockerfile, `gcloud run deploy`, set
-  environment variables in Cloud Run, **set a budget alert**.
-- Supabase: two projects (prod and dev), EU region, Data API off, and the
-  non-owner application role.
+  install and log in to `gcloud`, add a Dockerfile, create an Artifact Registry
+  repository in `europe-west1` **with a cleanup policy**, push the image, then
+  `gcloud run deploy` to `europe-west1` with **min instances 0 and max instances
+  2**. Set environment variables in Cloud Run. Create **an alerts-only budget (~$5)
+  on the billing account and a spend cap budget (~$5) on Cloud Run** in the
+  project.
+- Supabase: two projects (prod and dev), the EU region closest to Belgium, Data
+  API off, and the non-owner application role.
 - Secrets (database URL, invite code, Supabase keys) live in Cloud Run
   configuration and a local `.env` — **never in Git**.
 
@@ -695,10 +789,13 @@ confirm RLS policies exist on every table, check the README.
 
 Decided at step 4 and no longer open: the charting library (§8.3), the free plan
 (§5), the palette (§8.2), the Figma handoff (§11), Row Level Security
-(`data-model.md` §9), and repository visibility (§12).
+(`data-model.md` §9), and repository visibility (§12). Decided during Google
+Cloud setup: the Cloud Run region and the cost guardrails (§7).
 
 **Still genuinely open:**
 
+- **Supabase region** — which EU regions Supabase offers, and which is closest to
+  Belgium (§5). Decide when creating the projects.
 - **Supabase restore window** — docs say one year, older sources say 90 days.
   Re-check before relying on it.
 - **Palette contrast in practice** — the numbers in §8.2 set the limits; the first
@@ -708,6 +805,8 @@ Decided at step 4 and no longer open: the charting library (§8.3), the free pla
 deciding — also listed in `CLAUDE.md`):
 
 - Cold-start time on Cloud Run, once the skeleton is deployed.
+- Whether the spend cap counts usage **before** the free-tier discount — check the
+  billing reports after the first month (§7).
 - Whether the typed invite code reaches Supabase's "before user created" hook.
 - Who owns tables created by goose migrations on Supabase, and how to create a
   non-owner application role.
