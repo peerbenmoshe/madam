@@ -1,0 +1,29 @@
+# Local development database. Not used in production.
+# Start with `make db-up`, which waits for the healthcheck below.
+name: madam
+
+services:
+  postgres:
+    # Same major version as Supabase (docs/tech-stack.md §5).
+    image: postgres:17
+    environment:
+      # Throwaway local credentials, not secrets: the port is bound to
+      # 127.0.0.1 only, so nothing outside this machine can connect.
+      POSTGRES_USER: madam
+      POSTGRES_PASSWORD: madam
+      POSTGRES_DB: madam
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 checks over TCP, not the Unix socket. During first-time
+      # initialisation the image runs a temporary server that listens only on
+      # the socket, so a socket check can report "ready" just before it restarts.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "madam", "-d", "madam"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:
