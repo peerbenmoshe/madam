@@ -24,6 +24,8 @@ _Amended at the end of setup (Oct 2026), recording what was actually created and
 - _Budgets are **₪15** (the billing account is in shekels), and Google's docs settle that the spend cap counts usage before the free-tier discount (§7)._
 - _§10 records the installed tools and the machine's network quirks; §12 records secret scanning and push protection as verified._
 
+_Amended after Phase 0a (Oct 2026):_ _§9 records the local Postgres setup and the variable names; §10 the tool pinning, the `go` line and Go 1.27.3; §12 the CI shape, the required `ci` check, and Dependabot._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -682,6 +684,13 @@ Two environments:
 
 - **Local (laptop):** Go API, frontend dev server, PostgreSQL in a container, fake
   seed data. Fast, and disposable.
+  *Decided in Phase 0a:* the container is defined in `compose.yaml` and started
+  with `make db-up`, which runs `docker compose up --wait`. That returns only once
+  a `pg_isready` healthcheck passes. The check uses TCP (`-h 127.0.0.1`), not the
+  Unix socket: during first-time initialisation the image runs a temporary
+  socket-only server, so a socket check can report "ready" too early. The port is
+  bound to `127.0.0.1` only. Any target can use the `madam-dev` Supabase project
+  instead with `DB=dev` (`CLAUDE.md`, Commands).
 - **Production (Cloud Run + Supabase):** the real thing, with her real data.
 
 Rules:
@@ -711,8 +720,10 @@ pre-flight check. Items marked **(Phase 0)** belong to the build, not to setup._
 - Supabase: two projects (prod and dev), Frankfurt, Data API off. ✅
   **(Phase 0)** The non-owner application role.
 - Secrets (database URL, invite code, Supabase keys) live in Cloud Run
-  configuration and a local `.env` — **never in Git**. **(Phase 0)** Variable
-  names and `.env.example`.
+  configuration and a local `.env` — **never in Git**. Variable names and
+  `.env.example`: done in Phase 0a (`PORT`, `DATABASE_URL`,
+  `MADAM_DEV_DATABASE_URL`; see `CLAUDE.md`, Commands). ✅ Later variables are
+  named in the slice that first needs them.
 
 ---
 
@@ -741,7 +752,7 @@ Notes:
 
 | Tool | Version | Installed via |
 |---|---|---|
-| Go | 1.27.1 | Official tarball, `/usr/local/go` |
+| Go | 1.27.3 (updated from 1.27.1 in Phase 0a to match CI) | Official tarball, `/usr/local/go` |
 | Node / npm | 24 LTS / 11 | `nvm` (shadows a Windows npm that is also on PATH) |
 | Docker | 29.4 (Desktop 4.71), Compose 5.1 | Docker Desktop with WSL integration |
 | goose | 3.29 | `go install` (global copy; pinned in `tools/go.mod` from 0c, see below) |
@@ -829,9 +840,30 @@ ESLint on the frontend.
 
 ### CI: GitHub Actions
 
-Runs on every push: build, test, lint. A failing run shows a red X on the pull
-request. This is what makes "Claude writes, Pe'er reviews" safe — a second opinion
-that never gets tired. Later it also handles automatic deployment on merge to `main`.
+Build, test, lint. A failing run shows a red X on the pull request. This is what
+makes "Claude writes, Pe'er reviews" safe — a second opinion that never gets
+tired. Later it also handles automatic deployment on merge to `main`.
+
+*As built in Phase 0a* (`.github/workflows/ci.yml`):
+
+- **Triggers:** every pull request, and pushes to `main`. Not every push to every
+  branch, because a PR already runs CI on its branch.
+- **One job, named `ci`.** That name is the required status check on `main` (see
+  Git workflow below), so **renaming the job blocks every PR** until branch
+  protection is updated to match.
+- Go comes from the `go` line in `go.mod` (CI installs the newest 1.27.x). The
+  golangci-lint version matches the Makefile.
+
+**Dependabot** (Phase 0a): weekly version updates, one grouped PR per ecosystem
+(`gomod` in `/backend`, `github-actions`), configured in `.github/dependabot.yml`.
+Dependabot alerts and security updates are also switched on in the repository
+settings. Actions are pinned to major tags (`@v7`), not commit SHAs, so the diffs
+stay readable.
+
+**Known flakiness, unexplained:** on this repository GitHub has sometimes failed to
+start a run, or reported a finished run as still in progress for up to half an
+hour (`build-log.md`, Phase 0a). Check `gh run list` and the step timestamps
+before suspecting the workflow.
 
 Also hosts the Supabase keepalive job (section 5).
 
@@ -839,8 +871,11 @@ Also hosts the Supabase keepalive job (section 5).
 
 - `main` is always deployable and protected; no direct pushes. Branch protection:
   a pull request is required (no approvals, since there is one person), linear
-  history, and no bypass for admins. Required status checks are added once CI
-  exists (`build-order.md` 0a).
+  history, and no bypass for admins. **Required status check: `ci`**, added in
+  Phase 0a. It's tied to the GitHub Actions app, so no other tool can post a
+  `ci` result that satisfies it. It's *not* strict: a PR doesn't have to be
+  rebased onto the latest `main` before merging, which saves Dependabot PRs from
+  forcing each other to rebase.
 - One **short-lived branch per chunk of work**: `feature/daily-entry`,
   `fix/ghost-toggle`. Branch when a change takes more than one commit, is
   experimental, or might be thrown away. Branches are deleted automatically after

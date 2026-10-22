@@ -92,6 +92,10 @@ check**.
 
 *Done when:* `make test` passes locally and CI is green on a pull request.
 
+**✅ Done (21 October 2026, PR #5).** The decisions are recorded in
+`tech-stack.md` §9, §10 and §12 and in `CLAUDE.md`, and the story is in
+`build-log.md`. `ci` is a required status check on `main`, and Dependabot is on.
+
 ### 0b — Deployed
 
 - Dockerfile. The image is **built by us** (locally or in GitHub Actions) and
