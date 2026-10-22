@@ -26,6 +26,8 @@ _Amended at the end of setup (Oct 2026), recording what was actually created and
 
 _Amended after Phase 0a (Oct 2026):_ _§9 records the local Postgres setup and the variable names; §10 the tool pinning, the `go` line and Go 1.27.3; §12 the CI shape, the required `ci` check, and Dependabot._
 
+_Amended after Phase 0b (Oct 2026):_ _§7 records the image, the registry and the Cloud Run service as built, Cloud Run's reserved paths, and the measured cold start; §9's checklist is complete; §12 adds the image build in CI and Dependabot for Docker._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -530,6 +532,75 @@ Known limits of the spend cap:
   Cloud Run may take up to an hour to return. A budget can't be edited or deleted
   while its cap is enforced.
 
+### As built in Phase 0b
+
+The service is live at `https://madam-966460417479.europe-west1.run.app`. Every
+setting below is a flag in `make deploy` (`Makefile`), so Git holds the
+configuration and the Console is never used to change it.
+
+**The image** (`Dockerfile`, at the repository root so 0e can add a frontend
+stage). Two stages:
+
+- Build: `golang:1.27.3-trixie`, an exact patch tag like the rest of the
+  toolchain. The binary is static (`CGO_ENABLED=0`), with `-trimpath` and
+  `-ldflags="-s -w"`.
+- Runtime: `gcr.io/distroless/static-debian13:nonroot`. It has no shell and no
+  package manager, but it does have CA certificates (needed for TLS to Supabase),
+  timezone data, and the non-root user 65532 the container runs as. Rejected:
+  `scratch` (we'd have to add the certificates and the user ourselves) and Alpine
+  (a shell and a package manager are attack surface and CVEs to rebuild for).
+- The compressed image is **4.2 MB**.
+- `.dockerignore` is an **allowlist** (`*`, then `!backend/`). `.env` can't
+  enter the build context, so it can't end up in a pushed image.
+- Base images are pinned by tag, not digest (the same readability choice as the
+  Actions), and Dependabot proposes updates.
+
+**Artifact Registry:** the repository `madam`, Docker format, in `europe-west1`
+(the same region as Cloud Run, so pulls don't cross regions). Images are
+`europe-west1-docker.pkg.dev/madam-512309/madam/server:<commit>`, never
+`:latest`, because a moving tag hides which code is running. The cleanup policy
+(`deploy/cleanup-policy.json`): **keep the 5 most recent versions, delete the
+rest once older than a day.** A keep rule wins over a delete rule. Five images
+is about 20 MB of the free 0.5 GB. Cleanup runs "within approximately one day",
+per Google's docs. Deleting an image can't break the live app: Cloud Run
+*"keeps this copy of the container image as long as it is used by a serving
+revision"* and doesn't pull from the registry when it starts an instance. The
+Container Scanning API, which is billed per image, stays off.
+
+The policy is **enforced**, not in dry run. Dry run was skipped on purpose: with
+fewer than six images the keep rule protects everything, so a dry run's log
+would be empty and prove nothing. To change the policy, run
+`gcloud artifacts repositories set-cleanup-policies madam --location=europe-west1 --policy=deploy/cleanup-policy.json --no-dry-run`.
+**Pass `--no-dry-run` explicitly.** The help doesn't list it, but leaving out
+`--dry-run` *keeps* the previous mode rather than turning dry run off.
+
+**The Cloud Run service `madam`:**
+
+| Setting | Value | Why |
+|---|---|---|
+| Service account | `madam-run`, **with no roles** | The default compute account has `roles/editor` on the project; code running as it could change almost anything. Each later phase grants only what it needs |
+| Access | `--allow-unauthenticated` (`allUsers` holds `roles/run.invoker`) | A phone browser must reach it. Authentication is the app's job (Slice 2) |
+| Instances | min 0, max 2 | Cost guardrails, above |
+| CPU / memory | 1 vCPU / 512 MiB (the defaults) | At 512 MiB the free tier's vCPU-seconds run out before its GiB-seconds, so less memory would save nothing |
+| Concurrency | 80 (default) | With a maximum of 2 instances, a lower value only means 429s sooner |
+| Request timeout | 30 s (default 300 s) | The server's own write timeout is 10 s; this caps what a stuck request can bill |
+| Startup CPU boost | **off** | gcloud turns it on by default for new services, and it's billed. Measured without it |
+
+**Where deploys come from:** the laptop, with `make deploy`. It refuses
+uncommitted or untracked files, then builds, pushes and deploys, with the image
+tagged by commit hash. Docker authenticates with the developer's own `gcloud`
+login (`gcloud auth configure-docker`), so no service-account keys exist.
+Deploying on merge from GitHub Actions, using Workload Identity Federation rather
+than a JSON key, is a later step (`build-order.md`). A long-lived key in the
+secrets of a public repository was rejected outright.
+
+**Reserved paths.** Cloud Run never forwards paths starting with `/_ah/` or
+"some paths ending with `z`" to the container, and Google recommends avoiding
+all paths ending in `z` ([known issues](https://docs.cloud.google.com/run/docs/known-issues)).
+Tested: `/healthz` returns Google's own HTML 404, not ours. The health endpoint
+is therefore `/api/health`. The `/api/` prefix also separates the API from the
+frontend routes added in 0e.
+
 ### Considered and rejected: Starter Tier
 
 Google's new Starter Tier runs apps with no billing account at all, under separate
@@ -541,8 +612,19 @@ use. Our own Dockerfile and deployment pipeline need a standard project.
 ### Costs and unknowns
 
 - A Google Cloud account with a card on file is required.
-- **Cold start** on the first request after idle. *Assumption:* a second or two,
-  since Go starts fast. To be measured.
+- **Cold start** on the first request after idle. *Measured in 0b* (4 samples,
+  22 October 2026, before any database code), replacing the assumption of "a
+  second or two":
+
+  | Measure | Cold | Warm |
+  |---|---|---|
+  | End to end from the laptop in Israel (`curl`) | 0.67–0.98 s, median 0.81 s | ~0.21 s |
+  | Inside Google (request log `httpRequest.latency`) | 0.15–0.37 s | ~2 ms |
+  | Container start (`container/startup_latencies` metric) | 181–230 ms (3 of 4 samples appeared in the metric) | n/a |
+
+  An instance shut down 15 minutes after its last request, every time; the
+  proof was our own `shut down cleanly` log line. Startup CPU boost was off.
+  **Re-measure after 0c**, when startup gains a database connection.
 - Custom domains may need extra setup depending on region.
 
 ### Rejected
@@ -716,7 +798,8 @@ pre-flight check. Items marked **(Phase 0)** belong to the build, not to setup._
   **(Phase 0)** Add a Dockerfile, create an Artifact Registry repository in
   `europe-west1` **with a cleanup policy**, push the image, then
   `gcloud run deploy` to `europe-west1` with **min instances 0 and max instances
-  2**, and set environment variables in Cloud Run.
+  2**. ✅ Done in 0b (§7, As built). Environment variables in Cloud Run: none
+  are needed yet; the first arrives in 0c.
 - Supabase: two projects (prod and dev), Frankfurt, Data API off. ✅
   **(Phase 0)** The non-owner application role.
 - Secrets (database URL, invite code, Supabase keys) live in Cloud Run
@@ -842,7 +925,8 @@ ESLint on the frontend.
 
 Build, test, lint. A failing run shows a red X on the pull request. This is what
 makes "Claude writes, Pe'er reviews" safe — a second opinion that never gets
-tired. Later it also handles automatic deployment on merge to `main`.
+tired. Later it also handles automatic deployment on merge to `main`
+(`build-order.md`, after 0c).
 
 *As built in Phase 0a* (`.github/workflows/ci.yml`):
 
@@ -853,9 +937,12 @@ tired. Later it also handles automatic deployment on merge to `main`.
   protection is updated to match.
 - Go comes from the `go` line in `go.mod` (CI installs the newest 1.27.x). The
   golangci-lint version matches the Makefile.
+- *Added in 0b:* a last step, **Build image**, runs `docker build` (no push, no
+  credentials), so `main` can't receive a Dockerfile that doesn't build.
 
 **Dependabot** (Phase 0a): weekly version updates, one grouped PR per ecosystem
-(`gomod` in `/backend`, `github-actions`), configured in `.github/dependabot.yml`.
+(`gomod` in `/backend`, `github-actions`, and since 0b `docker` for the
+Dockerfile's base images), configured in `.github/dependabot.yml`.
 Dependabot alerts and security updates are also switched on in the repository
 settings. Actions are pinned to major tags (`@v7`), not commit SHAs, so the diffs
 stay readable.
@@ -954,7 +1041,6 @@ deciding — also listed in `CLAUDE.md`):
 
 - How Cloud Run connects to Supabase (§5, Connecting), and the Belgium–Frankfurt
   query latency.
-- Cold-start time on Cloud Run, once the skeleton is deployed.
 - The first month's billing report: confirm the spend cap measured gross usage and
   the bill stayed at zero (§7).
 - Whether the typed invite code reaches Supabase's "before user created" hook.

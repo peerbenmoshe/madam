@@ -64,6 +64,8 @@ make sqlc           # regenerate db/ from the .sql files
 make build          # frontend build + go build with embedded assets
 make db-up          # start local postgres; returns once pg_isready passes
 make db-down        # stop it (data kept); db-reset also deletes the data
+make image          # build the production image locally (docker-run also runs it)
+make deploy         # build, push and deploy the committed code to Cloud Run
 ```
 
 This list is the end state. Targets arrive phase by phase (`docs/build-order.md`):
@@ -103,9 +105,12 @@ hand-edit generated code.
   it. The production database URL is never in a local `.env`.
 - **New table checklist:** does it cascade on user delete? Does it have an RLS
   policy? Is every query filtered by `user_id`?
-- **Deploying:** build the image ourselves and push it; never
-  `gcloud run deploy --source` (it uses Cloud Build, billed separately). Keep min
-  instances at 0 and max instances at 2 (`docs/tech-stack.md` §7).
+- **Deploying:** `make deploy`, from the laptop, with a clean working tree. It
+  builds the image ourselves, tags it with the commit hash and pushes it; never
+  `gcloud run deploy --source` (it uses Cloud Build, billed separately). Every
+  Cloud Run setting is a flag in that target, so change settings there, never in
+  the Console. Keep min instances at 0 and max instances at 2
+  (`docs/tech-stack.md` §7). Deploy on merge comes later (`docs/build-order.md`).
 
 ---
 
@@ -142,6 +147,15 @@ hand-edit generated code.
 - **Cloud Run has a spend cap.** If the deployed app suddenly stops answering and
   nothing changed in the code, check Billing → Budgets for an **Enforced** spend
   cap before debugging anything else. It pauses Cloud Run until lifted by hand.
+- **Cloud Run never forwards some paths ending in `z`.** `/healthz` gets Google's
+  own 404 and never reaches the app (tested), so the health endpoint is
+  `/api/health`. Don't name any route with a trailing `z`, or starting `/_ah/`.
+- **Cold start is under a second.** Measured in 0b: a cold request took 0.67–0.98 s
+  end to end from the laptop in Israel (median 0.81 s), against about 0.21 s
+  warm. Cloud Run's own metric puts the container start at about 0.2 s. An idle
+  instance shuts down **15 minutes** after its last request (measured), so the
+  first request after that pays it. Expect this to grow once 0c adds a database
+  connection at startup (`docs/tech-stack.md` §7).
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
@@ -184,6 +198,5 @@ Carry these forward; answer them in the build, don't assume.
 - How Cloud Run connects to Supabase: session pooler, transaction pooler with
   prepared statements off, or direct (only if Cloud Run egress has IPv6).
 - Query latency between Cloud Run (Belgium) and Supabase (Frankfurt).
-- Cloud Run cold-start time once the skeleton is deployed.
 - The first month's billing report: confirm the spend cap measured gross usage
   and the bill stayed at zero.

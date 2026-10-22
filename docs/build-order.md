@@ -17,6 +17,10 @@ exist. Both Supabase projects (Frankfurt) and both budgets were created during
 setup, so 0b and 0c start from there. 0a gains four decisions surfaced while
 installing the tools._
 
+_Amended in Phase 0b (Oct 2026): the health endpoint is `/api/health`, because
+Cloud Run reserves some paths ending in `z`; a new step, 0c′, adds deploy on
+merge after 0c._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -53,7 +57,7 @@ before a single feature exists. Deployment problems are a different species from
 coding problems and they arrive in a swarm; meeting them one at a time against an
 empty codebase means each one is the only suspect.
 
-**The discipline is "thinnest possible."** `/healthz` returning `ok`. One table.
+**The discipline is "thinnest possible."** `/api/health` returning `ok`. One table.
 One query. Not a logging framework, not a metrics stack, not an abstraction for a
 second database that will never exist. If a step starts growing, it has stopped
 being a skeleton.
@@ -66,7 +70,7 @@ Registry APIs enabled, `gcloud` logged in, and both budgets created.
 
 ### 0a — Local skeleton
 
-Go module, chi router, `GET /healthz` returning `ok`. `Makefile` with `dev`,
+Go module, chi router, `GET /healthz` returning `ok` (renamed `/api/health` in 0b). `Makefile` with `dev`,
 `test`, `lint`, `build`. GitHub Actions running build + test + lint on push.
 
 Decisions to make in this step's plan, not by default:
@@ -116,6 +120,13 @@ check**.
 *Verification items:* measure the cold-start time and write the number into
 `CLAUDE.md`. After the first full month, check the billing report.
 
+**✅ Done (22 October 2026, PR #8).** `/api/health` answers `ok` at the public
+URL. The health endpoint moved there from `/healthz`, because Cloud Run reserves
+some paths ending in `z`. The spend cap was confirmed **Configured** before the
+first deploy. The settings are in `tech-stack.md` §7 (As built), the cold start
+is in `CLAUDE.md`, and the story is in `build-log.md`. Still open: the first
+month's billing report (November 2026).
+
 ### 0c — Database connected
 
 **The two Supabase projects already exist** (`madam-dev` and `madam-prod`,
@@ -138,6 +149,29 @@ production URL must never sit in a local `.env`.
 who owns tables created by goose on Supabase; query latency between Belgium and
 Frankfurt.
 
+### 0c′ — Deploy on merge
+
+_Added in 0b, which deploys from the laptop with `make deploy`._
+
+A GitHub Actions workflow that runs on every push to `main`: build, push, and
+`gcloud run deploy` with the same flags as `make deploy`, so `main` and the live
+app can't drift apart.
+
+It authenticates with **Workload Identity Federation**, never a JSON key: a
+workload identity pool and provider whose condition accepts only this
+repository (by numeric id, which survives renames) on `refs/heads/main`, and a
+deployer service account with only Artifact Registry writer on the `madam`
+repository, Cloud Run developer on the `madam` service, and permission to act
+as `madam-run`.
+
+It comes after 0c because it then also carries the database configuration, and
+it stays a separate step because IAM problems are a different species from
+deploy problems (§2). Mind the Actions flakiness noted in `build-log.md`: a run
+that never starts is a deploy that never happens.
+
+*Done when:* a merged PR is live without anyone running `make deploy`, and the
+live revision's image tag is the merge commit.
+
 ### 0d — Isolation plumbing
 
 The non-owner application role, `FORCE ROW LEVEL SECURITY`, one policy on `users`
@@ -155,7 +189,7 @@ passes, RLS is not proven to be doing anything.
 
 ### 0e — Frontend shell
 
-Vite + React + TypeScript + Tailwind. A page that fetches `/healthz` and displays
+Vite + React + TypeScript + Tailwind. A page that fetches `/api/health` and displays
 the result. `go:embed` in `backend/internal/web`, and the Makefile step that
 copies `frontend/dist/` into `backend/internal/web/assets/` before `go build`.
 

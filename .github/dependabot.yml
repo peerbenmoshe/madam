@@ -10,6 +10,15 @@ updates:
       gomod:
         patterns: ["*"]
 
+  # Base images in the Dockerfile.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns: ["*"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

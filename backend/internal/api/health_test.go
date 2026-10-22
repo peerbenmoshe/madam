@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestHealthz(t *testing.T) {
+func TestHealth(t *testing.T) {
 	tests := []struct {
 		name       string
 		method     string
@@ -21,7 +21,7 @@ func TestHealthz(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, "/healthz", nil)
+			req := httptest.NewRequest(tc.method, "/api/health", nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)

@@ -1,0 +1,5 @@
+# An allowlist: ignore everything, then re-include only what the image needs.
+# This keeps .env and anything else local out of the build, so it can never
+# end up in a pushed image. 0e adds the frontend here.
+*
+!backend/

@@ -30,7 +30,15 @@ endif
 GOLANGCI_LINT_VERSION := v2.15.0
 GOLANGCI_LINT := $(CURDIR)/bin/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
-.PHONY: dev test lint build db-up db-down db-reset
+# Cloud Run deployment. Why each setting: docs/tech-stack.md §7.
+GCP_PROJECT := madam-512309
+GCP_REGION := europe-west1
+IMAGE := $(GCP_REGION)-docker.pkg.dev/$(GCP_PROJECT)/madam/server
+RUN_SERVICE_ACCOUNT := madam-run@$(GCP_PROJECT).iam.gserviceaccount.com
+# `=`, not `:=`: git runs only when a target uses TAG.
+TAG = $(shell git rev-parse --short HEAD)
+
+.PHONY: dev test lint build db-up db-down db-reset image docker-run deploy
 
 ifeq ($(DB),local)
 dev: db-up
@@ -46,6 +54,27 @@ lint: $(GOLANGCI_LINT)
 
 build:
 	cd backend && go build -o ../bin/server ./cmd/server
+
+# The production image, built and run locally for testing.
+image:
+	docker build -t madam-server:dev .
+
+docker-run: image
+	docker run --rm -p 8080:8080 madam-server:dev
+
+# Builds, pushes and deploys the committed code. Refuses uncommitted or
+# untracked files, so the image tag (the commit hash) names exactly what runs.
+deploy:
+	@test -z "$$(git status --porcelain)" || { echo "deploy: commit or stash your changes first" >&2; exit 1; }
+	docker build -t $(IMAGE):$(TAG) .
+	docker push $(IMAGE):$(TAG)
+	gcloud run deploy madam --project=$(GCP_PROJECT) --region=$(GCP_REGION) \
+	  --image=$(IMAGE):$(TAG) \
+	  --service-account=$(RUN_SERVICE_ACCOUNT) \
+	  --allow-unauthenticated \
+	  --min-instances=0 --max-instances=2 \
+	  --cpu=1 --memory=512Mi --concurrency=80 --timeout=30s \
+	  --no-cpu-boost
 
 # Starts the local Postgres and returns only once its healthcheck
 # (pg_isready, in compose.yaml) passes. Never a fixed sleep.
