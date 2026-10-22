@@ -53,7 +53,7 @@ before a single feature exists. Deployment problems are a different species from
 coding problems and they arrive in a swarm; meeting them one at a time against an
 empty codebase means each one is the only suspect.
 
-**The discipline is "thinnest possible."** `/healthz` returning `ok`. One table.
+**The discipline is "thinnest possible."** `/api/health` returning `ok`. One table.
 One query. Not a logging framework, not a metrics stack, not an abstraction for a
 second database that will never exist. If a step starts growing, it has stopped
 being a skeleton.
@@ -66,7 +66,7 @@ Registry APIs enabled, `gcloud` logged in, and both budgets created.
 
 ### 0a — Local skeleton
 
-Go module, chi router, `GET /healthz` returning `ok`. `Makefile` with `dev`,
+Go module, chi router, `GET /healthz` returning `ok` (renamed `/api/health` in 0b). `Makefile` with `dev`,
 `test`, `lint`, `build`. GitHub Actions running build + test + lint on push.
 
 Decisions to make in this step's plan, not by default:
@@ -155,7 +155,7 @@ passes, RLS is not proven to be doing anything.
 
 ### 0e — Frontend shell
 
-Vite + React + TypeScript + Tailwind. A page that fetches `/healthz` and displays
+Vite + React + TypeScript + Tailwind. A page that fetches `/api/health` and displays
 the result. `go:embed` in `backend/internal/web`, and the Makefile step that
 copies `frontend/dist/` into `backend/internal/web/assets/` before `go build`.
 

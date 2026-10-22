@@ -16,7 +16,9 @@ func NewRouter() http.Handler {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 
-	r.Get("/healthz", handleHealthz)
+	// Not the conventional /healthz: Cloud Run reserves some paths ending in
+	// "z" and never forwards them to the container.
+	r.Get("/api/health", handleHealth)
 
 	return r
 }
