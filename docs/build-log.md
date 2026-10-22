@@ -99,3 +99,52 @@ administrator rights, which deliberately need a password.
   session with a prompt written at the end of the previous one. Before closing a
   phase, the decisions are checked against the documents that own them, so the
   next session can rely on the documents rather than on memory.
+
+---
+
+## Phase 0b — Deployed (22 October 2026, PR #8)
+
+**Goal.** The 0a server in a container, on Cloud Run in Belgium, at a public
+HTTPS URL, inside the cost guardrails.
+
+**Surprise before any code: `/healthz` can't work on Cloud Run.** Pe'er
+remembered that Cloud Run reserves some paths ending in `z`. Google's known
+issues page confirmed it ("some paths ending with `z`", and advice to avoid them
+all), and after deploying, a test confirmed it too: `/healthz` returns Google's
+own HTML 404 and never reaches the app. The endpoint became `/api/health`.
+Starting the `/api/` prefix now gives 0e a one-line rule for the embedded
+frontend: anything not under `/api/` is the React app. The rename went into
+the 0b PR as its own first commit, because it exists only to make the deploy
+work.
+
+**Decisions** (details in `tech-stack.md` §7, As built):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Runtime image | distroless static, `nonroot` | No shell or package manager, but it has the CA certificates 0c needs for TLS. 4.2 MB compressed |
+| Build context | repository root, `.dockerignore` as an allowlist | `.env` can't enter the build, so it can't end up in a pushed image |
+| Where deploys come from | the laptop, `make deploy`, refusing a dirty tree | No keys exist anywhere. Deploy on merge with Workload Identity Federation became its own step, 0c′, because IAM problems are a separate species from deploy problems |
+| Runtime identity | a new `madam-run` service account with no roles | The default compute account has `roles/editor` on the project |
+| Image cleanup | keep the 5 newest, delete the rest after a day, enforced from the start | Free storage is 0.5 GB. Google documents that a serving revision keeps its own copy of the image, so cleanup can't break the live app. A dry run with one image would have logged nothing, so it was skipped |
+| Startup CPU boost | explicitly off | gcloud turns it on by default for new services, and it's billed. Found in `gcloud run deploy --help`, not in our docs |
+
+**Verified rather than assumed:**
+- The base image tags and Action versions were looked up in the registries on
+  the day: `golang:1.27.3` was the newest 1.27, matching the laptop.
+- The spend cap showed **Configured** before the first deploy.
+- `gcloud run services describe` showed the deployed settings matching the plan.
+- The server's `shut down cleanly` log line, written on SIGTERM, doubled as the
+  proof that an instance had scaled to zero before each cold-start sample.
+- **Cold start: under a second**, against an assumed "second or two": a median
+  of 0.81 s end to end from Israel, with about 0.2 s of that being the container
+  start. A background script waited each time for the instance to scale to zero
+  (15 minutes, consistently), then timed one cold and three warm requests. The
+  laptop's view, the request logs and Cloud Run's startup metric agreed.
+
+**Worth remembering:** the server logs plain text (slog's text handler), so on
+Cloud Run its lines are in `textPayload`, not `jsonPayload`. Log queries have
+to match that.
+
+**Lesson:** read the platform's known-issues page before naming anything public.
+The conventional name (`/healthz`, a Kubernetes habit) was exactly the one the
+platform reserves.
