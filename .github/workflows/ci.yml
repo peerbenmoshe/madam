@@ -42,3 +42,9 @@ jobs:
           # Keep in sync with GOLANGCI_LINT_VERSION in the Makefile.
           version: v2.15.0
           working-directory: backend
+
+      # Builds the production image (no push, no credentials), so a broken
+      # Dockerfile can't reach main.
+      - name: Build image
+        working-directory: .
+        run: docker build -t madam-server:ci .
