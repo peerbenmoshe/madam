@@ -12,7 +12,7 @@ rather than repeating them. It leaves out routine steps and small errors.
 
 ## Before the build: planning and setup (up to October 2026)
 
-**What happened.** Five planning documents were written before any code:
+**What happened.** Six planning documents were written before any code:
 `project-brief.md`, `tech-stack.md`, `data-model.md`, `fam-rules.md` (with the
 test vectors that will become the first unit tests), `spec-v1.md`, and
 `build-order.md`. Then the machine, the repository and the cloud accounts were
@@ -71,11 +71,31 @@ the GitHub Actions app so no other tool can post a fake `ci` result.
 Closing and reopening the PR did. Later, the check stayed "in progress" for
 minutes after the job had finished, which blocked the merge until it caught up.
 The merge to `main` also triggered no run. GitHub's status page said everything
-was fine, and the cause is unknown. **Lesson:** when CI doesn't appear, check
-GitHub's side (`gh run list`, the check runs) before suspecting the workflow
-file. **Plan:** if it happens again, add a manual "Run workflow" button
-(`workflow_dispatch`).
+was fine, and the cause is unknown.
 
-**Process change that came out of this phase.** Pe'er asked that every command
-be explained (what it does, why, what the flags mean), and that this log be
-kept. Both are now in `CLAUDE.md`.
+On the next PR (#6) the run *did* start, but it was shown as "in progress" for
+about 30 minutes. The step timestamps showed the job itself had finished in 45
+seconds; only GitHub's reporting of the result was late.
+
+**Lessons:**
+- When CI doesn't appear, check GitHub's side (`gh run list`, the check runs)
+  before suspecting the workflow file.
+- When CI looks slow, compare the job's step timestamps with when the run was
+  marked complete. That tells a slow pipeline apart from slow reporting.
+
+**Decision:** add a manual "Run workflow" button (`workflow_dispatch`) only if a
+run ever fails to *start* again. It wouldn't help with slow reporting, which is
+what PR #6 showed.
+
+**The laptop's Go was updated** from 1.27.1 to 1.27.3 to match CI. Claude
+downloaded the official file and verified its checksum. Pe'er ran the two `sudo`
+commands in a separate terminal, because replacing `/usr/local/go` needs
+administrator rights, which deliberately need a password.
+
+**Process changes that came out of this phase:**
+- Pe'er asked that every command be explained (what it does, why, what the flags
+  mean), and that this log be kept. Both are now in `CLAUDE.md`.
+- **One session per phase.** Each bigger phase starts in a fresh Claude Code
+  session with a prompt written at the end of the previous one. Before closing a
+  phase, the decisions are checked against the documents that own them, so the
+  next session can rely on the documents rather than on memory.
