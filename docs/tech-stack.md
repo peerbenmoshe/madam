@@ -28,6 +28,8 @@ _Amended after Phase 0a (Oct 2026):_ _§9 records the local Postgres setup and t
 
 _Amended after Phase 0b (Oct 2026):_ _§7 records the image, the registry and the Cloud Run service as built, Cloud Run's reserved paths, and the measured cold start; §9's checklist is complete; §12 adds the image build in CI and Dependabot for Docker._
 
+_Amended after Phase 0c (Nov 2026):_ _§5 decides how Cloud Run connects (session pooler, `verify-full` against Supabase's own CA) and records the pool settings, the measured latency and the database roles; §6 records the tools, sqlc config and how migrations reach production; §7 adds Secret Manager and the re-measured cold start; §9 and §12 follow._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -311,7 +313,10 @@ project means pausing or deleting one of these, or paying.
   door. Verified off on both projects after creation.
 - **"Automatically expose new tables": off.** The same reasoning. From **30 May
   2026** this is the default for new projects anyway, and apps using a direct
-  PostgreSQL connection are unaffected.
+  PostgreSQL connection are unaffected. *Measured in 0c:* it doesn't stop
+  Supabase's default privileges from granting `anon`, `authenticated` and
+  `service_role` full access to new tables in `public`. Those grants are
+  dormant with the Data API off; 0d revokes them (`data-model.md` §9).
 - **"Enable automatic RLS": off.** It installs an event trigger that enables RLS
   on every new table in `public`. Rejected because it is schema behaviour that
   lives outside Git, the local Postgres container wouldn't have it, and every
@@ -321,9 +326,11 @@ project means pausing or deleting one of these, or paying.
 **Database roles (step 4).** Because RLS is in, the API must connect as a role
 that **does not own the tables**, and the tables carry `FORCE ROW LEVEL SECURITY`.
 Postgres lets table owners bypass row security unless forced, so connecting as the
-owner would mean RLS is enabled and doing nothing. *Unverified:* who ends up
-owning tables created by goose migrations on Supabase, and how straightforward
-creating a separate application role is there. On the setup checklist.
+owner would mean RLS is enabled and doing nothing. *Measured in 0c:* goose's
+tables are owned by `postgres`, which is not a superuser but **has
+`BYPASSRLS`**, so as `postgres` even forced RLS is skipped. It also has
+`CREATEROLE`, so 0d can create the application role in a migration. Details in
+`data-model.md` §9.
 
 ### Connecting
 
@@ -339,12 +346,70 @@ network:
 - **The development machine has no IPv6** (WSL's default networking), so from the
   laptop the only working option is the **session pooler**. A connection through
   it was tested from WSL during setup and works.
-- **Cloud Run's choice is open**, decided in Phase 0c: the session pooler, the
-  transaction pooler with prepared statements off, or the direct connection if
-  Cloud Run's outbound traffic has IPv6. *Not checked yet.*
+- **Cloud Run uses the session pooler too** (decided in Phase 0c). Rejected:
+  - *The transaction pooler.* It packs many clients into few server
+    connections, which we don't need (at most 8). It needs pgx switched off
+    prepared statements, and the laptop and production would then behave
+    differently.
+  - *The direct connection.* Google's docs say Cloud Run reaches IPv6 only
+    through Direct VPC egress on a dual-stack subnet with external IPv6. That
+    means a VPC, a subnet, a new IAM role (`compute.publicIpAdmin`) and three
+    more deploy flags, all to save one hop. Because we wouldn't take it anyway,
+    Cloud Run's IPv6 was not tested directly.
 - Connection strings and database passwords live in Pe'er's password manager,
   never in the repository. The passwords use letters and digits only, so they can
   sit inside a connection URL without escaping.
+
+**TLS: `sslmode=verify-full`, against Supabase's own root CA** (Phase 0c).
+- The poolers (`aws-0-` and `aws-1-eu-central-1.pooler.supabase.com`) present a
+  `*.pooler.supabase.com` certificate chained to **Supabase Root 2021 CA**, a
+  private CA (expires April 2031). It is not in any system trust store, so
+  verification needs that root.
+- The root is committed as `backend/certs/supabase-root-2021-ca.crt`. It was
+  downloaded from the dashboard, and its SHA-256 fingerprint
+  (`80:70:25:AD:…:CA:FA`) matched the root the pooler served. Verifying it
+  against an independent copy is what makes it a trust anchor.
+- `PGSSLROOTCERT` points pgx at it: set in the Dockerfile, and by the Makefile
+  for `DB=dev` and `migrate-prod`. It's not set globally, because pgx reads the
+  file **even with `sslmode=disable`**, and the local container shouldn't need it.
+- Rejected: `sslmode=require`. It encrypts but accepts any certificate. pgx's
+  default, `prefer`, can even fall back to plain text.
+- **The server enforces it** (`cmd/server/db.go`). It refuses to start when
+  `DATABASE_URL` isn't a `postgres://` URL. It also refuses when a host that
+  isn't local (loopback, Unix socket, or a name without a dot) isn't using
+  `verify-full`. The first check exists because pgx reads any other string as
+  `key=value` pairs and ignores what it doesn't know, which turned a broken
+  `.env` line into a silent attempt on a local socket.
+- The check paid off on the first production deploy: secret version 1 lacked
+  `?sslmode=verify-full`, the revision refused to start, and Cloud Run kept
+  serving the old one. `make migrate-prod` has no such check yet, so the one
+  migration run with that value (`00001`) connected encrypted but unverified.
+
+**The pool** (`cmd/server/db.go`):
+- `MaxConns` **4**. With at most 2 instances that's 8 connections. In session
+  mode each one occupies one of the pooler's server slots for its lifetime, and
+  the dashboard shows a pool size of **15** for both projects. That leaves room
+  for migrations and the dashboard.
+- `MinConns` **0**. The pool connects on first use, so a database outage can't
+  stop the server from starting, and an idle instance holds nothing open.
+- `application_name=madam`, which makes the app visible in `pg_stat_activity`.
+- Everything else is pgx's default. On acquire, pgx pings any connection idle
+  for more than 1 s before using it. That matters here because with
+  request-based billing Cloud Run throttles the CPU between requests, so pgx's
+  background health checks barely run.
+
+**Latency, measured in 0c** (Cloud Run's request log, `httpRequest.latency`,
+which is time inside Google):
+
+| `/api/health` | Median |
+|---|---|
+| 0b, no database (baseline) | ~2 ms |
+| One database round trip (requests under 1 s apart) | **13.3 ms** |
+| Ping plus query (requests 2 s apart) | 25.0 ms |
+
+So a Belgium → Frankfurt round trip through the pooler costs about **11 ms**.
+This confirms the step-2 assumption that it's invisible to a person. From the
+laptop in Israel the same request took ~70 ms to madam-dev.
 
 ### Plan and backups
 
@@ -402,6 +467,12 @@ Supabase exist.
 **Skeleton task:** add the keepalive job as part of the walking skeleton
 (section 9), covering **both** the production and the development project.
 
+*Open for 0f:* this section says "ping the API", `build-order.md` 0f says "ping
+both Supabase projects", and §9 puts production credentials in GitHub secrets
+for it. Since 0c, `/api/health` runs a query on madam-prod, so a plain `curl` of
+the public URL keeps production awake with **no credentials at all**. Only
+madam-dev, which nothing public reaches, would need a secret. Decide in 0f.
+
 **Post-v1, free:** an automated nightly `pg_dump` to encrypted storage. Costs
 nothing and turns "database loss = everything" into "database loss = one day". A
 good interview talking point too.
@@ -436,6 +507,61 @@ Known weakness: highly dynamic queries (many optional filters in any combination
 are awkward in sqlc. Madam's queries are fixed shapes, so this barely applies.
 
 Driver: `pgx`.
+
+### As built in Phase 0c
+
+**Versions:** pgx **v5.12.0**, goose **v3.29.0**, sqlc **v1.31.1**, the newest
+on 4 November 2026. pgx 5.12.0 was four days old; the fallback, if it misbehaves,
+is v5.11.0.
+
+**Tools** live in `tools/go.mod`, as `tool` directives. The Makefile runs them
+with `go -C tools tool goose` and `go -C tools tool sqlc`, using absolute paths
+(`-C` makes go act from inside `tools/`, and must be its first flag). Their
+dependency trees (ClickHouse, Azure, SQLite drivers, and many more; 346 lines of
+`go.sum`) stay out of the app's module. sqlc needs cgo, because its SQL parser
+is C, so building it needs a C compiler; the laptop and CI's runner both have
+one. The first build of each tool takes about 80 s, after which Go's build
+cache keeps it.
+
+**sqlc** (`backend/sqlc.yaml`):
+- Reads `migrations/` as the schema, skipping goose's `Down` sections, and
+  `internal/db/queries/*.sql` as the queries.
+- Generates package `db` into `internal/db` with `sql_package: pgx/v5`.
+- No type overrides yet (`data-model.md` §10).
+
+**The first query** is `Ping` (`SELECT 1::integer`), called by `/api/health`.
+It deliberately reads no table:
+- A query on `users` would return nothing without the 0d transaction wrapper,
+  once RLS is forced.
+- `count(*)` would publish the number of users.
+- `goose_db_version` isn't part of sqlc's schema.
+
+That is why `CLAUDE.md`'s rule reads "every query that reads or writes a table
+holding user data filters by `user_id`".
+
+**Migration files** are numbered sequentially (`make migrate-new NAME=…` passes
+goose's `-s`), not by timestamp. Each has a `Down` section for local use;
+nothing runs down migrations against production.
+
+**How migrations reach production: from the laptop, `make migrate-prod`.**
+1. It reads the owner URL from the Secret Manager secret `madam-migrate-url`
+   with the developer's own `gcloud` login, into one shell's memory only.
+2. It prints `goose status`.
+3. It applies the migrations only after `madam-prod` is typed at the prompt.
+
+Its secret is separate from the app's (§7) because from 0d the two hold
+different roles: migrations run as the owner, the app as the non-owner role.
+`madam-run` can't read it.
+
+Rejected for now: migrating from CI. It would put a long-lived owner
+credential in GitHub and expose schema changes to the Actions flakiness.
+Revisit in 0c′, where Workload Identity Federation could read the same secret.
+
+**Order on deploy:** migrate first, then deploy. For a moment the new schema
+runs under the old code, so a migration must keep the old code working.
+
+**`goose_db_version`** is goose's bookkeeping table, created on first use and
+owned by `postgres`. It lives in `public` alongside our tables.
 
 ---
 
@@ -479,6 +605,12 @@ Checked against Google's terms and pricing pages in October 2026.
   uses behind the scenes. We build the image ourselves (locally or in GitHub
   Actions) and push it, so Cloud Build is not involved, and its API is not
   enabled. *Its free tier was not checked.*
+- **Secret Manager** (enabled in 0c): $0.06 per active version per location per
+  month, and $0.03 per 10,000 accesses. The free tier covers **6 active
+  versions and 10,000 accesses** a month per billing account. **Disabled
+  versions count as active; destroyed ones don't.** We use 2 versions, and
+  Cloud Run reads the secret once per instance start, so this stays $0. Covered
+  by the alert, not by the Cloud Run spend cap.
 - **The contract.** Under the Google Cloud Terms of Service (§2.6), Google may
   change Cloud Run's fees at any time; the 30-day notice in that clause applies to
   Workspace-type products only. "Free" is a published price, not a contractual
@@ -586,6 +718,41 @@ would be empty and prove nothing. To change the policy, run
 | Request timeout | 30 s (default 300 s) | The server's own write timeout is 10 s; this caps what a stuck request can bill |
 | Startup CPU boost | **off** | gcloud turns it on by default for new services, and it's billed. Measured without it |
 
+**The database URL: Secret Manager** (Phase 0c).
+- Two secrets, each replicated only in `europe-west1`:
+  `madam-database-url` (the app's) and `madam-migrate-url` (for `make
+  migrate-prod`, §6). In 0c both hold the `postgres` URL of madam-prod's
+  session pooler, ending in `?sslmode=verify-full`. In 0d the app's gets a new
+  version for the non-owner role.
+- `madam-run` holds `roles/secretmanager.secretAccessor` **on
+  `madam-database-url` only**, bound on the secret rather than the project. It
+  is still `madam-run`'s only permission anywhere, and nothing but the owner
+  can read `madam-migrate-url`.
+- `make deploy` passes `--set-secrets=DATABASE_URL=madam-database-url:2`. The
+  version is **pinned** in the Makefile, so changing the value is a visible
+  commit. With `:latest`, any new instance would pick up whatever was last
+  added.
+- Values are added by Pe'er in his own terminal, never through Claude, with no
+  trailing newline and nothing in the shell history:
+
+  ```
+  read -rs DBURL && printf %s "$DBURL" | gcloud secrets versions add madam-database-url --data-file=- --project=madam-512309; unset DBURL
+  ```
+
+- After a change, **destroy** the old version, don't just disable it: disabled
+  versions still count as active for billing.
+- Rejected: a plain environment variable. The value would pass through a shell
+  or `.env` at every deploy, and anyone with viewer access could read it in the
+  revision's settings. 0c′ benefits too: CI deploys with the same, non-secret
+  flag.
+
+**`/api/health` runs a database query** and answers `503 database unavailable`
+when it fails or takes longer than 3 s. The cause goes to the log, never to the
+response. **It must never become a Cloud Run liveness probe**: a Supabase outage
+would then restart containers that are working fine. The startup probe stays
+Cloud Run's default TCP check. The server listens even when the database is
+down; it refuses to start only on a missing or invalid `DATABASE_URL`.
+
 **Where deploys come from:** the laptop, with `make deploy`. It refuses
 uncommitted or untracked files, then builds, pushes and deploys, with the image
 tagged by commit hash. Docker authenticates with the developer's own `gcloud`
@@ -624,7 +791,25 @@ use. Our own Dockerfile and deployment pipeline need a standard project.
 
   An instance shut down 15 minutes after its last request, every time; the
   proof was our own `shut down cleanly` log line. Startup CPU boost was off.
-  **Re-measure after 0c**, when startup gains a database connection.
+
+  *Re-measured in 0c* (4 samples, 4 November 2026, same method), with
+  `/api/health` now running a query on madam-prod:
+
+  | Measure | Cold | Warm |
+  |---|---|---|
+  | End to end from the laptop (`curl`) | 0.82–1.11 s, median 0.87 s | ~0.25 s (median of 12) |
+  | Inside Google (`httpRequest.latency`) | 0.26–0.48 s, median 0.26 s | 14–16 ms |
+  | Container start (`container/startup_latencies`) | 28–303 ms (4 of 4) | n/a |
+
+  The container start didn't grow, because the pool connects on first use. The
+  cold *request* gained about 0.05–0.1 s: opening the first connection to
+  Frankfurt (TCP, TLS, authentication) takes a few round trips. A warm request
+  gained about 12 ms, one round trip.
+
+  **Idle shutdown isn't always 15 minutes.** Three instances shut down after 15
+  minutes, but one shut down **7 seconds** after its last request. Fifteen
+  minutes is typical, not guaranteed, so a cold start can come sooner than
+  expected.
 - Custom domains may need extra setup depending on region.
 
 ### Rejected
@@ -781,8 +966,10 @@ Rules:
   development**, clearly named, so a bad migration cannot touch her history. The
   keepalive job should cover this project too.
 - **The production database URL never goes into a local `.env`.** Production
-  credentials live in Cloud Run configuration and, for the keepalive job, in
-  GitHub Actions secrets. How migrations reach production is decided in Phase 0c.
+  credentials live in Secret Manager (§7), read by Cloud Run at instance start
+  and by `make migrate-prod` with the developer's own login. Whether the
+  keepalive job needs any is open for 0f (§5). Migrations reach production from
+  the laptop (§6, decided in Phase 0c).
 - No staging environment for v1; local plus production is enough for one user.
 
 ### Setup checklist
@@ -798,8 +985,8 @@ pre-flight check. Items marked **(Phase 0)** belong to the build, not to setup._
   **(Phase 0)** Add a Dockerfile, create an Artifact Registry repository in
   `europe-west1` **with a cleanup policy**, push the image, then
   `gcloud run deploy` to `europe-west1` with **min instances 0 and max instances
-  2**. ✅ Done in 0b (§7, As built). Environment variables in Cloud Run: none
-  are needed yet; the first arrives in 0c.
+  2**. ✅ Done in 0b (§7, As built). Environment variables in Cloud Run: the
+  first, `DATABASE_URL`, arrived in 0c, from Secret Manager (§7).
 - Supabase: two projects (prod and dev), Frankfurt, Data API off. ✅
   **(Phase 0)** The non-owner application role.
 - Secrets (database URL, invite code, Supabase keys) live in Cloud Run
@@ -838,8 +1025,8 @@ Notes:
 | Go | 1.27.3 (updated from 1.27.1 in Phase 0a to match CI) | Official tarball, `/usr/local/go` |
 | Node / npm | 24 LTS / 11 | `nvm` (shadows a Windows npm that is also on PATH) |
 | Docker | 29.4 (Desktop 4.71), Compose 5.1 | Docker Desktop with WSL integration |
-| goose | 3.29 | `go install` (global copy; pinned in `tools/go.mod` from 0c, see below) |
-| sqlc | 1.31 | `go install` (global copy; pinned in `tools/go.mod` from 0c) |
+| goose | 3.29 | `go install` (global copy). The project pins **v3.29.0** in `tools/go.mod` (0c) |
+| sqlc | 1.31 | `go install` (global copy). The project pins **v1.31.1** in `tools/go.mod` (0c) |
 | golangci-lint | 2.15 | Official install script (global copy). The project pins **v2.15.0**: `make lint` installs that exact binary into `bin/`, and CI uses `golangci-lint-action` with the same version |
 | psql | 14 | Ubuntu's `postgresql-client` — older than the server, fine for ad-hoc queries |
 | gh | 2.102 | GitHub's apt repository |
@@ -851,9 +1038,9 @@ the laptop and CI drift apart, so the project pins its own versions:
 
 - **golangci-lint** is pinned as a **binary**. Its docs say `go tool` and `tool`
   directive installs "aren't guaranteed to work" and recommend the binary.
-- **goose and sqlc** will be `tool` directives in a **separate `tools/go.mod`**,
-  run through the Makefile, so their large dependency trees stay out of the app's
-  `go.sum`. They're added in 0c, when they're first used.
+- **goose and sqlc** are `tool` directives in a **separate `tools/go.mod`** at
+  the repository root, run through the Makefile, so their large dependency trees
+  stay out of the app's `go.sum` (added in 0c; §6, As built).
 
 **The `go` line is `go 1.27`**, not the `go 1.27.1` that `go mod init` writes. It
 is the minimum language version, so any 1.27.x toolchain satisfies it and nothing
@@ -939,10 +1126,23 @@ tired. Later it also handles automatic deployment on merge to `main`
   golangci-lint version matches the Makefile.
 - *Added in 0b:* a last step, **Build image**, runs `docker build` (no push, no
   credentials), so `main` can't receive a Dockerfile that doesn't build.
+- *Added in 0c:*
+  - A **`postgres:17` service container**, with the same `pg_isready` check
+    as `compose.yaml`. Steps wait for it to be healthy, never for a fixed time.
+  - **Generated code is current:** runs `make sqlc` and fails if anything
+    changed, so hand-edits and a forgotten regeneration can't merge.
+  - **Migrate:** runs `make migrate-up`, so a migration that doesn't apply to
+    an empty database fails the PR before it can reach production.
+  - **Test** with `MADAM_TEST_DATABASE_URL` set, which switches on the tests
+    that need a database. They skip when it's unset, and fail when it's set
+    but unreachable, so CI can't pass by losing its database.
+  - The Go cache now also keys on `tools/go.sum`. On a cold cache the first
+    run took about 4 minutes, mostly compiling sqlc and goose.
 
 **Dependabot** (Phase 0a): weekly version updates, one grouped PR per ecosystem
-(`gomod` in `/backend`, `github-actions`, and since 0b `docker` for the
-Dockerfile's base images), configured in `.github/dependabot.yml`.
+(`gomod` in `/backend`, `github-actions`, since 0b `docker` for the
+Dockerfile's base images, and since 0c `gomod` in `/tools`), configured in
+`.github/dependabot.yml`.
 Dependabot alerts and security updates are also switched on in the repository
 settings. Actions are pinned to major tags (`@v7`), not commit SHAs, so the diffs
 stay readable.
@@ -1039,11 +1239,11 @@ options (§5).
 **Moved to the build's verification list** (answers require measuring, not
 deciding — also listed in `CLAUDE.md`):
 
-- How Cloud Run connects to Supabase (§5, Connecting), and the Belgium–Frankfurt
-  query latency.
 - The first month's billing report: confirm the spend cap measured gross usage and
   the bill stayed at zero (§7).
 - Whether the typed invite code reaches Supabase's "before user created" hook.
-- Who owns tables created by goose migrations on Supabase, and how to create a
-  non-owner application role.
-- pgx/sqlc type mappings and `-infinity` round-tripping (`data-model.md` §10).
+- Creating the non-owner application role (0d).
+
+*Answered in Phase 0c:* how Cloud Run connects and the Belgium–Frankfurt latency
+(§5, Connecting), table ownership (§5, Database roles), and the pgx/sqlc type
+mappings and `-infinity` round-tripping (`data-model.md` §10).

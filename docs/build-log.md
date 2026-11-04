@@ -148,3 +148,77 @@ to match that.
 **Lesson:** read the platform's known-issues page before naming anything public.
 The conventional name (`/healthz`, a Kubernetes habit) was exactly the one the
 platform reserves.
+
+---
+
+## Phase 0c — Database connected (4 November 2026, PR #9)
+
+**Goal.** Migration `00001` (`users`), one sqlc query, and `/api/health`
+reading a row from Supabase at the public URL. Along the way, answer the
+verification items on types, table ownership and latency.
+
+**Decisions** (details in `tech-stack.md` §5–§7 and §12):
+
+| Decision | Choice | Why |
+|---|---|---|
+| How Cloud Run connects | Session pooler, like the laptop | The transaction pooler solves a scale problem we don't have. IPv6 to the direct connection would need a VPC, a subnet and a new IAM role |
+| TLS | `verify-full` against Supabase's own root CA, committed | `require` accepts any certificate. The server refuses to start otherwise |
+| Where the URL lives | Secret Manager, version pinned in the Makefile; `madam-run` may read that one secret | Never on the laptop, never readable in revision settings, and 0c′ needs no database credential |
+| Migrations to production | `make migrate-prod` from the laptop, own secret, typed confirmation | CI would hold an owner credential in GitHub. Revisit in 0c′ |
+| The health query | `SELECT 1`, touching no table | A query on `users` would break under 0d's RLS and leak the user count. `CLAUDE.md`'s `user_id` rule was reworded to "tables holding user data" |
+| Startup | Fail on bad config, not on an unreachable database | A bad deploy fails safely; a paused Supabase doesn't crash-loop instances |
+| CI | Postgres service, migrations applied, integration tests, generated-code check | Broken SQL fails the PR instead of reaching dev or prod |
+
+**Surprise: Supabase's certificates come from a private CA.** A TLS handshake
+with the pooler, before any code, showed a chain ending in "Supabase Root 2021
+CA", which no system trust store contains. So "TLS on" had to mean
+`verify-full` plus our own copy of the root. That copy came from the dashboard,
+and its fingerprint was checked against the one the server sent, because a
+root the server supplies itself proves nothing.
+
+**Surprise: pgx's quiet fallbacks.** Two of them, each found by a failure:
+- pgx reads the `PGSSLROOTCERT` file **even with `sslmode=disable`**. Exported
+  globally, it broke the local database before the file existed.
+- The first `.env` line held only `?sslmode=verify-full`, because the
+  instruction said "append" to a line that didn't exist yet. pgx read it as
+  `key=value` text and fell back to a local Unix socket as the OS user: a 503
+  that looked like a network problem. The server now refuses anything that
+  isn't a `postgres://` URL.
+
+**The startup check paid for itself on the first deploy.** Secret version 1
+lacked `?sslmode=verify-full`. The new revision refused to start, Cloud Run's
+startup probe failed, and traffic stayed on the old revision. The fix was
+version 2, a one-line pin change and destroying version 1. One cost remained:
+`make migrate-prod` has no such check, so migration `00001` ran over encrypted
+but unverified TLS.
+
+**Verified rather than assumed:**
+- **Type mappings** with a scratch table and a round trip through Postgres. The
+  one that would have bitten later: a `nil` Go slice is written as `NULL`, so
+  it fails on the `NOT NULL` arrays. **`-infinity` round-trips**, so that spike
+  is answered (`data-model.md` §10).
+- **Supabase's roles.** `postgres` owns goose's tables and **has `BYPASSRLS`**,
+  so 0d's separate role is required, not a precaution. Supabase also grants its
+  API roles full access to new tables despite "expose new tables: off"
+  (`data-model.md` §9).
+- **Latency:** about 11 ms per Belgium → Frankfurt round trip, inside Google.
+  pgx's ping on connections idle for more than 1 s showed up as exactly a
+  second round trip.
+- **Cold start** with a database: median 0.87 s end to end (0b: 0.81 s). The
+  container starts just as fast, because the pool connects on first use; the
+  first query adds ~0.05–0.1 s for the connection to Frankfurt. One instance
+  was shut down 7 s after its last request, so Cloud Run's 15-minute idle
+  time is typical, not guaranteed. Every sample was checked as a genuinely new
+  instance by its instance ID in the logs.
+- CI's integration test really ran. The Test step's logged environment showed
+  the database URL, and the test skips only without it.
+
+**Lessons:**
+- **Measure the transport before choosing a setting.** One `openssl` handshake
+  changed the TLS decision before any code depended on it.
+- **When a library falls back quietly, make the app refuse loudly.** Both of
+  this phase's confusing failures came from pgx doing something reasonable
+  with input it should never have accepted.
+- **Instructions about secret files must say the whole thing.** "Append X to
+  the line" assumed a line existed. Claude can't see `.env`, so instructions
+  for it have to describe the complete, finished line.

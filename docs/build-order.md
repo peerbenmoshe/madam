@@ -21,6 +21,9 @@ _Amended in Phase 0b (Oct 2026): the health endpoint is `/api/health`, because
 Cloud Run reserves some paths ending in `z`; a new step, 0c′, adds deploy on
 merge after 0c._
 
+_Amended in Phase 0c (Nov 2026): 0c is done; 0d gains what 0c measured about
+Supabase's roles; the `-infinity` spike is answered._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -149,6 +152,14 @@ production URL must never sit in a local `.env`.
 who owns tables created by goose on Supabase; query latency between Belgium and
 Frankfurt.
 
+**✅ Done (4 November 2026, PR #9).** `/api/health` at the public URL runs a
+query on madam-prod. Cloud Run connects through the session pooler with
+`verify-full` against Supabase's own CA. The URL comes from Secret Manager, and
+migrations run from the laptop with `make migrate-prod`. The decisions are in
+`tech-stack.md` §5–§7 and §12. The measurements are in `data-model.md` §9–§10
+(type mappings, ownership, roles) and `tech-stack.md` §5 and §7 (latency, cold
+start). The story is in `build-log.md`.
+
 ### 0c′ — Deploy on merge
 
 _Added in 0b, which deploys from the laptop with `make deploy`._
@@ -187,6 +198,16 @@ because everything downstream only asks "who is this request for?"
 application role with the wrong user id set returns **zero rows**. Until that test
 passes, RLS is not proven to be doing anything.
 
+*Learned in 0c, to act on here* (`data-model.md` §9):
+- Supabase's `postgres` role has **`BYPASSRLS`**, so the app role must be a new
+  role created `NOBYPASSRLS`, not `postgres` with `FORCE`.
+- Supabase's default privileges grant `anon`, `authenticated` and
+  `service_role` full access to every new table in `public`. Revoke them, and
+  change the default privileges.
+- The app role's URL becomes a new version of `madam-database-url`, and the
+  Makefile's pinned version moves with it. `madam-migrate-url` stays the owner.
+- CI already has a migrated Postgres for the I3 test (`tech-stack.md` §12).
+
 ### 0e — Frontend shell
 
 Vite + React + TypeScript + Tailwind. A page that fetches `/api/health` and displays
@@ -217,9 +238,9 @@ is an answer written into `CLAUDE.md` or the relevant document.
   user-typed code actually reach Supabase's "before user created" hook? An hour of
   poking. If the answer is no, Slice 2 needs a different design, and it is much
   cheaper to learn that now.
-- **`-infinity` round-tripping** through pgx into Go. Expected to work via
-  `pgtype.Date`'s infinity modifier. Fallback: a sentinel date such as
-  `0001-01-01`. Needed before `measurement_time_periods` is built in Slice 3.
+- ~~**`-infinity` round-tripping** through pgx into Go.~~ **Answered in 0c:** it
+  round-trips as `pgtype.Date{InfinityModifier: pgtype.NegativeInfinity}`, so
+  no sentinel date is needed (`data-model.md` §10).
 - **The graph** *(after Phase 0, before Slice 1)*. Recharts with fake data:
   hollow rings, ghost dots, a `ReferenceLine`, a custom X-axis tick, tappable
   dots, and — the actual unknown — the line drawn as **separate segments** so a

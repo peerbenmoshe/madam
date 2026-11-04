@@ -9,6 +9,12 @@ _Amended at step 4 (rules and setup):_
 - _**The 20–50 °C `CHECK` is kept**, and gains a twin in Go so the user never meets the database error (§4.2, §7)._
 - _§10's open items are down to two, both requiring measurement rather than decision._
 
+_Amended in Phase 0c (Nov 2026): the `users` table exists (migration `00001`).
+§8.2, §9 and §10 record what was measured: the pgx/sqlc type mappings,
+`-infinity` round-tripping, and who owns tables on Supabase, including that its
+`postgres` role bypasses RLS and that Supabase grants its API roles access to
+new tables._
+
 ---
 
 ## 1. Principles
@@ -432,9 +438,8 @@ Accepted cost: `36620` is not self-describing the way `36.62` is. The unit lives
 in the column name, in this document, and in `CLAUDE.md`'s list of traps. Anyone
 forgetting it is wrong by a factor of a thousand.
 
-*To verify during the build:* the exact pgx/sqlc mapping of `INTEGER` to `int32`
-and of `TIME` and `DATE` to their Go types. Expected to be straightforward, but
-not yet checked against the versions we will actually install.
+*Verified in Phase 0c:* `INTEGER NOT NULL` arrives as `int32`, and a nullable
+`INTEGER` as `pgtype.Int4`. The full table is in §10.
 
 ### 8.3 Half-up rounding
 
@@ -575,9 +580,23 @@ are live.
 - **A new failure mode:** a request that skips the wrapper gets zero rows rather
   than an error. Loud, but confusing the first time. It is called out in
   `CLAUDE.md` as the first thing to suspect.
-- **One-time setup friction on Supabase.** *Unverified:* who owns tables created by
-  goose migrations there, and how easily a separate application role can be made.
-  On the setup checklist.
+- **One-time setup friction on Supabase.** *Measured in Phase 0c* on madam-dev,
+  after goose applied `00001` as `postgres` through the session pooler:
+  - **Tables and types are owned by `postgres`**, the role the migrations
+    connect as.
+  - **`postgres` is not a superuser, but has `BYPASSRLS`.** So connecting as
+    `postgres` means RLS is skipped entirely, **even with `FORCE`**. The
+    non-owner application role is therefore *required* for RLS to do anything,
+    not a second precaution. It must be created `NOBYPASSRLS`.
+  - **`postgres` has `CREATEROLE`**, so the application role can be created in a
+    goose migration and stay in Git. *Not yet done*: creating it and giving it
+    a password without putting the password in Git is 0d's problem.
+  - **Supabase grants its API roles (`anon`, `authenticated`, `service_role`)
+    every privilege on new tables in `public`**, through default privileges.
+    "Automatically expose new tables: off" did not prevent it. The grants are
+    dormant while the Data API is off, because nothing can act as those roles.
+    0d should still `REVOKE` them and change the default privileges, so that
+    switching the Data API on later can't expose a table.
 - **It is additive, never a replacement.** Every query still filters by `user_id`.
   If the Supabase role setup proves impractical, RLS can be dropped without
   weakening anything that exists today.
@@ -589,14 +608,29 @@ are live.
 Closed at step 4: `updated_at` (trigger, §4.2), the 20–50 °C `CHECK` (kept and
 mirrored in Go, §4.2), and RLS (in, §9).
 
-Remaining — both need measuring, not deciding:
+**Closed in Phase 0c, by measurement.** sqlc v1.31.1 generated a scratch table
+shaped like `entries` (with `sql_package: pgx/v5`), and a Go program
+round-tripped values through Postgres 17 with pgx v5.12.0:
 
-- **pgx/sqlc type mappings** for `INTEGER`, `DATE`, `TIME` and `TEXT[]` — expected
-  to be straightforward, to be confirmed at first use.
-- **`-infinity` round-tripping** through pgx into Go's `time.Time` — Postgres
-  accepts the literal, but Go has no infinite date. Likely handled by pgx's
-  `pgtype.Date` (which carries an `InfinityModifier`); **to verify before relying
-  on it.** Fallback if it is awkward: use a sentinel date such as `0001-01-01`.
+| Postgres | Go | Notes |
+|---|---|---|
+| `INTEGER NOT NULL` | `int32` | |
+| `INTEGER` (nullable) | `pgtype.Int4` | `*int32` with sqlc's `emit_pointers_for_null_types`; the only type here that option changes |
+| `DATE` | `pgtype.Date` | Even `NOT NULL`. Read back at midnight UTC |
+| `TIME` | `pgtype.Time` | Microseconds since midnight: 06:30 is `23400000000` |
+| `TEXT[]` | `[]string` | `'{}'` reads back as an empty slice, `NULL` as `nil` |
+| `UUID` | `pgtype.UUID` | |
+| `TIMESTAMPTZ` | `pgtype.Timestamptz` | Even `NOT NULL` |
 
-Also carried to the build's verification list (`CLAUDE.md`): table ownership and
-the application role on Supabase, which §9 depends on.
+- **A `nil` Go slice is written as `NULL`,** so inserting one into the
+  `NOT NULL` `disturbances` or `symptoms` columns fails with a not-null
+  violation. Code must send `[]string{}` for "none". That is exactly the
+  "one representation per meaning" of §1, now enforced by the database.
+- **`-infinity` round-trips:** written and read back as
+  `pgtype.Date{InfinityModifier: pgtype.NegativeInfinity, Valid: true}`, and
+  stored as the literal `-infinity`. The sentinel-date fallback isn't needed.
+- **Not decided yet:** whether to override any of these (pointers instead of
+  `pgtype.*`, or `time.Time` for `NOT NULL` dates). That's for the first slice
+  whose queries use them (Slice 3).
+
+Table ownership and the application role are recorded in §9.
