@@ -10,6 +10,15 @@ updates:
       gomod:
         patterns: ["*"]
 
+  # goose and sqlc, pinned as tools (tools/go.mod).
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
+      interval: weekly
+    groups:
+      tools:
+        patterns: ["*"]
+
   # Base images in the Dockerfile.
   - package-ecosystem: docker
     directory: /
