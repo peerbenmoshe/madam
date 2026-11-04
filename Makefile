@@ -58,7 +58,7 @@ TAG = $(shell git rev-parse --short HEAD)
 
 # Secret Manager secrets holding production connection URLs. The app's is
 # pinned to a version, so changing it is a commit (docs/tech-stack.md §7).
-DATABASE_URL_SECRET := madam-database-url:1
+DATABASE_URL_SECRET := madam-database-url:2
 MIGRATE_URL_SECRET := madam-migrate-url
 
 .PHONY: dev test test-integration lint build db-up db-down db-reset image \
