@@ -24,6 +24,12 @@ func newPool(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	if url == "" {
 		return nil, errors.New("DATABASE_URL is not set")
 	}
+	// pgx also accepts "key=value" strings, and reads anything that isn't a
+	// URL that way, ignoring what it doesn't recognise. A URL with stray
+	// quotes would then silently become "local socket, current OS user".
+	if !strings.HasPrefix(url, "postgres://") && !strings.HasPrefix(url, "postgresql://") {
+		return nil, errors.New("DATABASE_URL must start with postgres:// or postgresql:// (no quotes or spaces around it)")
+	}
 	cfg, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)

@@ -17,6 +17,9 @@ func TestNewPool(t *testing.T) {
 		wantErr string // empty: no error expected
 	}{
 		{name: "missing", url: "", wantErr: "DATABASE_URL is not set"},
+		{name: "quoted URL", url: `"postgres://u:pw@db.example.com:5432/postgres?sslmode=verify-full"`, wantErr: "must start with"},
+		{name: "key=value form", url: "host=db.example.com user=u sslmode=verify-full", wantErr: "must start with"},
+		{name: "postgresql scheme", url: "postgresql://u:pw@db.example.com:5432/postgres?sslmode=verify-full"},
 		{name: "local container, no TLS", url: "postgres://madam:madam@127.0.0.1:5432/madam?sslmode=disable"},
 		{name: "localhost, no TLS", url: "postgres://madam:madam@localhost:5432/madam?sslmode=disable"},
 		{name: "Compose service name, no TLS", url: "postgres://madam:madam@postgres:5432/madam?sslmode=disable"},
