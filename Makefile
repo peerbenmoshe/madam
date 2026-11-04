@@ -75,9 +75,10 @@ test:
 
 # Also runs the tests that need a database, against the local container only.
 # They skip themselves when MADAM_TEST_DATABASE_URL is unset (plain `make test`).
+# -count=1 because Go's test cache can't see the database.
 test-integration:
 	$(MAKE) db-up migrate-up DB=local
-	cd backend && MADAM_TEST_DATABASE_URL="$(LOCAL_DATABASE_URL)" go test -race ./...
+	cd backend && MADAM_TEST_DATABASE_URL="$(LOCAL_DATABASE_URL)" go test -race -count=1 ./...
 
 lint: $(GOLANGCI_LINT)
 	cd backend && $(GOLANGCI_LINT) run

@@ -75,8 +75,10 @@ jobs:
         working-directory: .
         run: make migrate-up
 
+      # -count=1: never reuse cached test results. Go can't see the
+      # database, so a cached pass could hide a broken migration.
       - name: Test
-        run: go test -race ./...
+        run: go test -race -count=1 ./...
 
       - name: Lint
         uses: golangci/golangci-lint-action@v9

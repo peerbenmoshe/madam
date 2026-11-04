@@ -1135,7 +1135,10 @@ tired. Later it also handles automatic deployment on merge to `main`
     an empty database fails the PR before it can reach production.
   - **Test** with `MADAM_TEST_DATABASE_URL` set, which switches on the tests
     that need a database. They skip when it's unset, and fail when it's set
-    but unreachable, so CI can't pass by losing its database.
+    but unreachable, so CI can't pass by losing its database. It runs with
+    **`-count=1`**: `setup-go` restores Go's test-result cache, and Go can't
+    see the database, so a docs-only change produced `(cached)` passes for
+    the database tests too. In 0d that could hide a broken RLS migration.
   - The Go cache now also keys on `tools/go.sum`. On a cold cache the first
     run took about 4 minutes, mostly compiling sqlc and goose.
 
