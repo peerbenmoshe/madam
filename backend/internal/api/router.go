@@ -10,7 +10,7 @@ import (
 )
 
 // NewRouter builds the application's HTTP handler.
-func NewRouter() http.Handler {
+func NewRouter(db Pinger) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -18,7 +18,7 @@ func NewRouter() http.Handler {
 
 	// Not the conventional /healthz: Cloud Run reserves some paths ending in
 	// "z" and never forwards them to the container.
-	r.Get("/api/health", handleHealth)
+	r.Get("/api/health", handleHealth(db, healthTimeout))
 
 	return r
 }

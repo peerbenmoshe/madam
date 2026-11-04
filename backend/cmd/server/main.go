@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/peerbenmoshe/madam/backend/internal/api"
+	"github.com/peerbenmoshe/madam/backend/internal/db"
 )
 
 func main() {
@@ -30,9 +31,18 @@ func run() error {
 		port = "8080"
 	}
 
+	// Locally the Makefile sets DATABASE_URL; on Cloud Run it comes from
+	// Secret Manager (docs/tech-stack.md §7).
+	pool, err := newPool(context.Background(), os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+	// Runs after the server has shut down, so in-flight requests keep the pool.
+	defer pool.Close()
+
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(),
+		Handler:           api.NewRouter(db.New(pool)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
