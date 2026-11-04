@@ -59,7 +59,11 @@ Keep it that way.
 make dev            # API + frontend dev server + local postgres
 make test           # go test ./... (add -race)
 make lint           # golangci-lint + eslint
-make migrate-up     # goose up against $DATABASE_URL
+make test-integration # also the tests that need a database (local container)
+make migrate-up     # goose up against $DATABASE_URL (migrate-status shows state)
+make migrate-new NAME=create_entries   # new numbered migration file
+make migrate-prod   # production migrations: Secret Manager URL, typed confirmation
+make psql           # psql on the selected database (also reads SQL from stdin)
 make sqlc           # regenerate db/ from the .sql files
 make build          # frontend build + go build with embedded assets
 make db-up          # start local postgres; returns once pg_isready passes
@@ -68,19 +72,25 @@ make image          # build the production image locally (docker-run also runs i
 make deploy         # build, push and deploy the committed code to Cloud Run
 ```
 
-This list is the end state. Targets arrive phase by phase (`docs/build-order.md`):
-`migrate-up` and `sqlc` in 0c, and the frontend parts of `dev`, `lint` and `build` in 0e.
+This list is the end state. The frontend parts of `dev`, `lint` and `build`
+arrive in 0e (`docs/build-order.md`).
 
 **Choosing the database:** every target defaults to the local container
 (`DB=local`). Add `DB=dev` to use the `madam-dev` Supabase project, whose URL is
-`MADAM_DEV_DATABASE_URL` in `.env`. The app only reads `DATABASE_URL`, which the
-Makefile sets from `DB`. No `DB` value points at production. Names are in
-`.env.example`.
+`MADAM_DEV_DATABASE_URL` in `.env` (the full session-pooler URL ending in
+`?sslmode=verify-full`). The app only reads `DATABASE_URL`, which the Makefile
+sets from `DB`. No `DB` value points at production. The one way to reach it is
+`make migrate-prod`, a separate target that asks you to type `madam-prod`.
+Names are in `.env.example`.
+
+**Production order:** a deploy that needs a new migration is `make migrate-prod`
+first, then `make deploy`. The migration must work with the code already
+running, because for a moment it does.
 
 **Pinned tools:** golangci-lint's version is `GOLANGCI_LINT_VERSION` in the
 Makefile, and the same value appears in `.github/workflows/ci.yml`; change both
-together. goose and sqlc will be `tool` directives in a separate `tools/go.mod`
-from 0c.
+together. goose and sqlc are `tool` directives in a separate `tools/go.mod`,
+run by the Makefile as `go -C tools tool goose|sqlc`.
 
 Regenerate with `make sqlc` after touching any `.sql` file or migration. Never
 hand-edit generated code.
@@ -92,7 +102,9 @@ hand-edit generated code.
 - **Go:** `gofmt`, `golangci-lint`. Errors wrapped with context, never swallowed.
   No panics in request paths.
 - **SQL:** every query lives in a `.sql` file, not in Go strings. **Every query
-  filters by `user_id`** — no exceptions.
+  that reads or writes a table holding user data filters by `user_id`** — no
+  exceptions. The only query that touches no table is the health check's
+  `SELECT 1`.
 - **Migrations:** numbered goose files. Once merged, a migration is immutable;
   fix forward with a new one. Nobody edits schema in the Supabase dashboard.
 - **Tests:** for anything in `internal/fam`, write the test from
@@ -100,9 +112,13 @@ hand-edit generated code.
 - **Git:** one short-lived branch per chunk, merged by squashed PR even though
   it's a solo project. `main` is protected and always deployable. Commit messages
   say what changed ("Add adjusted-temperature calculation"), not "stuff".
-- **Secrets:** never in Git. `.env` locally, Cloud Run config in production.
-  `.claude/settings.json` denies reading `.env` files; don't try to work around
-  it. The production database URL is never in a local `.env`.
+- **Secrets:** never in Git. `.env` locally; in production, **Secret Manager**
+  (`madam-database-url` for the app, `madam-migrate-url` for migrations), with
+  the app's version pinned in the Makefile. Values are added by Pe'er in his
+  own terminal (`docs/tech-stack.md` §7), never through Claude.
+  `.claude/settings.json` denies reading `.env` files (that includes any command
+  that names `.env`); don't try to work around it. The production database URL
+  is never in a local `.env`.
 - **New table checklist:** does it cascade on user delete? Does it have an RLS
   policy? Is every query filtered by `user_id`?
 - **Deploying:** `make deploy`, from the laptop, with a clean working tree. It
@@ -138,7 +154,22 @@ hand-edit generated code.
 - **The development machine has no IPv6.** Supabase's direct connection is
   IPv6-only on the free plan, so from the laptop use the **shared pooler in
   session mode** (pooler host, port 5432). The transaction pooler (port 6543)
-  does not support prepared statements, which pgx uses by default.
+  does not support prepared statements, which pgx uses by default. Cloud Run
+  uses the session pooler too.
+- **Supabase signs with its own root CA.** `sslmode=verify-full` works only
+  with `backend/certs/supabase-root-2021-ca.crt`, found through `PGSSLROOTCERT`
+  (set by the Dockerfile and by the Makefile for Supabase targets). The server
+  refuses to start with a remote URL that isn't `verify-full`, or with anything
+  that isn't a `postgres://` URL: pgx reads other strings as `key=value` and
+  silently falls back to a local socket.
+- **Supabase's `postgres` role has `BYPASSRLS`** (measured in 0c). Connected as
+  `postgres`, RLS does nothing, even with `FORCE`. Only the app role from 0d
+  makes the policies apply.
+- **A `nil` Go slice is written as `NULL`.** Into the `NOT NULL` `TEXT[]` columns
+  (`disturbances`, `symptoms`) that fails. Send `[]string{}` (measured in 0c).
+- **`/api/health` reads the database.** It returns 503 when Supabase is
+  unreachable. Never make it a Cloud Run liveness probe, or a database outage
+  would restart working containers.
 - **Local Postgres needs a readiness wait.** A started container is not a ready
   database. Poll with `pg_isready`; never `sleep N`. This is the classic cause of
   flaky first runs and CI.
@@ -150,12 +181,13 @@ hand-edit generated code.
 - **Cloud Run never forwards some paths ending in `z`.** `/healthz` gets Google's
   own 404 and never reaches the app (tested), so the health endpoint is
   `/api/health`. Don't name any route with a trailing `z`, or starting `/_ah/`.
-- **Cold start is under a second.** Measured in 0b: a cold request took 0.67–0.98 s
-  end to end from the laptop in Israel (median 0.81 s), against about 0.21 s
-  warm. Cloud Run's own metric puts the container start at about 0.2 s. An idle
-  instance shuts down **15 minutes** after its last request (measured), so the
-  first request after that pays it. Expect this to grow once 0c adds a database
-  connection at startup (`docs/tech-stack.md` §7).
+- **Cold start is under a second, database included.** Measured in 0c: a cold
+  `/api/health`, which opens the first connection to Supabase, took 0.82–1.11 s
+  end to end from the laptop in Israel (median 0.87 s; 0b, without a database,
+  was 0.81 s), against about 0.25 s warm. The container itself starts in about
+  0.03–0.3 s, because the pool connects on first use. An idle instance usually
+  shuts down **15 minutes** after its last request, but once did after 7 s, so
+  the 15 minutes isn't guaranteed (`docs/tech-stack.md` §7).
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
@@ -190,13 +222,12 @@ understanding the diff, not for finishing fast.
 
 Carry these forward; answer them in the build, don't assume.
 
-- pgx/sqlc mappings for `INTEGER`, `DATE`, `TIME`, `TEXT[]`.
-- `-infinity` round-tripping through pgx into Go (fallback: a sentinel date).
-- Who owns tables created by goose migrations on Supabase, and how to create a
-  non-owner application role.
+- Creating the non-owner application role on Supabase (0d). Known from 0c:
+  goose's tables are owned by `postgres`, which has `CREATEROLE`.
 - Whether the sign-up invite code reaches Supabase's "before user created" hook.
-- How Cloud Run connects to Supabase: session pooler, transaction pooler with
-  prepared statements off, or direct (only if Cloud Run egress has IPv6).
-- Query latency between Cloud Run (Belgium) and Supabase (Frankfurt).
 - The first month's billing report: confirm the spend cap measured gross usage
   and the bill stayed at zero.
+
+Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.md`
+§5): the pgx/sqlc type mappings, `-infinity` round-tripping, table ownership,
+how Cloud Run connects (session pooler), and the Belgium–Frankfurt latency.

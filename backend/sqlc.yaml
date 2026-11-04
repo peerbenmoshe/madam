@@ -1,0 +1,14 @@
+# sqlc reads the goose migrations as the schema (skipping their Down sections)
+# and the .sql queries, and generates type-safe Go into internal/db.
+# Regenerate with `make sqlc`; never edit the generated files.
+version: "2"
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: internal/db/queries
+    gen:
+      go:
+        package: db
+        out: internal/db
+        # pgx's native interface rather than database/sql.
+        sql_package: pgx/v5
