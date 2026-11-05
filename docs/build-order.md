@@ -24,6 +24,10 @@ merge after 0c._
 _Amended in Phase 0c (Nov 2026): 0c is done; 0d gains what 0c measured about
 Supabase's roles; the `-infinity` spike is answered._
 
+_Amended in Phase 0c′ (Nov 2026): 0c′ is done, so every merge deploys; a
+schema change is now two PRs (`tech-stack.md` §6), and 0d gains how its secret
+change reaches production._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -183,6 +187,15 @@ that never starts is a deploy that never happens.
 *Done when:* a merged PR is live without anyone running `make deploy`, and the
 live revision's image tag is the merge commit.
 
+**✅ Done (5 November 2026, PRs #11 and #12).** Three merges in a row (#11,
+#10, #12) each went live in about 2 minutes, with the image tag equal to the
+merge commit, deployed by `madam-deployer` according to the audit log. A probe
+confirmed that the condition refuses a branch push and a PR. `make deploy`
+stays as the fallback, and it and `make migrate-prod` refuse anything but the
+latest `main`. `migrate-prod` also checks for `verify-full`. The setup is in
+`tech-stack.md` §7 (As built in Phase 0c′), with §6 for migrations and §12 for
+CI; the story is in `build-log.md`.
+
 ### 0d — Isolation plumbing
 
 The non-owner application role, `FORCE ROW LEVEL SECURITY`, one policy on `users`
@@ -207,6 +220,14 @@ passes, RLS is not proven to be doing anything.
 - The app role's URL becomes a new version of `madam-database-url`, and the
   Makefile's pinned version moves with it. `madam-migrate-url` stays the owner.
 - CI already has a migrated Postgres for the I3 test (`tech-stack.md` §12).
+
+*Learned in 0c′, to act on here:*
+- Every merge deploys. So the order is: the role's migration as its own PR;
+  `make migrate-prod`; Pe'er adds the app role's URL as a new version of
+  `madam-database-url`; then the PR that moves the Makefile's pin, whose merge
+  deploys it. `madam-run`'s access is bound on the secret, so it already covers
+  the new version, and the deployer needs nothing new.
+- A role's password can't go in a migration: the repository is public.
 
 ### 0e — Frontend shell
 
