@@ -59,11 +59,12 @@ Keep it that way.
 make dev            # API + frontend dev server + local postgres
 make test           # go test ./... (add -race)
 make lint           # golangci-lint + eslint
-make test-integration # also the tests that need a database (local container)
-make migrate-up     # goose up against $DATABASE_URL (migrate-status shows state)
+make test-integration # also the tests that need a database, as madam_app (local container; DB=dev too)
+make migrate-up     # goose up as the owner (migrate-status shows state); locally also sets madam_app's password
 make migrate-new NAME=create_entries   # new numbered migration file
 make migrate-prod   # production migrations: latest main only, verify-full URL, typed confirmation
-make psql           # psql on the selected database (also reads SQL from stdin)
+make psql           # psql as the owner, sees every row (also reads SQL from stdin)
+make psql-app       # psql as madam_app: sees what the app sees
 make sqlc           # regenerate db/ from the .sql files
 make build          # frontend build + go build with embedded assets
 make db-up          # start local postgres; returns once pg_isready passes
@@ -76,10 +77,13 @@ This list is the end state. The frontend parts of `dev`, `lint` and `build`
 arrive in 0e (`docs/build-order.md`).
 
 **Choosing the database:** every target defaults to the local container
-(`DB=local`). Add `DB=dev` to use the `madam-dev` Supabase project, whose URL is
-`MADAM_DEV_DATABASE_URL` in `.env` (the full session-pooler URL ending in
-`?sslmode=verify-full`). The app only reads `DATABASE_URL`, which the Makefile
-sets from `DB`. No `DB` value points at production. The one way to reach it is
+(`DB=local`). Add `DB=dev` to use the `madam-dev` Supabase project. Each
+database has two URLs, one per role: `DATABASE_URL`, the application role
+`madam_app` (the app, the tests, `psql-app`), and `MIGRATE_URL`, the owner
+(goose, `psql`). For madam-dev they are `MADAM_DEV_DATABASE_URL` and
+`MADAM_DEV_MIGRATE_URL` in `.env`: full session-pooler URLs ending in
+`?sslmode=verify-full`, with the users `madam_app.<ref>` and `postgres.<ref>`.
+The app only reads `DATABASE_URL`, which the Makefile sets from `DB`. No `DB` value points at production. The one way to reach it is
 `make migrate-prod`, a separate target that asks you to type `madam-prod`.
 Names are in `.env.example`.
 
@@ -104,8 +108,9 @@ hand-edit generated code.
   No panics in request paths.
 - **SQL:** every query lives in a `.sql` file, not in Go strings. **Every query
   that reads or writes a table holding user data filters by `user_id`** — no
-  exceptions. The only query that touches no table is the health check's
-  `SELECT 1`.
+  exceptions (on `users`, the user id is `id`). The only queries that touch no
+  table are the health check's `SELECT 1`, `SetUserID` and `CurrentRole`
+  (`internal/db/queries/session.sql`).
 - **Migrations:** numbered goose files. Once merged, a migration is immutable;
   fix forward with a new one. Nobody edits schema in the Supabase dashboard.
 - **Tests:** for anything in `internal/fam`, write the test from
@@ -120,8 +125,12 @@ hand-edit generated code.
   `.claude/settings.json` denies reading `.env` files (that includes any command
   that names `.env`); don't try to work around it. The production database URL
   is never in a local `.env`.
-- **New table checklist:** does it cascade on user delete? Does it have an RLS
-  policy? Is every query filtered by `user_id`?
+- **New table checklist:** does it cascade on user delete? Does its migration
+  `ENABLE` and `FORCE` RLS and add a policy `TO madam_app` with `USING` and
+  `WITH CHECK`? Does it `GRANT` `madam_app` exactly the statements it needs
+  (never `TRUNCATE`, which ignores RLS)? There are no default privileges for
+  `madam_app`, so a missing grant fails as "permission denied". Is every query
+  filtered by `user_id`?
 - **Deploying:** every merge to `main` deploys itself. The `deploy` job in
   `ci.yml` runs `make deploy` once `ci` passes, as `madam-deployer` through
   Workload Identity Federation (`docs/tech-stack.md` §7, 0c′). No keys exist;
@@ -143,11 +152,13 @@ hand-edit generated code.
   display and input only.
 - **`updated_at` is set by a database trigger**, not by application code. You
   won't find it in any Go or SQL file. That's deliberate.
-- **Row Level Security is on, and forced.** Every request must run inside the
-  transaction wrapper that sets the user id. **If a query returns zero rows and
-  you expected rows, suspect the wrapper before suspecting the query.** The app
-  connects with a role that does not own the tables — that is what makes the
-  policies apply.
+- **Row Level Security is on, and forced.** Every query on user data must run
+  inside `Store.InUserTx` (`internal/db/store.go`), which sets the user id for
+  that one transaction. **If a query returns zero rows and you expected rows,
+  suspect the wrapper before suspecting the query.** The app connects as
+  `madam_app`, which owns nothing and has `NOBYPASSRLS` — that is what makes
+  the policies apply. `make psql` connects as the owner and sees every row, so
+  use `make psql-app` to see what the app sees.
 - **Two kinds of hole in the graph line.** A *disturbed* reading is skipped and
   its neighbours connect; a *missing* day is a gap. Recharts can't express both
   with one setting, so the line is drawn as separate segments. Don't "simplify"
@@ -169,8 +180,14 @@ hand-edit generated code.
   that isn't a `postgres://` URL: pgx reads other strings as `key=value` and
   silently falls back to a local socket.
 - **Supabase's `postgres` role has `BYPASSRLS`** (measured in 0c). Connected as
-  `postgres`, RLS does nothing, even with `FORCE`. Only the app role from 0d
-  makes the policies apply.
+  `postgres`, RLS does nothing, even with `FORCE`. Only `madam_app` (0d) makes
+  the policies apply. The local owner `madam` is a superuser, so the same holds
+  locally.
+- **`current_setting` reads `''`, not `NULL`, once a connection has used it.**
+  After a transaction that set `madam.user_id` ends, the same pooled connection
+  reads the setting as an empty string. `''::uuid` is an error, so every policy
+  wraps it: `NULLIF(current_setting('madam.user_id', true), '')::uuid`
+  (measured in 0d).
 - **A `nil` Go slice is written as `NULL`.** Into the `NOT NULL` `TEXT[]` columns
   (`disturbances`, `symptoms`) that fails. Send `[]string{}` (measured in 0c).
 - **`/api/health` reads the database.** It returns 503 when Supabase is

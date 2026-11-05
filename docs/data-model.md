@@ -550,10 +550,12 @@ Postgres RLS filters rows using information the *connection* carries. Our Go API
 connects with a single application role, so the database cannot tell users apart
 on its own — the application must tell it, per request.
 
-1. **A per-request session variable.** Every request opens a transaction and does
-   `SET LOCAL` with the authenticated user id before any query runs. The policies
-   read that variable. This is the transaction wrapper in `tech-stack.md` §1.4,
-   and it is the *only* path to a database connection.
+1. **A per-request setting.** Every request that touches user data opens a
+   transaction and sets the authenticated user id, transaction-locally, before
+   any query runs. The policies read that setting. This is the transaction
+   wrapper in `tech-stack.md` §1.4, and it is the *only* path to user data.
+   (Planned as `SET LOCAL`; built as `set_config(..., true)`, which does the
+   same but takes the id as a parameter. See "As built in Phase 0d".)
 2. **A non-owner application role, and `FORCE ROW LEVEL SECURITY`.** This is the
    trap worth spelling out: in PostgreSQL, superusers and roles with `BYPASSRLS`
    always bypass row security, and **table owners normally bypass it too** unless
@@ -600,6 +602,85 @@ are live.
 - **It is additive, never a replacement.** Every query still filters by `user_id`.
   If the Supabase role setup proves impractical, RLS can be dropped without
   weakening anything that exists today.
+- **Not revocable by us:** `supabase_admin`'s own default privileges in
+  `public` still grant the API roles everything. They apply only to objects
+  `supabase_admin` creates there, never to ours (created by `postgres`), and
+  `postgres` may not act for `supabase_admin` (supautils reserves the
+  membership). Measured on madam-dev in 0d.
+
+### As built in Phase 0d
+
+Migration `00002_isolate_users.sql`:
+
+- **The role `madam_app`:** `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+  NOREPLICATION NOBYPASSRLS`, owning nothing, created **without a password**
+  (the repository is public; how it gets one is in `tech-stack.md` §5,
+  Database roles).
+- **Its privileges:** `USAGE` on `public`, and `SELECT, INSERT, UPDATE, DELETE`
+  on `users`. Never `TRUNCATE`, which ignores RLS; no `REFERENCES` or
+  `TRIGGER`. **No default privileges** for `madam_app`: each new table's
+  migration grants explicitly, so a forgotten grant fails as "permission
+  denied" in CI rather than silently granting on a table that forgot its
+  policy. Nothing on `goose_db_version`.
+- **RLS:** `ENABLE` and `FORCE` on `users`, and one policy:
+
+  ```sql
+  CREATE POLICY users_own_row ON public.users FOR ALL TO madam_app
+      USING      (id = (SELECT NULLIF(current_setting('madam.user_id', true), '')::uuid))
+      WITH CHECK (id = (SELECT NULLIF(current_setting('madam.user_id', true), '')::uuid));
+  ```
+
+  - **`madam.user_id`**, not `app.…`: a custom setting needs a dotted prefix,
+    and Supabase already uses `app.settings.*` on this database.
+  - `current_setting(name, true)` is `NULL` when the setting was never made on
+    the connection, but **`''` once an earlier transaction on that
+    connection made it**. `''::uuid` is an error, so without `NULLIF` a query
+    that skipped the wrapper would fail or return nothing depending on which
+    pooled connection it got. Measured: the test's reused-connection case
+    failed with `22P02 invalid input syntax for type uuid: ""` until `NULLIF`
+    was added.
+  - The `(SELECT …)` makes Postgres evaluate the expression once per
+    statement instead of once per row.
+  - `TO madam_app`: any other role subject to RLS sees nothing.
+- **Supabase's API-role grants revoked**, on Supabase only (a `DO` block that
+  does nothing where the roles don't exist, and fails if only some do): all
+  privileges on tables, sequences and functions in `public`, and `postgres`'s
+  default privileges for them. Measured on madam-dev before the migration:
+  `anon`, `authenticated` and `service_role` held every privilege, `TRUNCATE`
+  included, on `users`, `goose_db_version` and its sequence. After it, only
+  `postgres` and `madam_app` hold any. Nothing in Supabase needs them: they are
+  PostgREST's roles, the Data API is off, and Auth connects as
+  `supabase_auth_admin`, scoped to the `auth` schema. An HTTP "before user
+  created" hook (Slice 2) needs no database grants.
+- Tables are written `public.users`, because Supabase also has `auth.users`.
+
+**The setting is safe with the session pooler.** Each pgx connection keeps one
+server connection for its lifetime, and the pool hands it to request after
+request. `set_config(..., true)` is transaction-local: it ends at `COMMIT` or
+`ROLLBACK`, so the next request on that connection starts with nothing set. A
+connection released in the middle of a transaction is destroyed by pgxpool,
+not reused (`pgxpool/conn.go`, `Release`). A session-level `SET` would carry
+one user's id into another user's request; that is why it is never used.
+`set_config` rather than `SET LOCAL` because `SET` can't take a bind
+parameter: the id travels as a typed value (`$1::uuid`), never as SQL text.
+
+**The wrapper** is `Store.InUserTx` (`internal/db/store.go`): `pgx.BeginFunc`,
+then `SetUserID` as the first statement, then the handler's queries; commit on
+success, rollback on error or panic. The identity comes from the
+`Authenticator` interface (`internal/api/auth.go`) through `RequireUser`
+middleware. Until Slice 2 only a test stub implements it, in a `_test.go`
+file, so no build of the server can fake an identity.
+
+**The proof** is `TestIsolation` (`internal/db/isolation_test.go`), run as
+`madam_app` locally, in CI and on madam-dev. It refuses to run as a role that
+is a superuser or bypasses RLS, then checks: a user sees their own row (so
+zero rows elsewhere means something); **I3**, `GetUser(B)` as A returns no
+rows although its `WHERE` matches B; `WITH CHECK` refuses a row under another
+id (`42501`); and a query without the wrapper sees nothing, on a fresh
+connection and on one an earlier transaction used. It was seen failing first:
+as the owner, the guard refused; as `madam_app` with RLS switched off, I3,
+`WITH CHECK` and both no-setting cases failed; with the policy lacking
+`NULLIF`, the reused-connection case errored.
 
 ---
 

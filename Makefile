@@ -15,8 +15,17 @@ export
 # Which development database: DB=local (the container, default) or DB=dev
 # (the madam-dev Supabase project). There is deliberately no option for
 # production. The app itself only ever reads DATABASE_URL.
+#
+# Each database has two URLs, one per role (docs/tech-stack.md §5):
+#   DATABASE_URL  the application role madam_app: the app, the tests and
+#                 psql-app. Row Level Security applies to it.
+#   MIGRATE_URL   the owner (madam locally, postgres on Supabase): goose and
+#                 psql. It skips Row Level Security, so it sees every row.
+# The local passwords are throwaway values, like madam:madam: the port is
+# bound to 127.0.0.1 only.
 DB ?= local
-LOCAL_DATABASE_URL := postgres://madam:madam@127.0.0.1:5432/madam?sslmode=disable
+LOCAL_DATABASE_URL := postgres://madam_app:madam_app@127.0.0.1:5432/madam?sslmode=disable
+LOCAL_MIGRATE_URL := postgres://madam:madam@127.0.0.1:5432/madam?sslmode=disable
 
 # Supabase signs its certificates with its own root CA, which isn't in the
 # system trust store. With sslmode=verify-full in a Supabase URL, pgx (in the
@@ -27,11 +36,16 @@ SUPABASE_CA := $(CURDIR)/backend/certs/supabase-root-2021-ca.crt
 
 ifeq ($(DB),local)
   DATABASE_URL := $(LOCAL_DATABASE_URL)
+  MIGRATE_URL := $(LOCAL_MIGRATE_URL)
 else ifeq ($(DB),dev)
   ifeq ($(MADAM_DEV_DATABASE_URL),)
     $(error DB=dev needs MADAM_DEV_DATABASE_URL in .env)
   endif
+  ifeq ($(MADAM_DEV_MIGRATE_URL),)
+    $(error DB=dev needs MADAM_DEV_MIGRATE_URL in .env)
+  endif
   DATABASE_URL := $(MADAM_DEV_DATABASE_URL)
+  MIGRATE_URL := $(MADAM_DEV_MIGRATE_URL)
   PGSSLROOTCERT := $(SUPABASE_CA)
 else
   $(error DB must be "local" or "dev", got "$(DB)")
@@ -73,7 +87,8 @@ define require_latest_main
 endef
 
 .PHONY: dev test test-integration lint build db-up db-down db-reset image \
-  docker-run deploy sqlc migrate-up migrate-status migrate-new migrate-prod psql
+  docker-run deploy sqlc migrate-up migrate-status migrate-new migrate-prod psql \
+  psql-app
 
 ifeq ($(DB),local)
 dev: db-up
@@ -84,12 +99,16 @@ dev:
 test:
 	cd backend && go test -race ./...
 
-# Also runs the tests that need a database, against the local container only.
-# They skip themselves when MADAM_TEST_DATABASE_URL is unset (plain `make test`).
-# -count=1 because Go's test cache can't see the database.
+# Also runs the tests that need a database, as the application role, like
+# the server. They skip themselves when MADAM_TEST_DATABASE_URL is unset
+# (plain `make test`). -count=1 because Go's test cache can't see the
+# database. The local container is started and migrated first; with DB=dev
+# the tests run against madam-dev as it is, and leave a few test rows there.
+ifeq ($(DB),local)
+test-integration: db-up migrate-up
+endif
 test-integration:
-	$(MAKE) db-up migrate-up DB=local
-	cd backend && MADAM_TEST_DATABASE_URL="$(LOCAL_DATABASE_URL)" go test -race -count=1 ./...
+	cd backend && MADAM_TEST_DATABASE_URL="$$DATABASE_URL" go test -race -count=1 ./...
 
 lint: $(GOLANGCI_LINT)
 	cd backend && $(GOLANGCI_LINT) run
@@ -107,7 +126,7 @@ image:
 ifeq ($(DB),local)
 docker-run: image db-up
 	docker run --rm -p 8080:8080 --network madam_default \
-	  -e DATABASE_URL="postgres://madam:madam@postgres:5432/madam?sslmode=disable" madam-server:dev
+	  -e DATABASE_URL="postgres://madam_app:madam_app@postgres:5432/madam?sslmode=disable" madam-server:dev
 else
 docker-run: image
 	docker run --rm -p 8080:8080 -e DATABASE_URL madam-server:dev
@@ -147,9 +166,15 @@ db-down:
 db-reset:
 	docker compose down --volumes
 
-# An interactive psql session on the selected database. Also reads SQL from
-# stdin: `echo 'SELECT 1' | make psql DB=dev`.
+# An interactive psql session on the selected database, as the owner. Also
+# reads SQL from stdin: `echo 'SELECT 1' | make psql DB=dev`. The owner skips
+# Row Level Security, so it sees every user's rows.
 psql:
+	@psql "$$MIGRATE_URL"
+
+# The same as the application role, which sees what the app sees: without
+# `SELECT set_config('madam.user_id', '<uuid>', false)` first, no rows at all.
+psql-app:
 	@psql "$$DATABASE_URL"
 
 # Regenerates backend/internal/db from the migrations and the .sql queries.
@@ -157,11 +182,18 @@ psql:
 sqlc:
 	$(SQLC) generate
 
+# Locally (and in CI, which uses DB=local) it also gives madam_app its
+# throwaway password. On Supabase the password is set by hand with psql's
+# \password, never by a migration: the repository is public.
 migrate-up:
-	@GOOSE_DBSTRING="$$DATABASE_URL" $(GOOSE) up
+	@GOOSE_DBSTRING="$$MIGRATE_URL" $(GOOSE) up
+ifeq ($(DB),local)
+	@psql "$$MIGRATE_URL" --quiet --no-psqlrc -v ON_ERROR_STOP=1 \
+	  -c "ALTER ROLE madam_app PASSWORD 'madam_app'"
+endif
 
 migrate-status:
-	@GOOSE_DBSTRING="$$DATABASE_URL" $(GOOSE) status
+	@GOOSE_DBSTRING="$$MIGRATE_URL" $(GOOSE) status
 
 # New numbered migration: make migrate-new NAME=create_entries
 # -s numbers sequentially (00002) instead of by timestamp.
