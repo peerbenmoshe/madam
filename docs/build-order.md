@@ -28,6 +28,10 @@ _Amended in Phase 0c′ (Nov 2026): 0c′ is done, so every merge deploys; a
 schema change is now two PRs (`tech-stack.md` §6), and 0d gains how its secret
 change reaches production._
 
+_Amended in Phase 0d (Nov 2026): 0d is done. The transaction wrapper is a
+function handlers call, not chi middleware, and the stub identity is test-only
+(both below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -228,6 +232,23 @@ passes, RLS is not proven to be doing anything.
   deploys it. `madam-run`'s access is bound on the secret, so it already covers
   the new version, and the deployer needs nothing new.
 - A role's password can't go in a migration: the repository is public.
+
+**✅ Done (5 November 2026, PRs #14, #15 and #16).** Production connects as
+`madam_app`, and I3 passes as that role locally, in CI and on madam-dev,
+after it was seen failing under three wrong setups. Two decisions differ from
+this section's wording, chosen by Pe'er:
+- **The transaction wrapper is a function,** `Store.InUserTx`, which the
+  handler calls and which commits before the response is written. It's not chi
+  middleware, which would commit after the response may already have been sent.
+- **The stub identity lives only in a test file.** 0d adds no user-data route,
+  and real auth (Slice 2) arrives before the first one (Slice 3), so nothing
+  at runtime needs a fake identity, and Go never compiles test files into a
+  binary. Slice 2 implements the `Authenticator` interface and passes it in
+  from `main.go`.
+
+The decisions are in `data-model.md` §9 (As built in Phase 0d) and
+`tech-stack.md` §1.4, §5 (Database roles) and §7; the story is in
+`build-log.md`.
 
 ### 0e — Frontend shell
 
