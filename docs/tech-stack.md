@@ -544,10 +544,16 @@ goose's `-s`), not by timestamp. Each has a `Down` section for local use;
 nothing runs down migrations against production.
 
 **How migrations reach production: from the laptop, `make migrate-prod`.**
-1. It reads the owner URL from the Secret Manager secret `madam-migrate-url`
+1. It refuses uncommitted or untracked files and anything but the latest
+   `main` (the same guard as `make deploy`; since 0c′).
+2. It reads the owner URL from the Secret Manager secret `madam-migrate-url`
    with the developer's own `gcloud` login, into one shell's memory only.
-2. It prints `goose status`.
-3. It applies the migrations only after `madam-prod` is typed at the prompt.
+3. It refuses the URL unless it's `postgres://…` with `sslmode=verify-full`,
+   exactly once (`deploy/check-db-url.sh`; since 0c′). It's the server's rule,
+   which `migrate-prod` lacked in 0c, so migration `00001` ran over unverified
+   TLS. The script reads the URL on stdin and never prints it.
+4. It prints `goose status`.
+5. It applies the migrations only after `madam-prod` is typed at the prompt.
 
 Its secret is separate from the app's (§7) because from 0d the two hold
 different roles: migrations run as the owner, the app as the non-owner role.

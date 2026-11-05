@@ -61,6 +61,17 @@ TAG = $(shell git rev-parse --short HEAD)
 DATABASE_URL_SECRET := madam-database-url:2
 MIGRATE_URL_SECRET := madam-migrate-url
 
+# The first lines of `deploy` and `migrate-prod`: refuse uncommitted or
+# untracked files, and anything but the latest commit on main, so production
+# only ever gets what main holds. FETCH_HEAD is what `git fetch` just
+# downloaded. $@ is the target's name, for the messages.
+define require_latest_main
+	@test -z "$$(git status --porcelain)" || { echo "$@: commit or stash your changes first" >&2; exit 1; }
+	@git fetch --quiet origin main
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse FETCH_HEAD)" || { \
+	  echo "$@: only the latest commit on main (HEAD $$(git rev-parse --short HEAD), main $$(git rev-parse --short FETCH_HEAD))" >&2; exit 1; }
+endef
+
 .PHONY: dev test test-integration lint build db-up db-down db-reset image \
   docker-run deploy sqlc migrate-up migrate-status migrate-new migrate-prod psql
 
@@ -112,10 +123,7 @@ endif
 # binding on the service, set once. --allow-unauthenticated would re-set that
 # policy on every deploy, which CI's deployer isn't allowed to do.
 deploy:
-	@test -z "$$(git status --porcelain)" || { echo "deploy: commit or stash your changes first" >&2; exit 1; }
-	@git fetch --quiet origin main
-	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse FETCH_HEAD)" || { \
-	  echo "deploy: only the latest commit on main is deployed (HEAD $$(git rev-parse --short HEAD), main $$(git rev-parse --short FETCH_HEAD))" >&2; exit 1; }
+	$(require_latest_main)
 	docker build -t $(IMAGE):$(TAG) .
 	docker push $(IMAGE):$(TAG)
 	gcloud run deploy madam --project=$(GCP_PROJECT) --region=$(GCP_REGION) \
@@ -163,11 +171,15 @@ migrate-new:
 
 # Production migrations, from the laptop. Deliberately not a DB= value: it
 # reads the owner URL from Secret Manager with your own gcloud login, keeps it
-# in this one shell's memory, shows the status and asks before changing
-# anything. Run it before `make deploy` when a deploy needs a new migration.
+# in this one shell's memory, refuses it unless it verifies the certificate,
+# shows the status and asks before changing anything. Only from the latest
+# main: a schema change is the migration's PR, then this, then the code's PR
+# (docs/tech-stack.md §6).
 migrate-prod:
+	$(require_latest_main)
 	@export PGSSLROOTCERT="$(SUPABASE_CA)"; \
 	url="$$(gcloud secrets versions access latest --secret=$(MIGRATE_URL_SECRET) --project=$(GCP_PROJECT))" || exit 1; \
+	printf %s "$$url" | sh $(CURDIR)/deploy/check-db-url.sh || exit 1; \
 	GOOSE_DBSTRING="$$url" $(GOOSE) status || exit 1; \
 	printf 'Apply pending migrations to PRODUCTION? Type madam-prod to continue: '; \
 	read -r answer; \
