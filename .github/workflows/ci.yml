@@ -4,11 +4,16 @@ on:
   pull_request:
   push:
     branches: [main]
+  # The "Run workflow" button: reruns CI on main and deploys, for when a merge
+  # triggered no run (docs/build-log.md, 0a). Google refuses any other branch.
+  workflow_dispatch:
 
-# Cancel an older run of the same branch when a newer commit arrives.
+# A newer commit on a PR cancels the older run. Runs on main are never
+# cancelled, because they deploy: they queue instead, and GitHub keeps only the
+# newest waiting run, so the latest commit on main is always the one deployed.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -92,3 +97,37 @@ jobs:
       - name: Build image
         working-directory: .
         run: docker build -t madam-server:ci .
+
+  # Deploys main to Cloud Run, only after the ci job has passed on the same
+  # commit. No key exists: GitHub signs a token saying which repository, branch,
+  # event and workflow this is, and Google exchanges it for a short-lived token
+  # of madam-deployer only if all of it matches (docs/tech-stack.md §7, 0c′).
+  deploy:
+    needs: ci
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # id-token: write lets this job, and only this job, ask GitHub for the
+    # signed token.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Writes a credentials file (gha-creds-*.json, gitignored) that gcloud
+      # then uses to act as madam-deployer.
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/966460417479/locations/global/workloadIdentityPools/github/providers/madam-deploy
+          service_account: madam-deployer@madam-512309.iam.gserviceaccount.com
+
+      # docker push authenticates through gcloud, as on the laptop. The runner
+      # has gcloud preinstalled.
+      - name: Docker login to Artifact Registry
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
+      # The laptop's target, so the deploy flags exist in one place only.
+      - name: Deploy
+        run: make deploy

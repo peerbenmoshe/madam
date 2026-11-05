@@ -69,7 +69,7 @@ make build          # frontend build + go build with embedded assets
 make db-up          # start local postgres; returns once pg_isready passes
 make db-down        # stop it (data kept); db-reset also deletes the data
 make image          # build the production image locally (docker-run also runs it)
-make deploy         # build, push and deploy the committed code to Cloud Run
+make deploy         # fallback: deploy the latest main from the laptop (CI deploys every merge)
 ```
 
 This list is the end state. The frontend parts of `dev`, `lint` and `build`
@@ -83,9 +83,10 @@ sets from `DB`. No `DB` value points at production. The one way to reach it is
 `make migrate-prod`, a separate target that asks you to type `madam-prod`.
 Names are in `.env.example`.
 
-**Production order:** a deploy that needs a new migration is `make migrate-prod`
-first, then `make deploy`. The migration must work with the code already
-running, because for a moment it does.
+**Production order:** every merge deploys, so a schema change is two PRs: the
+migration alone, then `make migrate-prod` from an up-to-date `main`, then the
+code that needs it (`docs/tech-stack.md` §6). The migration must work with the
+code already running, because it does.
 
 **Pinned tools:** golangci-lint's version is `GOLANGCI_LINT_VERSION` in the
 Makefile, and the same value appears in `.github/workflows/ci.yml`; change both
@@ -121,12 +122,17 @@ hand-edit generated code.
   is never in a local `.env`.
 - **New table checklist:** does it cascade on user delete? Does it have an RLS
   policy? Is every query filtered by `user_id`?
-- **Deploying:** `make deploy`, from the laptop, with a clean working tree. It
-  builds the image ourselves, tags it with the commit hash and pushes it; never
-  `gcloud run deploy --source` (it uses Cloud Build, billed separately). Every
-  Cloud Run setting is a flag in that target, so change settings there, never in
-  the Console. Keep min instances at 0 and max instances at 2
-  (`docs/tech-stack.md` §7). Deploy on merge comes later (`docs/build-order.md`).
+- **Deploying:** every merge to `main` deploys itself. The `deploy` job in
+  `ci.yml` runs `make deploy` once `ci` passes, as `madam-deployer` through
+  Workload Identity Federation (`docs/tech-stack.md` §7, 0c′). No keys exist;
+  never create one. `make deploy` from the laptop is the fallback, and it
+  refuses anything but a clean, latest `main`. It builds the image ourselves,
+  tags it with the commit hash and pushes it; never `gcloud run deploy
+  --source` (it uses Cloud Build, billed separately). Every Cloud Run setting
+  is a flag in that target, so change settings there, never in the Console.
+  The exception is IAM (who may call the app, who may deploy): one-time
+  `gcloud` commands, recorded in §7. Keep min instances at 0 and max instances
+  at 2.
 
 ---
 
@@ -175,6 +181,12 @@ hand-edit generated code.
   flaky first runs and CI.
 - **Git talks to GitHub over HTTPS only.** SSH connections are reset from this
   laptop; don't switch the remote to `git@github.com:`.
+- **A merge can start no CI run at all** (seen in 0a), and since 0c′ that is a
+  deploy that doesn't happen. Check `gh run list --branch main`; tell Pe'er
+  what's stuck, then "Run workflow" on `main`.
+- **`--allow-unauthenticated` is deliberately not in `make deploy`.** gcloud
+  re-sets the service's IAM policy on every deploy with it, which CI's
+  deployer may not do. Public access is the `allUsers` binding, set once.
 - **Cloud Run has a spend cap.** If the deployed app suddenly stops answering and
   nothing changed in the code, check Billing → Budgets for an **Enforced** spend
   cap before debugging anything else. It pauses Cloud Run until lifted by hand.
