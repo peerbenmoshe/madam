@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, feature/0c-prime-deploy-on-merge] # TEMPORARY: wif-probe
+    branches: [main]
   # The "Run workflow" button: reruns CI on main and deploys, for when a merge
   # triggered no run (docs/build-log.md, 0a). Google refuses any other branch.
   workflow_dispatch:
@@ -131,20 +131,3 @@ jobs:
       # The laptop's target, so the deploy flags exist in one place only.
       - name: Deploy
         run: make deploy
-
-  # TEMPORARY, removed before merge: proves Google refuses a token from
-  # anything but ci.yml on main. EXPECTED TO FAIL in the auth step.
-  wif-probe:
-    if: github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: projects/966460417479/locations/global/workloadIdentityPools/github/providers/madam-deploy
-          service_account: madam-deployer@madam-512309.iam.gserviceaccount.com
-          token_format: access_token
-      - run: gcloud auth list
