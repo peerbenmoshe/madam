@@ -32,7 +32,8 @@ func run() error {
 	}
 
 	// Locally the Makefile sets DATABASE_URL; on Cloud Run it comes from
-	// Secret Manager (docs/tech-stack.md §7).
+	// Secret Manager (docs/tech-stack.md §7). Either way it's the application
+	// role, never the owner, so Row Level Security applies (docs/data-model.md §9).
 	pool, err := newPool(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		return err
@@ -42,7 +43,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(db.New(pool)),
+		Handler:           api.NewRouter(db.NewStore(pool)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

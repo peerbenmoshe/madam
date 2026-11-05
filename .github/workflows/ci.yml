@@ -45,8 +45,10 @@ jobs:
           --health-retries 30
 
     env:
-      # Turns on the tests that need a database (they skip without it).
-      MADAM_TEST_DATABASE_URL: postgres://madam:madam@127.0.0.1:5432/madam?sslmode=disable
+      # Turns on the tests that need a database (they skip without it). The
+      # application role, as on the server, so the isolation test (I3) sees
+      # Row Level Security. `make migrate-up` gives it this throwaway password.
+      MADAM_TEST_DATABASE_URL: postgres://madam_app:madam_app@127.0.0.1:5432/madam?sslmode=disable
 
     steps:
       - uses: actions/checkout@v7
@@ -76,6 +78,8 @@ jobs:
           fi
 
       # The Makefile's default DB=local points at the service container.
+      # Runs as the owner madam, then sets madam_app's local password with
+      # the runner's psql.
       - name: Migrate
         working-directory: .
         run: make migrate-up

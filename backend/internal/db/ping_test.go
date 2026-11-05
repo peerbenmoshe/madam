@@ -12,7 +12,8 @@ import (
 // testPool connects to the database in MADAM_TEST_DATABASE_URL, or skips the
 // test when it is unset. Set but unreachable is a failure, not a skip, so CI
 // can't pass by quietly losing its database. `make test-integration` and CI
-// set it to a local, migrated Postgres.
+// set it to a migrated Postgres, connecting as the application role
+// madam_app, the role the server uses.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("MADAM_TEST_DATABASE_URL")

@@ -121,9 +121,16 @@ Request path, in order:
 1. **Router and handlers** — translate HTTP to and from the rest of the app.
 2. **Auth middleware** — verify the token, establish the user identity. Every
    later step is scoped to that user (AC-16).
-3. **Transaction wrapper** — open a transaction and set the user id as a session
-   variable, so Row Level Security policies can see who is asking
-   (`data-model.md` §9). Every data-touching request goes through it.
+3. **Transaction wrapper** — open a transaction and set the user id as a
+   transaction-local setting, so Row Level Security policies can see who is
+   asking (`data-model.md` §9). Every data-touching request goes through it.
+   *Decided in 0d:* it's a function the handler calls,
+   `Store.InUserTx(ctx, userID, fn)` (`internal/db/store.go`), not middleware.
+   It commits before the handler writes its response, so a failed commit
+   becomes an error response, never a 200 for data that wasn't saved.
+   Rejected: middleware committing after `next.ServeHTTP`, by which time the
+   response may already be on its way. Handlers get a `Store`, never the pool,
+   so it is the only path to user data.
 4. **Validation** — well-formed dates, numbers, no future dates, temperature
    within 20.00–50.00 °C.
 5. **Domain logic** — time adjustment, cycle days, suggestion rules, stats. Plain
@@ -175,8 +182,9 @@ router is small and depends only on the standard library, and it is used in
 production at companies including Cloudflare and Heroku.
 
 It adds what we would otherwise hand-write: route groups ("everything here needs
-auth"), sub-routers, and a set of ready-made middleware. The transaction wrapper
-in §1.4 is itself chi middleware.
+auth"), sub-routers, and a set of ready-made middleware. Auth is chi
+middleware (`RequireUser`, §4). The transaction wrapper in §1.4 was planned as
+middleware too; 0d made it a function the handler calls instead (§1.4).
 
 Rejected:
 
@@ -331,6 +339,29 @@ tables are owned by `postgres`, which is not a superuser but **has
 `BYPASSRLS`**, so as `postgres` even forced RLS is skipped. It also has
 `CREATEROLE`, so 0d can create the application role in a migration. Details in
 `data-model.md` §9.
+
+*As built in 0d:* migration `00002` creates **`madam_app`** (`LOGIN`,
+`NOBYPASSRLS`, owns nothing) **with no password**, because the repository is
+public. The password is set out of band:
+- **On Supabase,** by Pe'er, in psql connected as `postgres`:
+  `\password madam_app`. psql hashes it (SCRAM) on the laptop and sends only
+  the hash, so the plaintext reaches no server log, file or conversation.
+  `postgres` may do this because PG16+ gives a `CREATEROLE` role ADMIN on the
+  roles it creates (measured on madam-dev: ADMIN yes, INHERIT and SET no).
+  Letters and digits only, like the other passwords, and a different one per
+  project.
+- **Locally and in CI,** by `make migrate-up` (DB=local): the throwaway
+  password `madam_app`, like the owner's `madam:madam`.
+
+**Through the pooler, a custom role's user name is `madam_app.<project-ref>`**
+(Supabase's docs, "Connecting to Postgres"), like `postgres.<project-ref>`.
+The role's `VALID UNTIL` must not have passed (it's empty: never). After a
+password change the pooler can take about 15 s to notice.
+
+So every database has two URLs: the owner's for migrations, the app role's for
+everything else. Locally `madam:madam` and `madam_app:madam_app`; on madam-dev
+`MADAM_DEV_MIGRATE_URL` and `MADAM_DEV_DATABASE_URL` in `.env`; in production
+the secrets `madam-migrate-url` and `madam-database-url` (§7).
 
 ### Connecting
 
@@ -1305,6 +1336,10 @@ tired. Since 0c′ it also deploys every merge to `main` (§7).
     the database tests too. In 0d that could hide a broken RLS migration.
   - The Go cache now also keys on `tools/go.sum`. On a cold cache the first
     run took about 4 minutes, mostly compiling sqlc and goose.
+- *Changed in 0d:* the tests connect as **`madam_app`**
+  (`MADAM_TEST_DATABASE_URL`), the role the server uses, so the isolation test
+  I3 sees Row Level Security. **Migrate** still runs as the owner `madam`,
+  then sets `madam_app`'s throwaway password with the runner's `psql`.
 - *Added in 0c′* (how it works: §7, As built in Phase 0c′):
   - A second job, **`deploy`**, after `ci`, only on `main`. It's skipped on
     PRs and isn't a required check.
