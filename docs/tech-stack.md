@@ -859,9 +859,11 @@ at project level.
 | `run.developer` | service `madam` | Read and update (deploy) the service; also delete it. **Not** change who may call it: no `setIamPolicy` |
 | `iam.serviceAccountUser` | `madam-run` | Start revisions that run as `madam-run` (`actAs`) |
 
-It has **no secret permission**: gcloud doesn't read secrets when deploying
-(checked in its source), and Cloud Run checks `madam-run`'s access, not the
-deployer's (*unverified until the first automatic deploy*). It has **no keys**:
+It has **no secret permission**, and needs none: gcloud doesn't read secrets
+when deploying (checked in its source), and every deploy since 0c′ has passed
+`--set-secrets` without one. Only `madam-run`, which reads the secret at
+instance start, needs access. `run.developer` bound on the service alone is
+enough for a deploy (also measured). It has **no keys**:
 `gcloud iam service-accounts keys list --iam-account=madam-deployer@madam-512309.iam.gserviceaccount.com --managed-by=user`
 lists none. Never create one.
 
@@ -882,6 +884,15 @@ by hand, and record it here.
 `iam`, `iamcredentials` (issues the impersonation token) and `sts` (exchanges
 GitHub's note); the pool, the provider, `madam-deployer`, and the four bindings
 above.
+
+**Measured** (the first three automatic deploys, 5 November 2026, PRs #11, #10
+and #12): each went live with the image tag equal to the merge commit, and the
+audit log names `madam-deployer` as the deployer. Merge to live took about **2
+minutes**: `ci` about 1 minute, then `deploy` about 1 minute, of which `gcloud
+run deploy` is about 50 s. A change to `tools/go.sum` empties CI's Go cache,
+so that run's `ci` took 4 minutes. GitHub identifies a run of this repository
+with its newer ID-based subject,
+`repo:peerbenmoshe@100029602/madam@1425598027:ref:refs/heads/main`.
 
 | Decision | Choice | Why | Rejected |
 |---|---|---|---|
@@ -905,8 +916,8 @@ above.
   `ci.yml` on `main` by push or dispatch. A "permission denied" during `make
   deploy` points at a role above. After fixing something outside Git (IAM),
   use **Re-run failed jobs**.
-- *"only the latest commit on main is deployed".* A newer merge landed while
-  this run waited; that merge's run deploys it. Nothing to fix.
+- *"deploy: only the latest commit on main".* A newer merge landed while this
+  run waited; that merge's run deploys it. Nothing to fix.
 - *Stop all deploys now:* `gcloud iam service-accounts disable
   madam-deployer@madam-512309.iam.gserviceaccount.com --project=madam-512309`
   (`enable` undoes it).
@@ -916,6 +927,11 @@ above.
 - *What's live?* `gcloud run services describe madam --region=europe-west1
   --format='value(spec.template.spec.containers[0].image)'`. The tag should be
   `git rev-parse --short origin/main`.
+- *Who deployed?* The **Admin Activity** audit log, which records who asked
+  for each change:
+  `gcloud logging read 'logName="projects/madam-512309/logs/cloudaudit.googleapis.com%2Factivity" AND protoPayload.methodName:"ReplaceService"' --limit=1 --format='value(timestamp,protoPayload.authenticationInfo.principalEmail)'`.
+  Cloud Run's `system_event` log also mentions `ReplaceService`, but it has
+  no caller.
 
 ### Considered and rejected: Starter Tier
 

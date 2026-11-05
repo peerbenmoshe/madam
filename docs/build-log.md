@@ -222,3 +222,74 @@ but unverified TLS.
 - **Instructions about secret files must say the whole thing.** "Append X to
   the line" assumed a line existed. Claude can't see `.env`, so instructions
   for it have to describe the complete, finished line.
+
+---
+
+## Phase 0c′ — Deploy on merge (5 November 2026, PRs #11 and #12)
+
+**Goal.** Every merge to `main` deploys itself, with no key anywhere, so `main`
+and the live app can't drift apart.
+
+**Why it mattered, measured on the first morning.** The live revision ran
+`93c33e9`, a 0c *branch* commit. `make deploy` had run from the branch, and a
+squash merge gives the merged commit a new hash. So the live tag named a
+commit that `main` didn't contain.
+
+**Decisions** (details in `tech-stack.md` §6, §7 and §12):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Authentication | Workload Identity Federation through a service account, `madam-deployer` | No key exists anywhere. One identity to inspect or disable |
+| The condition | Repository by numeric ID, `main`, push or "Run workflow", `ci.yml` only, GitHub's runners | Refuses forks, PRs, other branches and other workflows, and `pull_request_target`, which runs with `ref` set to `main` |
+| Roles | Four, each bound on one resource, none on the project | The narrowest that a deploy needs |
+| Gate | A `deploy` job in `ci.yml` after `ci` | The merged commit itself is tested, because the required check isn't strict |
+| Flags | CI runs `make deploy` | One copy, so CI and the laptop can't drift |
+| Public access | `--allow-unauthenticated` removed; the `allUsers` binding stays, set once | With the flag, gcloud re-sets the IAM policy on every deploy, which the deployer may not do |
+| Missing runs | A "Run workflow" button now | Changed 0a's "only if it happens again": a missing run is now a missing deploy |
+| Migrations | Still from the laptop, as two PRs | The owner credential stays out of GitHub's reach, and production only runs migrations that are on `main` |
+| Guards | `deploy` and `migrate-prod` accept only a clean, latest `main`; `migrate-prod` also requires `verify-full` | Prevents another `93c33e9`, and closes 0c's unverified-TLS gap |
+
+Pe'er accepted all the recommended options, and asked for documentation solid
+and concise enough to learn from. §7 now opens with the flow in six steps, a
+glossary and "When something goes wrong". That's the shape for later
+infrastructure, too.
+
+**Verified rather than assumed:**
+- **The condition refuses a non-main ref.** A temporary job asked for a token
+  from a push to the PR's branch, identical to a real deploy except for the
+  branch, and from the PR itself. Both were refused: "The given credential is
+  rejected by the attribute condition." Google doesn't say which clause failed,
+  so only a test that changes one thing shows which rule fired.
+- **The roles were enough, and the deployer needs no secret access.**
+  `run.developer` bound on the service alone can deploy, and `--set-secrets`
+  works without Secret Manager access for the deployer. Only `madam-run`
+  needs it.
+- **Three deploys in a row** (#11, #10, #12): each live within about 2 minutes,
+  with the image tag equal to the merge commit and `madam-deployer` as the
+  deployer in the audit log.
+- `madam-migrate-url` passes the new `verify-full` check. It was piped in,
+  never printed.
+
+**Surprises:**
+- Google's docs couldn't be fetched in the session, so gcloud's own source
+  and `gcloud iam roles describe` answered instead. The source showed that
+  `--allow-unauthenticated` calls `SetIamPolicy` on every deploy, even when
+  nothing changes.
+- The first audit-log search found deploys with no caller. It had matched
+  Cloud Run's `system_event` log; who asked is in **Admin Activity**.
+- The GitHub identity in that log uses GitHub's newer ID-based subject
+  (`repo:peerbenmoshe@100029602/madam@1425598027:…`), which applies to
+  repositories created after July 2026.
+- Dependabot's `cel-go` PR waited until the first automatic deploy had been
+  verified on its own, so that deploy carried one change. The PR then became the
+  second test, and its security alert closed by itself once the fix reached
+  `main`.
+
+**Lessons:**
+- **A deploy credential is data access.** The deployer can run any image as
+  `madam-run`, which can read the database URL. What protects the data is the
+  condition and branch protection, not the roles' names.
+- **Test a security rule by changing one thing.** A refusal for several
+  reasons at once proves less than it seems.
+- **When the docs are out of reach, the tool's source and the role
+  definitions are authoritative.** Both are on the laptop already.
