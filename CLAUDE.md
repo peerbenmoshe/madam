@@ -62,7 +62,7 @@ make lint           # golangci-lint + eslint
 make test-integration # also the tests that need a database (local container)
 make migrate-up     # goose up against $DATABASE_URL (migrate-status shows state)
 make migrate-new NAME=create_entries   # new numbered migration file
-make migrate-prod   # production migrations: Secret Manager URL, typed confirmation
+make migrate-prod   # production migrations: latest main only, verify-full URL, typed confirmation
 make psql           # psql on the selected database (also reads SQL from stdin)
 make sqlc           # regenerate db/ from the .sql files
 make build          # frontend build + go build with embedded assets
