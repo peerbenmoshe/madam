@@ -553,12 +553,25 @@ Its secret is separate from the app's (§7) because from 0d the two hold
 different roles: migrations run as the owner, the app as the non-owner role.
 `madam-run` can't read it.
 
-Rejected for now: migrating from CI. It would put a long-lived owner
-credential in GitHub and expose schema changes to the Actions flakiness.
-Revisit in 0c′, where Workload Identity Federation could read the same secret.
+Rejected: migrating from CI. In 0c it would have meant a long-lived owner
+credential in GitHub. *Revisited in 0c′, still rejected:* with Workload
+Identity Federation (§7) it would need no stored key, but every step of that
+job, third-party Actions included, would hold the owner URL (`BYPASSRLS`,
+schema changes) with no typed confirmation, exposed to the Actions flakiness
+mid-migration.
 
-**Order on deploy:** migrate first, then deploy. For a moment the new schema
-runs under the old code, so a migration must keep the old code working.
+**Order, now that every merge deploys (since 0c′): a schema change is two
+PRs.**
+1. The migration alone. Its merge deploys unchanged code, which is fine:
+   a migration must keep the running code working anyway.
+2. `make migrate-prod`, from an up-to-date `main`.
+3. The code that needs it. Its merge deploys it.
+
+So production only ever runs migrations that are on `main`. Rejected: one PR,
+migrating from its branch just before merging. If the PR then changed or was
+abandoned, production would hold a migration `main` doesn't have.
+*Later, maybe:* the app refusing to start when the schema is older than it
+needs, which would turn a forgotten step 2 into a safely failed deploy.
 
 **`goose_db_version`** is goose's bookkeeping table, created on first use and
 owned by `postgres`. It lives in `public` alongside our tables.
@@ -668,7 +681,9 @@ Known limits of the spend cap:
 
 The service is live at `https://madam-966460417479.europe-west1.run.app`. Every
 setting below is a flag in `make deploy` (`Makefile`), so Git holds the
-configuration and the Console is never used to change it.
+configuration and the Console is never used to change it. The exception, since
+0c′, is IAM (who may call the app, who may deploy): one-time `gcloud` commands,
+each recorded in this section.
 
 **The image** (`Dockerfile`, at the repository root so 0e can add a frontend
 stage). Two stages:
@@ -711,7 +726,7 @@ would be empty and prove nothing. To change the policy, run
 | Setting | Value | Why |
 |---|---|---|
 | Service account | `madam-run`, **with no roles** | The default compute account has `roles/editor` on the project; code running as it could change almost anything. Each later phase grants only what it needs |
-| Access | `--allow-unauthenticated` (`allUsers` holds `roles/run.invoker`) | A phone browser must reach it. Authentication is the app's job (Slice 2) |
+| Access | `allUsers` holds `roles/run.invoker`, set once by 0b's `--allow-unauthenticated`. No longer a deploy flag (0c′, below) | A phone browser must reach it. Authentication is the app's job (Slice 2) |
 | Instances | min 0, max 2 | Cost guardrails, above |
 | CPU / memory | 1 vCPU / 512 MiB (the defaults) | At 512 MiB the free tier's vCPU-seconds run out before its GiB-seconds, so less memory would save nothing |
 | Concurrency | 80 (default) | With a maximum of 2 instances, a lower value only means 429s sooner |
@@ -753,13 +768,13 @@ would then restart containers that are working fine. The startup probe stays
 Cloud Run's default TCP check. The server listens even when the database is
 down; it refuses to start only on a missing or invalid `DATABASE_URL`.
 
-**Where deploys come from:** the laptop, with `make deploy`. It refuses
-uncommitted or untracked files, then builds, pushes and deploys, with the image
-tagged by commit hash. Docker authenticates with the developer's own `gcloud`
-login (`gcloud auth configure-docker`), so no service-account keys exist.
-Deploying on merge from GitHub Actions, using Workload Identity Federation rather
-than a JSON key, is a later step (`build-order.md`). A long-lived key in the
-secrets of a public repository was rejected outright.
+**Where deploys come from:** in 0b and 0c, the laptop, with `make deploy`. It
+refuses uncommitted or untracked files, then builds, pushes and deploys, with
+the image tagged by commit hash. Docker authenticates with the developer's own
+`gcloud` login (`gcloud auth configure-docker`), so no service-account keys
+exist. **Since 0c′, every merge to `main` deploys itself** (below), and `make
+deploy` is the fallback. A long-lived key in the secrets of a public repository
+was rejected outright.
 
 **Reserved paths.** Cloud Run never forwards paths starting with `/_ah/` or
 "some paths ending with `z`" to the container, and Google recommends avoiding
@@ -767,6 +782,134 @@ all paths ending in `z` ([known issues](https://docs.cloud.google.com/run/docs/k
 Tested: `/healthz` returns Google's own HTML 404, not ours. The health endpoint
 is therefore `/api/health`. The `/api/` prefix also separates the API from the
 frontend routes added in 0e.
+
+### As built in Phase 0c′: deploy on merge
+
+Every push to `main` that passes CI deploys itself from GitHub Actions. No key
+exists anywhere: GitHub vouches for the job, and Google checks what it says.
+
+**How a merge becomes a deploy**
+
+1. A PR is merged. `main` gets a new commit, and `ci.yml` runs on it.
+2. The `ci` job tests that exact commit. Only if it passes does the `deploy`
+   job start (`needs: ci`).
+3. The `deploy` job asks GitHub for a signed **OIDC token**: a note saying which
+   repository, branch, event and workflow file this run is. Only this job may
+   ask (`id-token: write`).
+4. `google-github-actions/auth` hands the note to Google. The **provider**
+   checks GitHub's signature and the **attribute condition**. If both pass,
+   Google returns a short-lived token.
+5. With it, the job **impersonates** the service account `madam-deployer`
+   (up to an hour).
+6. The job runs `make deploy`, the laptop's own target: build, push, `gcloud
+   run deploy`. The flags exist only there, so CI and the laptop can't drift.
+
+**The words**
+
+| Term | Here |
+|---|---|
+| OIDC token | GitHub's signed note about the running job. Lives for minutes; can't be forged |
+| Workload identity pool | `github`: Google's container for outside identities. Accepts nothing by itself |
+| Provider | `madam-deploy`, in the pool: "trust notes signed by GitHub Actions", plus the condition |
+| Attribute condition | The rule a note must pass to be exchanged at all (below) |
+| Service account | A Google identity for software. `madam-deployer` deploys; `madam-run` is what the app runs as |
+| Impersonation | Acting as a service account through a short-lived token, instead of holding its key |
+
+**The condition**, on the provider:
+
+```
+assertion.repository_id == '1425598027'
+&& assertion.ref == 'refs/heads/main'
+&& (assertion.event_name == 'push' || assertion.event_name == 'workflow_dispatch')
+&& assertion.workflow_ref == 'peerbenmoshe/madam/.github/workflows/ci.yml@refs/heads/main'
+&& assertion.runner_environment == 'github-hosted'
+```
+
+| Who tries | Refused by |
+|---|---|
+| A fork | `repository_id`: GitHub's number for this repository, never reused or changed by a rename |
+| Any pull request, from a fork or not | `ref` (`refs/pull/N/merge`) and `event_name` |
+| `pull_request_target`, which runs with `ref` = `main` | `event_name` |
+| A push to another branch | `ref` and `workflow_ref` |
+| Another workflow on `main` (0f's keepalive, say) | `workflow_ref` |
+| A self-hosted runner (none exist) | `runner_environment` |
+
+`workflow_ref` names the repository and the file, so renaming either refuses
+deploys until the condition is updated: a safe failure.
+
+*Tested before the first deploy (PR #11):* a temporary job asked for a token
+from a push to the PR's branch, the same repository, file and event as a
+deploy with only the branch different, and from the PR itself. Google refused
+both: `unauthorized_client`, "The given credential is rejected by the
+attribute condition." It doesn't say which clause failed.
+
+**What `madam-deployer` may do.** Each role is bound on one resource; none is
+at project level.
+
+| Role | On | Means |
+|---|---|---|
+| `iam.workloadIdentityUser`, held by `principalSet://…/github/attribute.repository_id/1425598027` | `madam-deployer` | Jobs from this repository may become it. A second check on the repository, independent of the condition |
+| `artifactregistry.writer` | repository `madam` | Push images and tags. Not delete |
+| `run.developer` | service `madam` | Read and update (deploy) the service; also delete it. **Not** change who may call it: no `setIamPolicy` |
+| `iam.serviceAccountUser` | `madam-run` | Start revisions that run as `madam-run` (`actAs`) |
+
+It has **no secret permission**: gcloud doesn't read secrets when deploying
+(checked in its source), and Cloud Run checks `madam-run`'s access, not the
+deployer's (*unverified until the first automatic deploy*). It has **no keys**:
+`gcloud iam service-accounts keys list --iam-account=madam-deployer@madam-512309.iam.gserviceaccount.com --managed-by=user`
+lists none. Never create one.
+
+**What that means:** the deployer can run *any* image as `madam-run`, and
+`madam-run` can read `madam-database-url`. Whoever can deploy can, in effect,
+read the database. That's true of any deploy on merge. What guards it is the
+condition plus `main`'s protection (a PR is required; no bypass).
+
+**Public access is a binding, not a flag.** `allUsers` holds `run.invoker` on
+the service, set once in 0b; it survives deploys. `gcloud run deploy
+--allow-unauthenticated` re-sets that policy on *every* deploy, even when
+nothing changes (gcloud's source), and `run.developer` may not, so CI would
+warn every time. The flag was removed. To change who may call the app, use
+`gcloud run services add-iam-policy-binding` or `remove-iam-policy-binding`
+by hand, and record it here.
+
+**Created in 0c′** (project `madam-512309`, number `966460417479`): the APIs
+`iam`, `iamcredentials` (issues the impersonation token) and `sts` (exchanges
+GitHub's note); the pool, the provider, `madam-deployer`, and the four bindings
+above.
+
+| Decision | Choice | Why | Rejected |
+|---|---|---|---|
+| Identity | Through the service account `madam-deployer` | One place to see and revoke what deploys may do; readable audit logs | Direct federation, roles on a `principalSet` (the auth Action's README now prefers it, to avoid service accounts and their keys; ours has none) |
+| Gate | A `deploy` job in `ci.yml`, `needs: ci` | Tests the merged commit itself: the `ci` check isn't strict, so a PR may be behind `main` | A separate workflow on `workflow_run`: it runs the newest `main`, not the tested commit, and is one more event that can go missing |
+| One set of flags | CI runs `make deploy` | Drift is impossible | Copying the flags into the YAML |
+| gcloud in CI | The runner's preinstalled one (590.0.1 when built) | One dependency fewer; unpinned like the laptop's | `setup-gcloud` with a pinned version, bumped by hand |
+| Concurrency | Runs on `main` queue, never cancelled | A deploy isn't cut off midway; the newest waiting run wins | Cancelling everywhere |
+| A run that never starts | "Run workflow" (`workflow_dispatch`) on `main` | A merge-to-main run did go missing in 0a; now that would be a missing deploy | Waiting for it to happen again |
+| Fallback | `make deploy`, refusing anything but a clean, latest `main` | Actions can be down. The guard stops branch deploys: 0c's live image was `93c33e9`, a branch commit, because squash merging makes a new hash | No guard; no fallback |
+| Migrations | Still from the laptop (§6) | The owner credential stays out of GitHub's reach | Running them in the workflow |
+
+**When something goes wrong**
+
+- *A merge started no run.* `gh run list --branch main --limit 3`. If the
+  merge commit has no run: Actions → CI → **Run workflow** on `main` (or
+  `gh workflow run ci.yml --ref main`). If Actions itself is down: `make
+  deploy` from an up-to-date `main`.
+- *The deploy job failed.* The old revision keeps serving. If the auth step
+  says the token was rejected by the attribute condition, the run wasn't
+  `ci.yml` on `main` by push or dispatch. A "permission denied" during `make
+  deploy` points at a role above. After fixing something outside Git (IAM),
+  use **Re-run failed jobs**.
+- *"only the latest commit on main is deployed".* A newer merge landed while
+  this run waited; that merge's run deploys it. Nothing to fix.
+- *Stop all deploys now:* `gcloud iam service-accounts disable
+  madam-deployer@madam-512309.iam.gserviceaccount.com --project=madam-512309`
+  (`enable` undoes it).
+- *Roll back:* revert the PR on GitHub. Merging the revert deploys the previous
+  code. Sending traffic to an old revision by hand would leave the live app
+  different from `main`.
+- *What's live?* `gcloud run services describe madam --region=europe-west1
+  --format='value(spec.template.spec.containers[0].image)'`. The tag should be
+  `git rev-parse --short origin/main`.
 
 ### Considered and rejected: Starter Tier
 
@@ -1112,8 +1255,7 @@ ESLint on the frontend.
 
 Build, test, lint. A failing run shows a red X on the pull request. This is what
 makes "Claude writes, Pe'er reviews" safe — a second opinion that never gets
-tired. Later it also handles automatic deployment on merge to `main`
-(`build-order.md`, after 0c).
+tired. Since 0c′ it also deploys every merge to `main` (§7).
 
 *As built in Phase 0a* (`.github/workflows/ci.yml`):
 
@@ -1141,6 +1283,11 @@ tired. Later it also handles automatic deployment on merge to `main`
     the database tests too. In 0d that could hide a broken RLS migration.
   - The Go cache now also keys on `tools/go.sum`. On a cold cache the first
     run took about 4 minutes, mostly compiling sqlc and goose.
+- *Added in 0c′* (how it works: §7, As built in Phase 0c′):
+  - A second job, **`deploy`**, after `ci`, only on `main`. It's skipped on
+    PRs and isn't a required check.
+  - A **`workflow_dispatch`** trigger: the "Run workflow" button.
+  - Runs on `main` are **never cancelled** by a newer one; they queue.
 
 **Dependabot** (Phase 0a): weekly version updates, one grouped PR per ecosystem
 (`gomod` in `/backend`, `github-actions`, since 0b `docker` for the
@@ -1153,7 +1300,8 @@ stay readable.
 **Known flakiness, unexplained:** on this repository GitHub has sometimes failed to
 start a run, or reported a finished run as still in progress for up to half an
 hour (`build-log.md`, Phase 0a). Check `gh run list` and the step timestamps
-before suspecting the workflow.
+before suspecting the workflow. Since 0c′ a run that never starts is a deploy
+that never happens: start it with "Run workflow" on `main` (§7).
 
 Also hosts the Supabase keepalive job (section 5).
 

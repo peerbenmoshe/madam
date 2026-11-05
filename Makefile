@@ -102,17 +102,26 @@ docker-run: image
 	docker run --rm -p 8080:8080 -e DATABASE_URL madam-server:dev
 endif
 
-# Builds, pushes and deploys the committed code. Refuses uncommitted or
-# untracked files, so the image tag (the commit hash) names exactly what runs.
+# Builds, pushes and deploys the latest commit on main. CI runs this on every
+# merge (.github/workflows/ci.yml); from the laptop it's the fallback for when
+# Actions doesn't run (docs/tech-stack.md §7). It refuses uncommitted or
+# untracked files and anything but the latest main, so the image tag (the
+# commit hash) names exactly what runs, and that is what main holds.
+#
+# Public access is deliberately not a flag: it's the allUsers -> run.invoker
+# binding on the service, set once. --allow-unauthenticated would re-set that
+# policy on every deploy, which CI's deployer isn't allowed to do.
 deploy:
 	@test -z "$$(git status --porcelain)" || { echo "deploy: commit or stash your changes first" >&2; exit 1; }
+	@git fetch --quiet origin main
+	@test "$$(git rev-parse HEAD)" = "$$(git rev-parse FETCH_HEAD)" || { \
+	  echo "deploy: only the latest commit on main is deployed (HEAD $$(git rev-parse --short HEAD), main $$(git rev-parse --short FETCH_HEAD))" >&2; exit 1; }
 	docker build -t $(IMAGE):$(TAG) .
 	docker push $(IMAGE):$(TAG)
 	gcloud run deploy madam --project=$(GCP_PROJECT) --region=$(GCP_REGION) \
 	  --image=$(IMAGE):$(TAG) \
 	  --service-account=$(RUN_SERVICE_ACCOUNT) \
 	  --set-secrets=DATABASE_URL=$(DATABASE_URL_SECRET) \
-	  --allow-unauthenticated \
 	  --min-instances=0 --max-instances=2 \
 	  --cpu=1 --memory=512Mi --concurrency=80 --timeout=30s \
 	  --no-cpu-boost

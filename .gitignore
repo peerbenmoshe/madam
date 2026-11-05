@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+# Written into the checkout by google-github-actions/auth in CI's deploy job.
+gha-creds-*.json
 
 # Dependencies and build output
 node_modules/
