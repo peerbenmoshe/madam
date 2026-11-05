@@ -682,6 +682,12 @@ as the owner, the guard refused; as `madam_app` with RLS switched off, I3,
 `WITH CHECK` and both no-setting cases failed; with the policy lacking
 `NULLIF`, the reused-connection case errored.
 
+**In production** (5 November 2026): `00002` was applied to madam-prod with
+`make migrate-prod`, and the app has connected as `madam_app` since revision
+`madam-00011` (`tech-stack.md` §7). `postgres` holds ADMIN on `madam_app`
+(from `CREATEROLE`, PG16+) but neither INHERIT nor SET, so it can manage the
+role without acting as it.
+
 ---
 
 ## 10. Open items

@@ -293,3 +293,83 @@ infrastructure, too.
   reasons at once proves less than it seems.
 - **When the docs are out of reach, the tool's source and the role
   definitions are authoritative.** Both are on the laptop already.
+
+---
+
+## Phase 0d — Isolation plumbing (5 November 2026, PRs #14, #15 and #16)
+
+**Goal.** The app connects as a role that Row Level Security actually applies
+to, and a test proves it: I3, a query as that role with the wrong user id set
+returns zero rows.
+
+**Decisions** (details in `data-model.md` §9 and `tech-stack.md` §1.4, §5, §7):
+
+| Decision | Choice | Why |
+|---|---|---|
+| The role | `madam_app`, created in migration `00002`, `NOBYPASSRLS`, owning nothing | `postgres` has `BYPASSRLS`, so it was required, not a precaution |
+| Its password | None in Git: `\password` on Supabase, a throwaway one set by the Makefile locally and in CI | The repository is public. psql hashes the password before sending it |
+| Privileges | `SELECT, INSERT, UPDATE, DELETE` on `users`; no default privileges | `TRUNCATE` ignores RLS. A forgotten grant fails loudly instead of granting on a table that forgot its policy |
+| Supabase's API-role grants | Revoked in `00002`, in a block that runs only where those roles exist | Nothing uses them (Data API off, Auth uses its own role), and they included `TRUNCATE` |
+| The setting | `set_config('madam.user_id', $1, true)`, read with `NULLIF(…, '')` | Takes a parameter, unlike `SET LOCAL`; dies with the transaction, so a pooled connection can't carry it over |
+| The wrapper | `Store.InUserTx`, a function the handler calls | It commits before the response, so a failed commit can't hide behind a 200. Chosen by Pe'er over the documented middleware |
+| The stub identity | Only in a `_test.go` file | Every merge deploys, and Go never compiles test files into a binary |
+| PRs | Four: migration, code, the pin alone, docs | The deploy that changed the app's identity carried nothing else, so a 503 would have had one suspect |
+
+**Surprise: `''` is not `NULL`.** `current_setting(name, true)` returns `NULL`
+on a connection that never set the value, but `''` on one where an earlier
+transaction set it. `''::uuid` is an error. So without `NULLIF`, a query that
+skipped the wrapper would have returned nothing on a fresh connection and
+failed on a reused one, depending on how pooled connections happened to be
+reused. A test case built for this caught it: `22P02 invalid input syntax for
+type uuid: ""`.
+
+**Verified rather than assumed:**
+- **I3 failed first, three ways, then passed.** As the owner, the test's guard
+  refused to run. As `madam_app` with RLS off, I3, `WITH CHECK` and both
+  no-setting cases failed, while "a user sees their own row" passed, which is
+  why seeing the app work proves nothing. Without `NULLIF`, the
+  reused-connection case errored.
+- **madam-dev before madam-prod.** Its grants were inspected first. `anon`,
+  `authenticated` and `service_role` held every privilege on our tables,
+  `TRUNCATE` included; after `00002` only `postgres` and `madam_app` held any.
+  `postgres` got ADMIN on the role it created, so `\password` worked. A
+  custom role logs in through the pooler as `madam_app.<project-ref>`, and the
+  whole suite passed there.
+- **Production.** Version 3 was checked with psql before the pin moved. After
+  the deploy: health `ok`, the revision references version 3, and
+  `pg_stat_activity` shows `madam_app` as the only client besides the checking
+  session. Version 2, the `postgres` URL, was then destroyed.
+- **The stub is not in the binary** (`go tool nm`). The one symbol matching
+  "stub" was `reflect.embeddedIfaceMethStub`, Go's own.
+
+**Surprises:**
+- Supabase has its own `auth.users` next to our `users`, so `00002` writes
+  `public.users`. Supabase also already uses `app.settings.*`, which made
+  `madam.` the safer prefix.
+- The pooler replaces `application_name`: every client shows as `Supavisor`.
+  So the app's connections are found by role, one more use for having a role of
+  its own.
+- A second `postgres` row in `pg_stat_activity` looked like a leftover
+  connection. Pe'er stopped before destroying version 2 and asked. Its
+  `backend_type` showed it was `pg_net`'s background worker, running since the
+  database started.
+- #14's deploy took 9 minutes instead of 2. The runner sat silent for 6½ minutes
+  in `gcloud auth configure-docker` and was slow in `gcloud run deploy` too.
+  The next two deploys were back to normal (about 1½ minutes). The cause is
+  unknown and outside our code. The deploy job's 15-minute timeout would have
+  stopped it without harm.
+- The laptop's psql is version 14, and its `\dp` fails on a version-17 server.
+  Querying the catalog with `aclexplode` works with any version.
+
+**Lessons:**
+- **Make the test refuse to prove nothing.** I3's guard (not a superuser, not
+  `BYPASSRLS`, exactly `madam_app`) means a wrong connection can't make it
+  pass, and its "own row is visible" case means zero rows can't be an
+  accident.
+- **When a credential changes, check it before anything depends on it.** The
+  pool connects lazily, so a wrong password would have started fine and failed
+  on the first request. psql against version 3, while the app was still
+  pinned to version 2, was the check.
+- **Before destroying something, account for every row.** "Looks like
+  `postgres` twice" was worth a second query: `backend_type` and `client_addr`
+  tell a process inside the database apart from a connection to it.

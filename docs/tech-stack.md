@@ -423,7 +423,10 @@ network:
   for migrations and the dashboard.
 - `MinConns` **0**. The pool connects on first use, so a database outage can't
   stop the server from starting, and an idle instance holds nothing open.
-- `application_name=madam`, which makes the app visible in `pg_stat_activity`.
+- `application_name=madam`, which makes the app visible in `pg_stat_activity`
+  **locally only**. *Measured in 0d:* through Supabase's pooler every client
+  connection shows as `Supavisor`, so on Supabase the app is told apart by its
+  role, `usename = madam_app`.
 - Everything else is pgx's default. On acquire, pgx pings any connection idle
   for more than 1 s before using it. That matters here because with
   request-based billing Cloud Run throttles the CPU between requests, so pgx's
@@ -773,14 +776,16 @@ would be empty and prove nothing. To change the policy, run
 **The database URL: Secret Manager** (Phase 0c).
 - Two secrets, each replicated only in `europe-west1`:
   `madam-database-url` (the app's) and `madam-migrate-url` (for `make
-  migrate-prod`, §6). In 0c both hold the `postgres` URL of madam-prod's
-  session pooler, ending in `?sslmode=verify-full`. In 0d the app's gets a new
-  version for the non-owner role.
+  migrate-prod`, §6). Both are madam-prod's session pooler, ending in
+  `?sslmode=verify-full`. **Since 0d they hold different roles:**
+  `madam-migrate-url` the owner `postgres`, `madam-database-url` version 3
+  the application role `madam_app` (user `madam_app.<project-ref>`). Versions
+  1 and 2, both `postgres` URLs, are destroyed.
 - `madam-run` holds `roles/secretmanager.secretAccessor` **on
   `madam-database-url` only**, bound on the secret rather than the project. It
   is still `madam-run`'s only permission anywhere, and nothing but the owner
   can read `madam-migrate-url`.
-- `make deploy` passes `--set-secrets=DATABASE_URL=madam-database-url:2`. The
+- `make deploy` passes `--set-secrets=DATABASE_URL=madam-database-url:3`. The
   version is **pinned** in the Makefile, so changing the value is a visible
   commit. With `:latest`, any new instance would pick up whatever was last
   added.
@@ -792,7 +797,23 @@ would be empty and prove nothing. To change the policy, run
   ```
 
 - After a change, **destroy** the old version, don't just disable it: disabled
-  versions still count as active for billing.
+  versions still count as active for billing. There's a second reason, found
+  in 0d: `madam-run`'s access is bound on the *secret*, so it covers every
+  version, and an old version stays readable by the app's identity until it's
+  destroyed. Destroy it only once the new one is verified live, because
+  until then, reverting the pin is the rollback.
+- *Switching the role in 0d*, step by step: the migration PR; `make
+  migrate-prod`; `\password madam_app` on madam-prod; version 3 added and
+  checked with psql (`current_user` = `madam_app`, no `BYPASSRLS`) while the
+  app was still pinned to `:2`; the code PR; then a PR moving only the pin, so
+  that deploy changed nothing but the credential. A wrong password would not
+  have stopped the revision from starting (the pool connects on first use), so
+  the psql check before the pin move was the safety net. After the deploy,
+  `pg_stat_activity` on madam-prod showed `madam_app` as the only client
+  connection besides the checking session. The other `postgres` row was
+  `pg_net`'s background worker (`backend_type` `pg_net 0.20.4 worker`, no
+  `client_addr`, running since the database started), part of Supabase, not a
+  connection.
 - Rejected: a plain environment variable. The value would pass through a shell
   or `.env` at every deploy, and anyone with viewer access could read it in the
   revision's settings. 0c′ benefits too: CI deploys with the same, non-secret
@@ -1450,7 +1471,9 @@ deciding — also listed in `CLAUDE.md`):
 - The first month's billing report: confirm the spend cap measured gross usage and
   the bill stayed at zero (§7).
 - Whether the typed invite code reaches Supabase's "before user created" hook.
-- Creating the non-owner application role (0d).
+
+*Answered in Phase 0d:* creating the non-owner application role (§5, Database
+roles; `data-model.md` §9).
 
 *Answered in Phase 0c:* how Cloud Run connects and the Belgium–Frankfurt latency
 (§5, Connecting), table ownership (§5, Database roles), and the pgx/sqlc type

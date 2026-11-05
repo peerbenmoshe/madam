@@ -183,6 +183,10 @@ hand-edit generated code.
   `postgres`, RLS does nothing, even with `FORCE`. Only `madam_app` (0d) makes
   the policies apply. The local owner `madam` is a superuser, so the same holds
   locally.
+- **In `pg_stat_activity` on Supabase, every client shows as `Supavisor`.**
+  The pooler replaces `application_name`, so find the app by
+  `usename = 'madam_app'`. A `postgres` row named `pg_net …` is Supabase's
+  background worker (`backend_type` says so), not a connection.
 - **`current_setting` reads `''`, not `NULL`, once a connection has used it.**
   After a transaction that set `madam.user_id` ends, the same pooled connection
   reads the setting as an empty string. `''::uuid` is an error, so every policy
@@ -251,8 +255,6 @@ understanding the diff, not for finishing fast.
 
 Carry these forward; answer them in the build, don't assume.
 
-- Creating the non-owner application role on Supabase (0d). Known from 0c:
-  goose's tables are owned by `postgres`, which has `CREATEROLE`.
 - Whether the sign-up invite code reaches Supabase's "before user created" hook.
 - The first month's billing report: confirm the spend cap measured gross usage
   and the bill stayed at zero.
@@ -260,3 +262,9 @@ Carry these forward; answer them in the build, don't assume.
 Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.md`
 §5): the pgx/sqlc type mappings, `-infinity` round-tripping, table ownership,
 how Cloud Run connects (session pooler), and the Belgium–Frankfurt latency.
+
+Answered in 0d (`docs/data-model.md` §9, `docs/tech-stack.md` §5 and §7): the
+application role `madam_app`, created by migration `00002` without a password
+and given one with `\password`; it logs in through the pooler as
+`madam_app.<project-ref>`; I3 passes as it on madam-dev and in CI; production
+connects as it (secret version 3); nothing else connects as `postgres`.
