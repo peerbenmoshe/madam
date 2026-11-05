@@ -837,6 +837,12 @@ assertion.repository_id == '1425598027'
 `workflow_ref` names the repository and the file, so renaming either refuses
 deploys until the condition is updated: a safe failure.
 
+*Tested before the first deploy (PR #11):* a temporary job asked for a token
+from a push to the PR's branch, the same repository, file and event as a
+deploy with only the branch different, and from the PR itself. Google refused
+both: `unauthorized_client`, "The given credential is rejected by the
+attribute condition." It doesn't say which clause failed.
+
 **What `madam-deployer` may do.** Each role is bound on one resource; none is
 at project level.
 
