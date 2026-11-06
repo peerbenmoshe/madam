@@ -51,7 +51,7 @@ func TestHealth(t *testing.T) {
 			req := httptest.NewRequest(tc.method, "/api/health", nil)
 			rec := httptest.NewRecorder()
 
-			NewRouter(tc.db).ServeHTTP(rec, req)
+			NewRouter(tc.db, fakeFrontend).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Errorf("status = %d, want %d", rec.Code, tc.wantStatus)

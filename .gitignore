@@ -8,7 +8,11 @@ gha-creds-*.json
 # Dependencies and build output
 node_modules/
 frontend/dist/
-backend/internal/web/assets/
+# The frontend build copied in for go:embed. The empty placeholder stays
+# committed so the package compiles on a fresh clone. Git can't re-include a
+# file inside an ignored directory, hence "/*" rather than the directory.
+backend/internal/web/assets/*
+!backend/internal/web/assets/.gitkeep
 /bin/
 coverage/
 *.out
