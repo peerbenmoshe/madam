@@ -15,6 +15,7 @@ import (
 
 	"github.com/peerbenmoshe/madam/backend/internal/api"
 	"github.com/peerbenmoshe/madam/backend/internal/db"
+	"github.com/peerbenmoshe/madam/backend/internal/web"
 )
 
 func main() {
@@ -41,9 +42,16 @@ func run() error {
 	// Runs after the server has shut down, so in-flight requests keep the pool.
 	defer pool.Close()
 
+	// The frontend is embedded at compile time (internal/web). A binary built
+	// before `make frontend` still serves the API, and answers pages with 503.
+	assets := web.Assets()
+	if !web.HasIndex(assets) {
+		slog.Warn("frontend not built: pages answer 503 until `make frontend` runs; /api/ works")
+	}
+
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(db.NewStore(pool)),
+		Handler:           api.NewRouter(db.NewStore(pool), web.Handler(assets)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

@@ -9,16 +9,35 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// NewRouter builds the application's HTTP handler.
-func NewRouter(db Pinger) http.Handler {
+// NewRouter builds the application's HTTP handler. Everything under /api/ is
+// the API; every other GET or HEAD goes to frontend, the embedded app
+// (internal/web).
+func NewRouter(db Pinger, frontend http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
 
-	// Not the conventional /healthz: Cloud Run reserves some paths ending in
-	// "z" and never forwards them to the container.
-	r.Get("/api/health", handleHealth(db, healthTimeout))
+	r.Route("/api", func(r chi.Router) {
+		r.Use(noStore)
+
+		// An unknown API path is a plain 404, never the app's page: a client
+		// expecting JSON must not get "200 text/html", and a mistyped route
+		// must not look like success. chi gives a mounted router its parent's
+		// NotFound handler when it has none of its own, so this one is set
+		// explicitly, whatever the parent ever does.
+		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "not found", http.StatusNotFound)
+		})
+
+		// Not the conventional /healthz: Cloud Run reserves some paths ending
+		// in "z" and never forwards them to the container.
+		r.Get("/health", handleHealth(db, healthTimeout))
+	})
+
+	r.Get("/*", frontend.ServeHTTP)
+	r.Head("/*", frontend.ServeHTTP)
 
 	return r
 }
