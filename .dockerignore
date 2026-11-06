@@ -1,5 +1,23 @@
 # An allowlist: ignore everything, then re-include only what the image needs.
 # This keeps .env and anything else local out of the build, so it can never
-# end up in a pushed image. 0e adds the frontend here.
+# end up in a pushed image.
 *
 !backend/
+# The laptop's own frontend build (make frontend). The image builds its own,
+# and stale chunks from here would otherwise be embedded beside it.
+backend/internal/web/assets/*
+!backend/internal/web/assets/.gitkeep
+
+# The frontend's sources and configuration, file by file, so node_modules,
+# dist and any frontend/.env never enter the build. Vite inlines VITE_*
+# variables from .env files into the public bundle. A new config file must
+# be added here; forgetting fails the image build in CI.
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/.npmrc
+!frontend/index.html
+!frontend/vite.config.ts
+!frontend/tsconfig.json
+!frontend/tsconfig.app.json
+!frontend/tsconfig.node.json
+!frontend/src/

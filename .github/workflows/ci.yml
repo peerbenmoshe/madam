@@ -62,6 +62,43 @@ jobs:
             backend/go.sum
             tools/go.sum
 
+      # Exactly the Node in .nvmrc, as on the laptop. The cache is npm's
+      # download cache, keyed on the lockfile.
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Dependabot updates the Dockerfile's node: tag but not .nvmrc. This
+      # fails such a PR until .nvmrc (and so the laptop) moves too.
+      - name: Node versions agree
+        working-directory: .
+        run: |
+          nvmrc=$(cat .nvmrc)
+          image=$(sed -n 's/^FROM node:\([^-]*\)-.*/\1/p' Dockerfile)
+          echo ".nvmrc: $nvmrc, Dockerfile: $image"
+          if [ "$nvmrc" != "$image" ]; then
+            echo "::error::.nvmrc ($nvmrc) and the Dockerfile's node: tag ($image) must be the same version"
+            exit 1
+          fi
+
+      - name: Frontend install
+        working-directory: frontend
+        run: npm ci
+
+      # ESLint (type-aware), then Prettier's formatting check.
+      - name: Frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      # tsc, then vite build, then the copy into backend/internal/web/assets,
+      # so the Go steps below build, test and lint with the real frontend
+      # embedded.
+      - name: Frontend type check and build
+        working-directory: .
+        run: make frontend
+
       - name: Build
         run: go build ./...
 
@@ -101,6 +138,22 @@ jobs:
       - name: Build image
         working-directory: .
         run: docker build -t madam-server:ci .
+
+      # Runs that image against the service Postgres and checks the page, a
+      # deep link, the API, that nothing under /api/ reaches the page, and
+      # the cache and security headers (deploy/smoke-test.sh). --network
+      # host: the container reaches the database at 127.0.0.1, like the
+      # tests. The loop waits until the server answers, never a fixed time.
+      - name: Smoke test image
+        working-directory: .
+        run: |
+          docker run -d --name smoke --network host \
+            -e DATABASE_URL="$MADAM_TEST_DATABASE_URL" madam-server:ci
+          for _ in $(seq 1 50); do
+            curl -s -o /dev/null http://127.0.0.1:8080/api/health && break
+            sleep 0.2
+          done
+          sh deploy/smoke-test.sh http://127.0.0.1:8080 || { docker logs smoke; exit 1; }
 
   # Deploys main to Cloud Run, only after the ci job has passed on the same
   # commit. No key exists: GitHub signs a token saying which repository, branch,

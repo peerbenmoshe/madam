@@ -1,7 +1,7 @@
 # Local development entry points. See CLAUDE.md "Commands".
 #
-# Targets appear phase by phase (docs/build-order.md); the frontend joins dev,
-# build and lint in 0e.
+# Targets appear phase by phase (docs/build-order.md); the frontend joined
+# dev, build and lint in 0e.
 #
 # Recipes write $$DATABASE_URL (expanded by the shell), never $(DATABASE_URL)
 # (expanded by make): make prints each recipe line before running it, so the
@@ -62,6 +62,17 @@ export GOOSE_DRIVER := postgres
 GOLANGCI_LINT_VERSION := v2.15.0
 GOLANGCI_LINT := $(CURDIR)/bin/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
+# The frontend (docs/tech-stack.md §8). Node is pinned exactly in .nvmrc, which
+# nvm and CI read; the Dockerfile's node: tag must say the same (CI checks).
+NODE_VERSION := $(shell cat $(CURDIR)/.nvmrc)
+# npm rewrites this file on every install, so it stands for "node_modules is
+# current": make reruns `npm ci` only when package.json or the lockfile is
+# newer than it, for example after a pull that changed dependencies.
+FRONTEND_DEPS := $(CURDIR)/frontend/node_modules/.package-lock.json
+# go:embed can't reach ../frontend, so the build is copied here
+# (backend/internal/web). Gitignored, except the placeholder .gitkeep.
+WEB_ASSETS := $(CURDIR)/backend/internal/web/assets
+
 # Cloud Run deployment. Why each setting: docs/tech-stack.md §7.
 GCP_PROJECT := madam-512309
 GCP_REGION := europe-west1
@@ -86,15 +97,23 @@ define require_latest_main
 	  echo "$@: only the latest commit on main (HEAD $$(git rev-parse --short HEAD), main $$(git rev-parse --short FETCH_HEAD))" >&2; exit 1; }
 endef
 
-.PHONY: dev test test-integration lint build db-up db-down db-reset image \
-  docker-run deploy sqlc migrate-up migrate-status migrate-new migrate-prod psql \
-  psql-app
+.PHONY: dev test test-integration lint build frontend check-node db-up db-down \
+  db-reset image docker-run deploy sqlc migrate-up migrate-status migrate-new \
+  migrate-prod psql psql-app
 
+# The API and the Vite dev server together; open http://localhost:5173. Vite
+# serves the page with instant reloads and passes /api/ to the server on
+# 8080 (frontend/vite.config.ts). The server runs in the background, and is
+# stopped when Vite stops (Ctrl+C). It's a built binary rather than `go run`,
+# so $$! is the server itself, not the go command that started it.
 ifeq ($(DB),local)
 dev: db-up
 endif
-dev:
-	cd backend && go run ./cmd/server
+dev: check-node $(FRONTEND_DEPS)
+	cd backend && go build -o ../bin/server ./cmd/server
+	@./bin/server & server=$$!; \
+	trap 'kill $$server 2>/dev/null' EXIT INT TERM; \
+	cd frontend && npm run dev
 
 test:
 	cd backend && go test -race ./...
@@ -110,11 +129,30 @@ endif
 test-integration:
 	cd backend && MADAM_TEST_DATABASE_URL="$$DATABASE_URL" go test -race -count=1 ./...
 
-lint: $(GOLANGCI_LINT)
+lint: $(GOLANGCI_LINT) check-node $(FRONTEND_DEPS)
 	cd backend && $(GOLANGCI_LINT) run
+	cd frontend && npm run lint
 
-build:
+# The server binary with the frontend embedded.
+build: frontend
 	cd backend && go build -o ../bin/server ./cmd/server
+
+# Type-checks and builds the frontend, then replaces what go:embed will pack
+# with the new build (everything in WEB_ASSETS except .gitkeep).
+frontend: check-node $(FRONTEND_DEPS)
+	cd frontend && npm run typecheck && npm run build
+	find $(WEB_ASSETS) -mindepth 1 ! -name .gitkeep -delete
+	cp -R frontend/dist/. $(WEB_ASSETS)/
+
+# `npm ci` installs exactly what package-lock.json says, after deleting
+# node_modules. Install scripts are off (frontend/.npmrc).
+$(FRONTEND_DEPS): frontend/package.json frontend/package-lock.json | check-node
+	cd frontend && npm ci
+
+# Refuses any Node but the one in .nvmrc. nvm doesn't switch by itself.
+check-node:
+	@test "$$(node --version 2>/dev/null)" = "v$(NODE_VERSION)" || { \
+	  echo "check-node: Node $(NODE_VERSION) is required (.nvmrc), found $$(node --version 2>/dev/null || echo none). Run: nvm use" >&2; exit 1; }
 
 # The production image, built and run locally for testing.
 image:
