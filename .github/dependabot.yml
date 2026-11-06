@@ -19,7 +19,8 @@ updates:
       tools:
         patterns: ["*"]
 
-  # Base images in the Dockerfile.
+  # Base images in the Dockerfile. A new node: tag fails CI until .nvmrc says
+  # the same (the "Node versions agree" step): update it on the PR.
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -27,6 +28,29 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+    ignore:
+      # Moving to a new Node major is a decision (odd majors are never LTS),
+      # made by hand, not proposed weekly.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+
+  # The frontend's packages (frontend/package.json).
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    # Propose a release only once it is a week old. Compromised npm
+    # versions are usually found and pulled within days.
+    cooldown:
+      default-days: 7
+    groups:
+      npm:
+        patterns: ["*"]
+    ignore:
+      # typescript-eslint supports TypeScript below 6.1 only (checked
+      # 6 November 2026). Lift this when it supports 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /

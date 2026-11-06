@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens (docs/tech-stack.md §8.2). Tailwind's own colour palette is
+ * switched off, so `bg-pink-400` doesn't exist and only the names below do: a
+ * redesign is a change to this block, not a search through the markup.
+ *
+ * Measured contrast (WCAG):
+ *   ink on surface   17.4:1   body text
+ *   muted on surface  7.0:1   secondary text
+ *   ink on accent     6.6:1   text on a HotPink fill
+ *   accent on surface 2.65:1  too low for text or thin lines: a fill only
+ */
+@theme {
+  --color-*: initial;
+  --color-accent: #ff69b4;
+  --color-ink: #1a1a1a;
+  --color-muted: #595959;
+  --color-surface: #ffffff;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-ink antialiased;
+  }
+}
