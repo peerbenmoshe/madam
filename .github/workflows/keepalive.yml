@@ -55,13 +55,14 @@ jobs:
           PGSSLROOTCERT: backend/certs/supabase-root-2021-ca.crt
           PGCONNECT_TIMEOUT: "15"
         run: |
-          # The server's own rule (cmd/server/db.go): a postgres:// URL with
+          # The server's own rule (cmd/server/db.go): a postgres:// or
+          # postgresql:// URL (Supabase's dashboard gives the second) with
           # verify-full. A missing or broken secret must fail here, not
           # quietly try a local socket or unverified TLS.
           case "$DATABASE_URL" in
-            postgres://*sslmode=verify-full*) ;;
+            postgres://*sslmode=verify-full* | postgresql://*sslmode=verify-full*) ;;
             *)
-              echo "::error::MADAM_DEV_DATABASE_URL must be a postgres:// URL with sslmode=verify-full"
+              echo "::error::MADAM_DEV_DATABASE_URL must start with postgres:// or postgresql:// (no quotes or spaces around it) and use sslmode=verify-full"
               exit 1
               ;;
           esac
