@@ -76,6 +76,8 @@ make db-down        # stop it (data kept); db-reset also deletes the data
 make image          # build the production image locally (docker-run also runs it)
 make deploy         # fallback: deploy the latest main from the laptop (CI deploys every merge)
 sh deploy/smoke-test.sh <url>   # routing, caching and headers of a running server (CI runs it on the image)
+gh workflow run keepalive.yml --ref main   # run the Supabase keepalive by hand (it runs 4× a day by itself)
+gh run list --workflow keepalive.yml       # its runs; add --event schedule for the scheduled ones only
 ```
 
 Every frontend target runs `check-node` first and installs `node_modules`
@@ -136,7 +138,10 @@ hand-edit generated code.
   own terminal (`docs/tech-stack.md` §7), never through Claude.
   `.claude/settings.json` denies reading `.env` files (that includes any command
   that names `.env`); don't try to work around it. The production database URL
-  is never in a local `.env`.
+  is never in a local `.env`. GitHub holds one secret,
+  `MADAM_DEV_DATABASE_URL`, for the keepalive (`docs/tech-stack.md` §5). It
+  must change whenever `madam_app`'s password on madam-dev does. There is
+  **no production credential in GitHub**; keep it that way.
 - **New table checklist:** does it cascade on user delete? Does its migration
   `ENABLE` and `FORCE` RLS and add a policy `TO madam_app` with `USING` and
   `WITH CHECK`? Does it `GRANT` `madam_app` exactly the statements it needs
@@ -254,6 +259,24 @@ hand-edit generated code.
   `connect-src` in `internal/api/headers.go`. A blank page in production but
   not in `make dev` (Vite serves its own pages, without our headers) usually
   means a CSP refusal: check the browser console.
+- **Supabase pauses a free project for too few database queries, not HTTP
+  requests.** Its docs say "user database activity" (`docs/tech-stack.md` §5).
+  `.github/workflows/keepalive.yml` keeps both projects awake 4× a day.
+  Production goes through `/api/health`, so if that endpoint ever stops
+  querying the database, the keepalive stops working for production.
+- **GitHub disables scheduled workflows after 60 days without repository
+  activity** (public repositories). The keepalive then stops silently, and
+  Supabase's warning email a week before a pause is the backstop. `gh
+  workflow enable keepalive.yml` turns it back on. Scheduled-run failure
+  emails go to whoever created the workflow, last edited its cron line or
+  re-enabled it.
+- **Never name a job in any workflow `ci`.** That name is the required check
+  on `main`. The keepalive has no `pull_request` trigger, so it can't become a
+  required check by accident.
+- **In `pg_stat_statements`, `SELECT 1` has no row of its own.** Statements
+  are grouped by a fingerprint that ignores constants and aliases, so every
+  `SELECT 1` variant counts under the app's `-- name: Ping` entry. Filter by
+  that text, not by `select $1` (measured in 0f).
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 

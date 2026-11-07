@@ -32,6 +32,8 @@ _Amended after Phase 0c (Nov 2026):_ _§5 decides how Cloud Run connects (sessio
 
 _Amended after Phase 0e (Nov 2026):_ _§8.4 records the frontend as built (toolchain and versions, embedding, routing, caching, security headers, `make dev`); §8.2 the tokens and their measured contrast; §7 the image's frontend stage, its size and the cold start with the page; §10 Node 26.13.0; §12 the frontend steps and smoke test in CI, Dependabot for npm, and ESLint and Prettier as configured._
 
+_Amended after Phase 0f (Nov 2026):_ _§5 quotes what Supabase counts as activity, closes "Open for 0f" with the keepalive as built (production through `/api/health` with no credential; madam-dev with one GitHub secret, and what it can do if it leaks), measures that the ping registers, and records the 60-day rule; §9 follows; §12 records the workflow; §13 the re-checked restore window._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -463,7 +465,19 @@ Two facts that come with the free plan:
 
 ### What pausing actually means
 
-Inactivity means no API requests, no database connections and no dashboard logins.
+*Checked against Supabase's docs in 0f* (7 November 2026, "Project
+pausing" and its FAQ): "A Free plan project is considered inactive if it does
+not receive sufficient **user database activity** over the past week", and
+"Projects with too few user queries during that window are the clearest
+candidates for pausing". "Typically a few user requests to the database each
+day over the previous week is enough", and "Opening the project in the
+dashboard or sending real requests from your app both count as activity",
+"though that isn't a guarantee". The owner gets "A warning email roughly one
+week before the pause takes effect", and another once it happens.
+*Unverified:* how Supabase counts user queries (which roles, what threshold),
+and whether requests that never reach the database, such as Auth's, count.
+The docs don't mention keepalive pings either way. (This section used to say
+any API request counts; the docs say database activity.)
 
 1. **Paused.** The database volume is frozen in place: no reads, no writes, no
    connections accepted. **The data is still on disk — a pause is not a
@@ -476,7 +490,9 @@ Inactivity means no API requests, no database connections and no dashboard login
    platform changes may not be backward compatible with older backups.
    *Caution:* a 2024 changelog announced a **90-day** window and many blog posts
    still repeat that figure. The docs are the better source, but treat the exact
-   number as changeable rather than something to rely on.
+   number as changeable rather than something to rely on. *Re-checked in 0f*
+   (7 November 2026): "there is a 1-year window to restore", and 90 days no
+   longer appears on the pausing pages.
 3. **Past the window.** The automatic path closes but the data is not gone: the
    database backup file and Storage objects can be **downloaded from Project
    Overview** before deletion, then loaded into a fresh project. The URL and keys
@@ -494,20 +510,64 @@ restore. The thread responses suggest user error is the likelier explanation, bu
 **Now load-bearing, not optional**, because the free plan is confirmed: a paused
 project is a broken app on the morning she tries to log a temperature.
 
-Pausing is triggered purely by inactivity, and **any request counts**, including a
-health check on a schedule. A small **GitHub Actions job pinging the API every few
-days** keeps the project awake indefinitely, at no cost. GitHub Actions is already
-in the stack (section 12), so this is a few lines. Ready-made keepalive scripts for
-Supabase exist.
+What counts is a **query on the database** (above), not an HTTP request as
+such. A scheduled GitHub Actions workflow makes each project answer one,
+at no cost.
 
-**Skeleton task:** add the keepalive job as part of the walking skeleton
-(section 9), covering **both** the production and the development project.
+*As built in 0f* (`.github/workflows/keepalive.yml`; the workflow itself is
+in §12):
 
-*Open for 0f:* this section says "ping the API", `build-order.md` 0f says "ping
-both Supabase projects", and §9 puts production credentials in GitHub secrets
-for it. Since 0c, `/api/health` runs a query on madam-prod, so a plain `curl` of
-the public URL keeps production awake with **no credentials at all**. Only
-madam-dev, which nothing public reaches, would need a secret. Decide in 0f.
+| Project | How | Credential |
+|---|---|---|
+| madam-prod | `curl` of the public `/api/health`, which runs `SELECT 1` as `madam_app` and answers `200` only if it succeeded | **None.** No production credential is in GitHub |
+| madam-dev | `psql "$URL" -c 'SELECT 1'` as `madam_app`, `verify-full` against the committed root CA | The repository secret **`MADAM_DEV_DATABASE_URL`**, the same URL as in `.env` |
+
+**If the dev secret leaks:** `madam_app` on madam-dev, nothing in production.
+RLS does **not** contain it: whoever holds the role's password can call
+`set_config('madam.user_id', …)` themselves, so they can read and write any
+row they can name, and hold the pooler's 15 slots. RLS guards against the
+app's own bugs, not against a stolen app credential. madam-dev holds fake data
+only (§9), which is why this was accepted. **To rotate:** `\password
+madam_app` on madam-dev (§5, Database roles), then the `.env` line, then `gh
+secret set MADAM_DEV_DATABASE_URL --repo peerbenmoshe/madam` (hidden prompt).
+Until the secret changes, the keepalive's `dev` job fails. Fork PRs and
+Dependabot runs never receive repository secrets.
+
+Rejected for madam-dev:
+- **A new role with no privileges,** for a smaller leak. It costs a migration
+  and an extra PR, to protect fake data.
+- **Supabase Auth's health endpoint with the publishable key.** It probably
+  makes no database query, so it likely doesn't count.
+- **The REST endpoint.** The Data API is off.
+- **Letting madam-dev pause.** §9 keeps both projects awake.
+
+**Measured in 0f.** In `pg_stat_statements` (schema `extensions`, readable by
+`postgres`), one keepalive run added exactly one call to `madam_app`'s `Ping`
+entry and one `DISCARD ALL` (the pooler ending the session). The keepalive's
+`SELECT 1` has no row of its own: Postgres files statements by a fingerprint
+that ignores constants and column aliases, so it's counted under the app's
+`-- name: Ping … SELECT $1::integer AS ok`, the text seen first. Whether
+Supabase's pause counter reads these numbers is unverified.
+
+**The 60-day rule.** GitHub's docs: "In a public repository, scheduled
+workflows are automatically disabled when no repository activity has occurred
+in 60 days." They don't define "repository activity" (assumed: pushes and
+merges) and document no email when it happens. Nothing automates against
+it:
+- During the build, merges, including Dependabot's weekly PRs, keep the
+  repository active.
+- Once the first user logs daily, production stays awake through real use.
+- The backstops are the banner on the Actions tab and Supabase's own warning
+  email, a week before a pause.
+- **Revisit after v1** if the repository may go quiet for two months: then
+  re-enable with `gh workflow enable keepalive.yml`, or add something.
+
+Rejected:
+- **A commit-based keepalive.** `main` is protected with no bypass, so it
+  couldn't push, and it would clutter the history.
+- **The workflow re-enabling itself.** It needs `actions: write`, and whether
+  that resets the 60 days is undocumented.
+- **A third-party action.** A new dependency.
 
 **Post-v1, free:** an automated nightly `pg_dump` to encrypted storage. Costs
 nothing and turns "database loss = everything" into "database loss = one day". A
@@ -1315,9 +1375,10 @@ Rules:
   keepalive job should cover this project too.
 - **The production database URL never goes into a local `.env`.** Production
   credentials live in Secret Manager (§7), read by Cloud Run at instance start
-  and by `make migrate-prod` with the developer's own login. Whether the
-  keepalive job needs any is open for 0f (§5). Migrations reach production from
-  the laptop (§6, decided in Phase 0c).
+  and by `make migrate-prod` with the developer's own login. The keepalive
+  needs none: it keeps production awake through the public `/api/health` (§5,
+  decided in 0f), so no production credential is in GitHub. Migrations reach
+  production from the laptop (§6, decided in Phase 0c).
 - No staging environment for v1; local plus production is enough for one user.
 
 ### Setup checklist
@@ -1548,7 +1609,49 @@ hour (`build-log.md`, Phase 0a). Check `gh run list` and the step timestamps
 before suspecting the workflow. Since 0c′ a run that never starts is a deploy
 that never happens: start it with "Run workflow" on `main` (§7).
 
-Also hosts the Supabase keepalive job (section 5).
+*Added in 0f:* the **Supabase keepalive**, `.github/workflows/keepalive.yml`
+(what it keeps awake and with which credential: §5, Mitigation). It's a
+separate file because a schedule in `ci.yml` would run the whole CI four times
+a day.
+
+- **Schedule:** `41 2,8,14,20 * * *` (UTC), plus `workflow_dispatch` for
+  testing by hand. GitHub's docs: the schedule "can be delayed during periods
+  of high loads… High load times include the start of every hour… some queued
+  jobs may be dropped." Hence :41, and four runs a day: Supabase asks for "a
+  few user requests to the database each day", and a dropped run then doesn't
+  matter. Scheduled workflows run only on the default branch. *Observed on
+  the first day:* nothing ran at 14:41 UTC, and the first scheduled run
+  started at 19:00 UTC, which isn't a slot. Expect hours of delay, and judge
+  the schedule by days, not by slots.
+- **Two jobs,** `production` and `dev`, so a failure names the project.
+  **Never name a job `ci`**, the required check. There's no `pull_request`
+  trigger, so the workflow never posts a check on a PR and can't become
+  required by accident.
+- **Least privilege:**
+  - `permissions: {}`. The run log still shows `Metadata: read`, which GitHub
+    always grants. `dev` adds `contents: read` for a sparse checkout of
+    `backend/certs`, with `persist-credentials: false`.
+  - There is **no `id-token`** permission, so the workflow can't ask for the
+    token deploys use. The deploy condition (§7) also names `ci.yml` only,
+    re-read in 0f.
+- **Actions:** only `actions/checkout@v7`, by major tag like the rest.
+  Dependabot's `github-actions` entry already covers every workflow file. The
+  jobs use the runner's `curl` and `psql`.
+- **Failing safely:**
+  - `timeout-minutes: 5` per job. curl and psql retry a couple of times, 30 s
+    apart, to ride out a blip, so a paused project still fails within about
+    two minutes. The next run, six hours later, is the real retry.
+  - A guard refuses the secret unless it's a `postgres://` or `postgresql://`
+    URL with `verify-full`, like the server (`cmd/server/db.go`), so a bad
+    value can't quietly try a local socket.
+- **Who hears about a failure:** "Notifications for scheduled workflows are
+  sent to the user who initially created the workflow". The recipient changes
+  to whoever later edits the cron line or re-enables the workflow. Email
+  needs Settings → Notifications → System → Actions → Email (opt-in), ideally
+  with "Only notify for failed workflows".
+- **Finding its runs:** `gh run list --workflow keepalive.yml` (`--event
+  schedule` for scheduled ones only). Run it by hand with `gh workflow run
+  keepalive.yml --ref main`.
 
 ### Git workflow
 
@@ -1628,7 +1731,8 @@ options (§5).
 **Still genuinely open:**
 
 - **Supabase restore window** — docs say one year, older sources say 90 days.
-  Re-check before relying on it.
+  Re-check before relying on it. (Re-checked in 0f, 7 November 2026: still one
+  year in the docs.)
 - **Palette contrast in practice** — the numbers in §8.2 set the limits; the first
   user should confirm the result is readable on her phone.
 
