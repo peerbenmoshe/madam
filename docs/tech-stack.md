@@ -30,6 +30,8 @@ _Amended after Phase 0b (Oct 2026):_ _§7 records the image, the registry and th
 
 _Amended after Phase 0c (Nov 2026):_ _§5 decides how Cloud Run connects (session pooler, `verify-full` against Supabase's own CA) and records the pool settings, the measured latency and the database roles; §6 records the tools, sqlc config and how migrations reach production; §7 adds Secret Manager and the re-measured cold start; §9 and §12 follow._
 
+_Amended after Phase 0e (Nov 2026):_ _§8.4 records the frontend as built (toolchain and versions, embedding, routing, caching, security headers, `make dev`); §8.2 the tokens and their measured contrast; §7 the image's frontend stage, its size and the cold start with the page; §10 Node 26.13.0; §12 the frontend steps and smoke test in CI, Dependabot for npm, and ESLint and Prettier as configured._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -737,8 +739,24 @@ stage). Two stages:
   `scratch` (we'd have to add the certificates and the user ourselves) and Alpine
   (a shell and a package manager are attack surface and CVEs to rebuild for).
 - The compressed image is **4.2 MB**.
+  *Since 0c* it is 5.28 MB (pgx); *since 0e*, **5.41 MB** in the registry
+  (`94d9daf` added the `web` package and chi's compressor, +52 KB; `990685a`
+  the embedded frontend, +72 KB). Still distroless, user 65532.
+- *Added in 0e:* a third stage comes first, `frontend`, on
+  `node:26.13.0-trixie-slim` (the version in `.nvmrc`; Debian, because the
+  lockfile's native packages are the glibc ones). It runs `npm ci`, then the
+  type check and `vite build`, and the Go stage copies its `dist/` into
+  `internal/web/assets/`. Nothing else from it reaches the runtime image.
+  `npm ci` there has no cache: 117 s on the laptop, and most of the extra
+  CI time (§8.4).
 - `.dockerignore` is an **allowlist** (`*`, then `!backend/`). `.env` can't
-  enter the build context, so it can't end up in a pushed image.
+  enter the build context, so it can't end up in a pushed image. *Since 0e*
+  it re-includes the frontend's sources file by file (so `node_modules`,
+  `dist` and any `frontend/.env*` stay out; Vite inlines `VITE_*` variables
+  into the public bundle), and excludes the laptop's own build in
+  `backend/internal/web/assets/`, which would otherwise mix stale chunks in.
+  A new frontend config file must be added there; forgetting it fails CI's
+  image build.
 - Base images are pinned by tag, not digest (the same readability choice as the
   Actions), and Dependabot proposes updates.
 
@@ -959,7 +977,9 @@ with its newer ID-based subject,
 
 **When something goes wrong**
 
-- *A merge started no run.* `gh run list --branch main --limit 3`. If the
+- *A merge started no run.* `gh run list --workflow ci.yml --branch main
+  --limit 3` (with `--workflow`: Dependabot's runs share the branch and can
+  fill an unfiltered list). If the
   merge commit has no run: Actions → CI → **Run workflow** on `main` (or
   `gh workflow run ci.yml --ref main`). If Actions itself is down: `make
   deploy` from an up-to-date `main`.
@@ -1027,6 +1047,25 @@ use. Our own Dockerfile and deployment pipeline need a standard project.
   minutes, but one shut down **7 seconds** after its last request. Fifteen
   minutes is typical, not guaranteed, so a cold start can come sooner than
   expected.
+
+  *Re-measured in 0e* (6 samples, 6 November 2026, same method), with the
+  frontend embedded in the binary. Four samples were a cold `/api/health`,
+  comparable with 0c; two were a cold page (`/`), which doesn't touch the
+  database:
+
+  | Measure | Cold `/api/health` | Cold `/` | Warm |
+  |---|---|---|---|
+  | End to end from the laptop (`curl`) | 0.87–1.33 s, median 1.03 s | 0.88 s, 1.00 s | ~0.22 s |
+  | Inside Google (`httpRequest.latency`) | 0.26–0.70 s, median 0.35 s | 0.33 s, 0.33 s | n/a |
+  | Container start (`container/startup_latencies`) | 20–249 ms (6 of 6, both kinds) | | n/a |
+
+  After the cold page, the script (69 KB gzipped) took 0.28–0.29 s more.
+  **The embedded frontend doesn't slow the start**: container start is in
+  0c's range, and the files are only read when requested. The `/api/health`
+  median rose 0.16 s, but the ranges overlap, and the two slow samples
+  (0.44 s and 0.70 s inside Google) had normal container starts. So the extra
+  time came after the start; our guess, not measured, is the first connection
+  to Supabase. Four samples can't tell that from noise.
 - Custom domains may need extra setup depending on region.
 
 ### Rejected
@@ -1087,6 +1126,23 @@ temperature line need a much darker tone to stay readable on a phone at 07:00.
 This is an arithmetic limit, not a taste judgement; the taste judgement is the
 first user's, and tokens make it cheap to revise.
 
+*As built in 0e:* Tailwind 4's tokens live in one `@theme` block in
+`frontend/src/index.css`, and Tailwind's own colour palette is switched off
+(`--color-*: initial`), so only the names below exist and `bg-pink-400` is not
+a class. Recomputed with the WCAG formula on 6 November 2026; the "7.9:1"
+above is pure black on HotPink.
+
+| Token | Value | Use | Contrast |
+|---|---|---|---|
+| `accent` | `#FF69B4` | fills only | 2.65:1 on `surface` |
+| `ink` | `#1A1A1A` | text, borders | 17.4:1 on `surface`, 6.6:1 on `accent` |
+| `muted` | `#595959` | secondary text | 7.0:1 on `surface` |
+| `surface` | `#FFFFFF` | background | n/a |
+
+Cream would lower every pair, so the background is white. No web fonts: the
+system font stack, so nothing is fetched from another origin. Seen working on
+Pe'er's phone; the first user's check remains before Slice 6.
+
 ### 8.3 Charting: Recharts (decided at step 4)
 
 **Correction to this document.** An earlier version of this section said
@@ -1141,6 +1197,81 @@ embedding happens only in the real build.
 Rejected: a separate static host (Cloudflare Pages, Netlify). It would show the
 page shell instantly even during a cold start, but costs two deployments and CORS
 setup. Reversal later is roughly an afternoon.
+
+### As built in Phase 0e
+
+**How a page reaches the phone**
+
+1. `make frontend` (or the Dockerfile's `frontend` stage) runs `tsc -b`, then
+   `vite build`, which writes `frontend/dist/`: `index.html` and
+   content-hashed files in `assets/`.
+2. The build is copied into `backend/internal/web/assets/`. `go:embed` can't
+   reach `../frontend`, because a pattern may not contain `..`. That
+   directory is gitignored except an empty, committed `.gitkeep`.
+3. `//go:embed all:assets` (`internal/web/web.go`) packs it into the binary.
+   `all:` also takes names starting with `_` or `.`, which Go otherwise
+   skips; Rollup can emit `_`-prefixed chunks.
+4. The router sends `/api/*` to the API and every other `GET` or `HEAD` to
+   `web.Handler`, which serves the files.
+
+**Toolchain**, every version exact, looked up on 6 November 2026: Node
+**26.13.0** (Active LTS since 28 October 2026; 24 went to maintenance on 20
+October) with npm 11.20.0, Vite 8.3.6, React 19.3.1, TypeScript **6.0.3**,
+Tailwind 4.3.4, ESLint 10.14.0 with typescript-eslint 8.72.1 and
+eslint-plugin-react-hooks 7.1.1, and Prettier 3.9.10. That's 14 direct
+packages and 175 installed (`frontend/package.json`).
+
+| Decision | Choice | Why | Rejected |
+|---|---|---|---|
+| Pinning Node | `.nvmrc` (read by nvm and by CI's `setup-node`) and the Dockerfile's exact `node:26.13.0-trixie-slim`. CI fails if they differ; `make check-node` refuses any other local Node | The laptop, CI and the image run the same Node, which is stricter than Go, where CI takes the newest 1.27.x. Dependabot updates the Dockerfile but not `.nvmrc`, so the failing check is the reminder to update both | A Docker `ARG` from `.nvmrc` (Dependabot can't see it); `engines` + `engine-strict` (a third copy); corepack (no longer shipped since Node 25) |
+| Packages | npm with `package-lock.json` and `npm ci`; `frontend/.npmrc` sets `save-exact` and `ignore-scripts` | Nothing extra to install or pin. No package runs code on install, the usual route of npm worms. Verified: install and build need no scripts | pnpm (one more tool to pin), Yarn |
+| TypeScript | 6.0.3, not 7.0.2 (`latest`) | typescript-eslint, canary included, requires `typescript <6.1.0`, and its TS 7 issue is open. Vite's template has moved to TS 7 with oxlint; that would lose type-aware lint. Dependabot holds TS majors back | TS 7 + oxlint, which would also contradict §12 |
+| Lint and format | ESLint flat config: `@eslint/js` recommended, typescript-eslint `recommendedTypeChecked`, react-hooks recommended; Prettier with defaults | Type-aware rules catch bugs the compiler doesn't. A missing `void` on a promise was flagged as `no-floating-promises` (tried on purpose) | `eslint-plugin-react-refresh`, `globals`, `eslint-config-prettier`, `prettier-plugin-tailwindcss`: each optional, none needed |
+| Tailwind | 4, through `@tailwindcss/vite`; tokens in CSS (§8.2) | No JS config, no PostCSS | Keeping the default palette beside ours |
+| Recharts | Not yet; the graph spike adds it | 0e has no chart, and the spike is throwaway | Adding an unused dependency now |
+| No build yet | A committed `.gitkeep`. `go build`, `go test` and golangci-lint work on a fresh clone; pages then answer `503 frontend not built`, `/api/` works, and startup logs a warning | Production can't ship that state: the image always builds the frontend, and CI's smoke test checks for the real page | A build tag (two code paths); nothing committed (a fresh clone doesn't compile); Vite writing into `assets/` (deletes `.gitkeep`) |
+| Routing | `/api` is a subrouter with its **own NotFound** (plain 404). `GET`/`HEAD /*` goes to the frontend: a file is served as itself; a missing name with an extension, or anything under `/assets/`, is 404; any other path gets `index.html` (client-side routes). Hidden names are 404, paths are cleaned first, and directories are never listed | An unknown API path must never be `200 text/html`: clients and monitoring would read it as success. **chi gives a mounted router its parent's NotFound when it has none of its own** (`mux.go`), so a top-level fallback would silently cover `/api/typo`. Breaking it on purpose made 7 router tests fail. A missing chunk gets 404 so an old tab fails clearly instead of receiving HTML as script | The page as the top-level NotFound |
+| Caching | `/assets/*`: `public, max-age=31536000, immutable`. Everything else on the page side: `no-cache`. `/api/*`: `no-store` | Hashed names never change content. `index.html` must be checked on every load to pick up a deploy. API responses will carry health data, and setting `no-store` on the subrouter means no route can forget it | ETags (embedded files have no modification time; `index.html` is 0.4 KB) |
+| Compression | chi's `middleware.Compress` on the frontend only; byte ranges ignored | The script is 221 KB, 69 KB gzipped, and egress to Israel is billed. No new dependency. A range of a compressed body would be wrong | Compressing `/api` (BREACH-style risk once responses carry secrets) |
+| Security headers | On every response: a CSP of `'self'` only (no inline script or style; `object-src`/`base-uri` `'none'`, `frame-ancestors 'none'`), `nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy`, `COOP same-origin` | A strict CSP is easiest to keep when nothing yet needs loosening; the built page has no inline code. No HSTS: `.app` is HSTS-preloaded as a whole TLD | Adding headers in Slice 2 |
+| `make dev` | Builds the server, runs it in the background, runs Vite in the foreground; a `trap` stops the server when Vite exits. Vite (`:5173`) passes `/api/` to `:8080`, so the browser sees one origin, as in production | One command, no dependency. Tested: Ctrl+C stops both, and so does Vite dying alone | `trap 'kill 0'` (also kills make itself); `go run` (`$!` would be the go tool, not the server); `concurrently`; two terminals |
+| Smoke test | `deploy/smoke-test.sh BASE_URL`: the page, a deep link, the script (type, `immutable`, gzip), `/api/health` (`no-store`), 404 for `/api`, `/api/`, `/api/nope`, `/api/health/extra`, a missing chunk, `/favicon.ico`, `/.gitkeep`, and the CSP. CI runs it on the image; it also checks production by hand | Tests the real image as deployed, not only the handlers | Unit tests only |
+
+The page itself (`frontend/src/App.tsx`) asks `/api/health` with `no-store`
+and a 5 s timeout and shows `ok`, the server's own reason (`database
+unavailable`), or "can't reach the server", with a "Check again" button. It
+is mobile first: a single column, `max-w-md`, and a 48 px tap target. There is
+no router yet.
+
+**Measured** (6 November 2026):
+- Bundle: 221 KB of script and 6.8 KB of CSS; **69 KB and 2.2 KB gzipped**.
+  The build is reproducible: the script's hashed name was the same on the
+  laptop and in CI.
+- Image: see §7 (+72 KB compressed).
+- CI: the `ci` job went from about 1½ to about 3 minutes (npm install 45 s on
+  an empty cache; the image build 71 s, up from about 30 s, because `npm ci`
+  inside Docker has no cache). The deploy job builds the image too, so
+  **merge to live took about 4½ minutes**, up from about 2.
+- Production: the smoke test passed 14/14 at the public URL; the page and a
+  deep link work, reload included, on Pe'er's phone.
+
+**Known and accepted:** `npm audit` reports one moderate advisory,
+GHSA-g3hv-75wg-m249 (`minimatch` <11.0.1, a denial-of-service through glob
+patterns). It is pulled in only by ESLint and typescript-eslint, a dev tool
+matching patterns we write, and never reaches the browser. The fix exists only
+in `minimatch` 11, and both packages require `^10`. Dependabot's security
+update concluded "update not possible" for the same reason. Its alert stays
+open and should close by itself once the fix reaches `main`, as 0c′'s `cel-go`
+alert did. npm's suggested "fix" is a downgrade to ESLint 9.
+
+**Expected to change, not yet verified:**
+- `connect-src` gains the Supabase URL in Slice 2, if the browser calls
+  Supabase Auth itself.
+- `style-src` may need loosening if the spike finds Recharts writing `style`
+  attributes as markup. React's `style` prop sets them through the DOM, which
+  CSP allows.
+- HSTS arrives with a custom domain.
+- TypeScript 7 arrives once typescript-eslint supports it.
 
 ---
 
@@ -1240,7 +1371,7 @@ Notes:
 | Tool | Version | Installed via |
 |---|---|---|
 | Go | 1.27.3 (updated from 1.27.1 in Phase 0a to match CI) | Official tarball, `/usr/local/go` |
-| Node / npm | 24 LTS / 11 | `nvm` (shadows a Windows npm that is also on PATH) |
+| Node / npm | 24 LTS / 11 at setup; **26.13.0 / 11.20.0** since 0e, pinned in `.nvmrc` | `nvm` (shadows a Windows npm that is also on PATH). nvm's default is `lts/*`, the newest LTS installed, so new shells pick up 26 |
 | Docker | 29.4 (Desktop 4.71), Compose 5.1 | Docker Desktop with WSL integration |
 | goose | 3.29 | `go install` (global copy). The project pins **v3.29.0** in `tools/go.mod` (0c) |
 | sqlc | 1.31 | `go install` (global copy). The project pins **v1.31.1** in `tools/go.mod` (0c) |
@@ -1258,6 +1389,11 @@ the laptop and CI drift apart, so the project pins its own versions:
 - **goose and sqlc** are `tool` directives in a **separate `tools/go.mod`** at
   the repository root, run through the Makefile, so their large dependency trees
   stay out of the app's `go.sum` (added in 0c; §6, As built).
+
+**Node** (decided in 0e, §8.4) is pinned exactly in `.nvmrc` and in the
+Dockerfile's `node:` tag, and CI checks that they agree. `make check-node`
+refuses any other Node, with a hint: `nvm use` reads `.nvmrc`. nvm doesn't
+switch versions by itself when you `cd` into the repository.
 
 **The `go` line is `go 1.27`**, not the `go 1.27.1` that `go mod init` writes. It
 is the minimum language version, so any 1.27.x toolchain satisfies it and nothing
@@ -1314,7 +1450,10 @@ and sanity-check the palette on a phone.
 - **Unit tests** for the FAM domain logic — the test vectors in
   `docs/fam-rules.md` §12 are the tests, written before the implementation.
 - **Integration tests** for API endpoints against a throwaway PostgreSQL container.
-- No frontend tests in v1.
+- No frontend tests in v1. *Since 0e* the Go side of serving the frontend
+  is tested (`internal/web`, `internal/api/router_test.go`) on an in-memory
+  file tree, so no build is needed, and CI's smoke test checks the built
+  image (below).
 - **Highest-value test: AC-16 isolation** — proven twice, once through the API and
   once directly against the database as the application role with the wrong user
   id set, which is the only thing that proves RLS is active rather than merely
@@ -1323,7 +1462,10 @@ and sanity-check the palette on a phone.
 ### Code quality
 
 `gofmt` (formatting is not a debate in Go) and `golangci-lint`; Prettier and
-ESLint on the frontend.
+ESLint on the frontend. *As built in 0e:* ESLint is type-aware
+(typescript-eslint `recommendedTypeChecked`, plus the Rules of Hooks) and
+Prettier keeps its defaults; `make lint` and CI run both (`npm run lint`).
+`npm run format` rewrites files to Prettier's style.
 
 ### CI: GitHub Actions
 
@@ -1366,11 +1508,36 @@ tired. Since 0c′ it also deploys every merge to `main` (§7).
     PRs and isn't a required check.
   - A **`workflow_dispatch`** trigger: the "Run workflow" button.
   - Runs on `main` are **never cancelled** by a newer one; they queue.
+- *Added in 0e* (why: §8.4), in the same `ci` job so the required check is
+  unchanged, before the Go steps:
+  - `setup-node` with `node-version-file: .nvmrc` and npm's download cache
+    keyed on `frontend/package-lock.json`.
+  - **Node versions agree:** `.nvmrc` must equal the Dockerfile's `node:`
+    tag.
+  - **Frontend install** (`npm ci`), **Frontend lint** (ESLint, then
+    Prettier's check), and **Frontend type check and build** (`make
+    frontend`, which also copies the build into `internal/web/assets`). So
+    `go build`, the tests and golangci-lint all see the real frontend.
+  - After **Build image**: **Smoke test image** runs the image on the
+    runner's network against the service Postgres, waits until it answers,
+    and runs `deploy/smoke-test.sh`. "Nothing under `/api/` reaches the
+    page" is therefore checked on every PR against the image that would
+    deploy.
 
 **Dependabot** (Phase 0a): weekly version updates, one grouped PR per ecosystem
 (`gomod` in `/backend`, `github-actions`, since 0b `docker` for the
 Dockerfile's base images, and since 0c `gomod` in `/tools`), configured in
 `.github/dependabot.yml`.
+*Since 0e:* **`npm` in `/frontend`**, with a **7-day cooldown** (a release
+is proposed only once it is a week old, because compromised npm versions are
+usually found and pulled within days) and TypeScript majors held back until
+typescript-eslint supports 7. The `docker` entry holds back Node majors (odd
+majors are never LTS; a major move is a decision). A Dependabot PR that moves
+the `node:` tag fails "Node versions agree" until `.nvmrc` is updated on the
+same PR. Dependabot's own runs also appear on `main`
+(`gh run list --branch main`), so look for CI's run with `--workflow ci.yml`:
+in 0e, four Dependabot runs crowded an unfiltered list, and the merge's CI
+run looked missing when it wasn't.
 Dependabot alerts and security updates are also switched on in the repository
 settings. Actions are pinned to major tags (`@v7`), not commit SHAs, so the diffs
 stay readable.

@@ -30,9 +30,10 @@ the document is wrong, change it *first*, in the same PR, with the tests.
 ## Stack
 
 Go 1.27 with chi · Supabase PostgreSQL 17 (Frankfurt) · sqlc + pgx · goose
-migrations · Supabase Auth (JWT) · React + TypeScript + Tailwind + Recharts,
-embedded in the binary with `go:embed` · Google Cloud Run (`europe-west1`,
-Belgium) · GitHub Actions.
+migrations · Supabase Auth (JWT) · React 19 + TypeScript 6 + Tailwind 4 +
+Vite 8 on Node 26 (Recharts arrives with the graph spike), embedded in the
+binary with `go:embed` · Google Cloud Run (`europe-west1`, Belgium) · GitHub
+Actions.
 
 ## Layout
 
@@ -43,9 +44,11 @@ backend/
     api/             chi router, handlers, middleware (HTTP only)
     fam/             domain logic. No HTTP, no SQL, no imports from api/ or db/
     db/              sqlc-generated code + hand-written .sql queries
+    web/             serves the embedded frontend; assets/ is build output
   migrations/        goose migrations, numbered, never edited once merged
 frontend/
   src/               React app
+deploy/              scripts: check-db-url.sh, smoke-test.sh
 docs/                the documents above
 ```
 
@@ -56,9 +59,10 @@ Keep it that way.
 ## Commands
 
 ```
-make dev            # API + frontend dev server + local postgres
+make dev            # API + Vite dev server + local postgres; open :5173 (Vite passes /api/ to :8080)
 make test           # go test ./... (add -race)
-make lint           # golangci-lint + eslint
+make lint           # golangci-lint + eslint + prettier --check
+make frontend       # type check + vite build + copy into backend/internal/web/assets
 make test-integration # also the tests that need a database, as madam_app (local container; DB=dev too)
 make migrate-up     # goose up as the owner (migrate-status shows state); locally also sets madam_app's password
 make migrate-new NAME=create_entries   # new numbered migration file
@@ -66,15 +70,20 @@ make migrate-prod   # production migrations: latest main only, verify-full URL, 
 make psql           # psql as the owner, sees every row (also reads SQL from stdin)
 make psql-app       # psql as madam_app: sees what the app sees
 make sqlc           # regenerate db/ from the .sql files
-make build          # frontend build + go build with embedded assets
+make build          # make frontend + go build with the frontend embedded (bin/server)
 make db-up          # start local postgres; returns once pg_isready passes
 make db-down        # stop it (data kept); db-reset also deletes the data
 make image          # build the production image locally (docker-run also runs it)
 make deploy         # fallback: deploy the latest main from the laptop (CI deploys every merge)
+sh deploy/smoke-test.sh <url>   # routing, caching and headers of a running server (CI runs it on the image)
 ```
 
-This list is the end state. The frontend parts of `dev`, `lint` and `build`
-arrive in 0e (`docs/build-order.md`).
+Every frontend target runs `check-node` first and installs `node_modules`
+(`npm ci`) when the lockfile is newer.
+
+**Node:** exactly the version in `.nvmrc` (26.13.0). `nvm use` in the repository
+switches to it; `make check-node` refuses anything else. The Dockerfile's
+`node:` tag must say the same version, and CI fails if it doesn't.
 
 **Choosing the database:** every target defaults to the local container
 (`DB=local`). Add `DB=dev` to use the `madam-dev` Supabase project. Each
@@ -95,7 +104,10 @@ code already running, because it does.
 **Pinned tools:** golangci-lint's version is `GOLANGCI_LINT_VERSION` in the
 Makefile, and the same value appears in `.github/workflows/ci.yml`; change both
 together. goose and sqlc are `tool` directives in a separate `tools/go.mod`,
-run by the Makefile as `go -C tools tool goose|sqlc`.
+run by the Makefile as `go -C tools tool goose|sqlc`. npm packages are exact
+versions (`frontend/.npmrc`: `save-exact`, and `ignore-scripts`, so no
+package runs code on install). TypeScript stays on 6 until typescript-eslint
+supports 7 (`docs/tech-stack.md` §8.4).
 
 Regenerate with `make sqlc` after touching any `.sql` file or migration. Never
 hand-edit generated code.
@@ -203,8 +215,10 @@ hand-edit generated code.
 - **Git talks to GitHub over HTTPS only.** SSH connections are reset from this
   laptop; don't switch the remote to `git@github.com:`.
 - **A merge can start no CI run at all** (seen in 0a), and since 0c′ that is a
-  deploy that doesn't happen. Check `gh run list --branch main`; tell Pe'er
-  what's stuck, then "Run workflow" on `main`.
+  deploy that doesn't happen. Check `gh run list --workflow ci.yml --branch
+  main`; without `--workflow`, Dependabot's runs on `main` can fill the list
+  and make a run look missing (0e). Tell Pe'er what's stuck, then "Run
+  workflow" on `main`.
 - **`--allow-unauthenticated` is deliberately not in `make deploy`.** gcloud
   re-sets the service's IAM policy on every deploy with it, which CI's
   deployer may not do. Public access is the `allUsers` binding, set once.
@@ -214,13 +228,32 @@ hand-edit generated code.
 - **Cloud Run never forwards some paths ending in `z`.** `/healthz` gets Google's
   own 404 and never reaches the app (tested), so the health endpoint is
   `/api/health`. Don't name any route with a trailing `z`, or starting `/_ah/`.
-- **Cold start is under a second, database included.** Measured in 0c: a cold
+- **Cold start is about a second, database included.** Measured in 0c: a cold
   `/api/health`, which opens the first connection to Supabase, took 0.82–1.11 s
   end to end from the laptop in Israel (median 0.87 s; 0b, without a database,
-  was 0.81 s), against about 0.25 s warm. The container itself starts in about
-  0.03–0.3 s, because the pool connects on first use. An idle instance usually
+  was 0.81 s), against about 0.25 s warm. Re-measured in 0e with the frontend
+  embedded: median 1.03 s (0.87–1.33 s), and a cold page 0.88–1.00 s. The
+  container itself starts in about 0.02–0.3 s, unchanged by the embedded
+  files, because the pool connects on first use. An idle instance usually
   shuts down **15 minutes** after its last request, but once did after 7 s, so
   the 15 minutes isn't guaranteed (`docs/tech-stack.md` §7).
+- **An unknown `/api/` path must be a 404, never the app's page.** The `/api`
+  subrouter sets its own NotFound because chi gives a mounted router its
+  parent's when it has none: a page fallback at the top would silently answer
+  `/api/typo` with `200 text/html`. `router_test.go` and the smoke test guard
+  it; keep new API routes inside that subrouter.
+- **`backend/internal/web/assets/` is build output.** `make frontend` fills
+  it; only the empty `.gitkeep` is committed, so Go compiles on a fresh clone.
+  A binary built without `make frontend` serves the API but answers pages
+  with `503 frontend not built`. That's expected locally, never in the image.
+- **Vite puts every `VITE_*` variable into the public JavaScript.** Never put
+  a secret in one, or in a `frontend/.env*` file. `.dockerignore` keeps
+  those files out of the image build anyway.
+- **The CSP allows only `'self'`, with no inline script or style.** A new
+  origin the browser must talk to (Supabase Auth in Slice 2) needs adding to
+  `connect-src` in `internal/api/headers.go`. A blank page in production but
+  not in `make dev` (Vite serves its own pages, without our headers) usually
+  means a CSP refusal: check the browser console.
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
