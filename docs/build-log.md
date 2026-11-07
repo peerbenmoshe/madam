@@ -373,3 +373,89 @@ type uuid: ""`.
 - **Before destroying something, account for every row.** "Looks like
   `postgres` twice" was worth a second query: `backend_type` and `client_addr`
   tell a process inside the database apart from a connection to it.
+
+---
+
+## Phase 0e — Frontend shell (6 November 2026, PRs #18 and #19)
+
+**Goal.** The React page and the API from one binary at one URL: Vite +
+React + TypeScript + Tailwind, built into the image and embedded with
+`go:embed`, showing what `/api/health` says.
+
+**How it was done.** Pe'er accepted every recommended option in the plan.
+There were two code PRs, Go first: #18 taught the server to serve embedded
+files and briefly put `503 frontend not built` live. #19 added the frontend,
+so the deploy that changed the page carried nothing else.
+
+**Decisions** (details in `tech-stack.md` §8.4, with §7, §8.2, §10 and §12):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Node | 26.13.0, exactly, in `.nvmrc` and the Dockerfile; CI checks they agree | Active LTS for 9 days; 24 had just gone to maintenance, and the laptop's 24.21.0 had missed a security release |
+| TypeScript | 6.0.3, not `latest` 7.0.2 | typescript-eslint still requires `<6.1`. Vite's own template had moved to TS 7 with oxlint, which would have lost type-aware lint |
+| Packages | npm, exact versions, no install scripts, Dependabot with a 7-day cooldown | Nothing extra to pin; the worm route closed; a week for bad releases to be pulled |
+| No build yet | A committed `.gitkeep`; pages answer 503 | A fresh clone compiles, and the image can't ship that state: the smoke test would fail |
+| `/api` | Its own 404, `no-store`; everything else is the app, with `index.html` for client-side routes | An unknown API path must never look like success |
+| Headers | A strict CSP and the usual protections, now | Easiest to keep strict while nothing needs loosening |
+| Recharts | Left for the graph spike | 0e has no chart |
+
+**Surprise: chi's inheritance.** chi hands a mounted subrouter its parent's
+NotFound handler when it has none (read in its source, `mux.go`). A
+page-as-fallback at the top level, the obvious way to write a single-page app
+server, would have answered `/api/typo` with `200` and the page. The `/api`
+subrouter now has its own 404. Breaking it on purpose made seven router tests
+fail, which is how we know the tests guard it.
+
+**Surprise: "latest" wasn't compatible.** Looking every version up on the
+day, instead of from memory, found TypeScript 7 as `latest` and the linter
+not ready for it. It also found Node 26 newly LTS and the laptop behind on
+security. `npm audit` then reported ten "vulnerabilities", which were one
+advisory: `minimatch` inside ESLint, fixed only in a major that ESLint
+doesn't accept yet. npm's suggested fix was a downgrade. Pe'er chose to
+accept and record it; Dependabot independently reached "update not
+possible".
+
+**Verified rather than assumed:**
+- **Nothing under `/api/` reaches the page**: unit tests, a smoke test on the
+  built image in every PR's CI, and the same script at the public URL
+  (14/14).
+- **A deep link reloads**, at the public URL and on Pe'er's phone.
+- **Distroless needs no MIME table**: the script comes back as
+  `text/javascript` from the image (Go's built-in table).
+- **`ignore-scripts=true` costs nothing**: install and build work.
+- **The type-aware lint does something**: removing a `void` produced
+  `no-floating-promises`.
+- **`make dev` stops cleanly** on Ctrl+C and when Vite dies alone. The first
+  design, `trap 'kill 0'`, would have killed `make` too; the server is now
+  run as a binary so `$!` is the server, not `go run`.
+- **The build is reproducible**: the script's content hash was the same on
+  the laptop and in CI.
+- **Size and speed**: the image is 5.41 MB compressed (+124 KB for all of
+  0e), still distroless. The `ci` job takes about 3 minutes instead of 1½, and
+  merge to live about 4½ instead of 2, mostly the uncached `npm ci` inside the
+  image build, which runs in both jobs.
+- **Cold start is unchanged by the frontend**: container start 20–249 ms (0c:
+  28–303 ms). A cold `/api/health` took 0.87–1.33 s, median 1.03 s (0c: median
+  0.87 s, overlapping range); the extra was after the container started,
+  probably the first Supabase connection. A cold page, with no database, took
+  0.88–1.00 s, and its script 0.28 s more (`docs/tech-stack.md` §7).
+
+**Surprises:**
+- The merge's CI run looked missing. It wasn't: the merge changed
+  `dependabot.yml`, Dependabot started four runs on `main`, and they filled
+  `gh run list --limit 4`. Pe'er spotted the real run on the web page. The
+  checks now use `--workflow ci.yml`.
+- The tool shell still had Node 24 after installing 26: its environment was
+  captured when the session started. `make check-node` caught it with a
+  clear message, which is what it's for.
+
+**Lessons:**
+- **Read the library before trusting the pattern.** The idiomatic
+  single-page-app fallback was exactly the bug. Fifteen lines of chi's
+  source settled it before any code depended on it.
+- **"Latest" is a claim to check, not a default.** The compatible set was
+  one major behind on one package, and only a peer-dependency range said so.
+- **A count isn't a finding.** Ten audit entries were one advisory in a dev
+  tool; reading each one is what turned alarm into a decision.
+- **Filter before concluding something is missing.** A busier branch made a
+  healthy run invisible in a short list.

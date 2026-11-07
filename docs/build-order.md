@@ -32,6 +32,9 @@ _Amended in Phase 0d (Nov 2026): 0d is done. The transaction wrapper is a
 function handlers call, not chi middleware, and the stub identity is test-only
 (both below)._
 
+_Amended in Phase 0e (Nov 2026): 0e is done. The graph spike gains what 0e
+set up for it, and 0f a note on finding its runs (both below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -261,6 +264,18 @@ not optional, and the copied assets are build output: gitignored, never committe
 
 *Done when:* the deployed binary serves the React page at the same URL as the API.
 
+**✅ Done (6 November 2026, PRs #18 and #19).** The React page and
+`/api/health` are served from one binary at the public URL. A deep link
+reloads correctly, on Pe'er's phone too. `deploy/smoke-test.sh` passed 14/14
+there, and it runs against the image on every PR, so nothing under `/api/`
+can reach the page unnoticed. Node 26.13.0 is pinned exactly in `.nvmrc` and
+the Dockerfile. The image is 5.41 MB and still distroless. Two decisions are
+worth knowing before later work: TypeScript is 6, because typescript-eslint
+doesn't support 7 yet, and the `/api` subrouter has its own 404, because chi
+would otherwise give it the page's fallback. The decisions are in
+`tech-stack.md` §8.4 (with §7, §8.2, §10 and §12); the story is in
+`build-log.md`.
+
 ### 0f — Keepalive
 
 A GitHub Actions workflow pinging **both** Supabase projects every few days. The
@@ -268,6 +283,11 @@ free plan pauses a project after a week of inactivity, and a paused project is a
 broken app on the morning she tries to log a temperature.
 
 *Done when:* the workflow has run green on schedule at least once.
+
+*Learned in 0e, to act on here:* Dependabot's runs share `main` with ours,
+so find a workflow's runs with `gh run list --workflow <file>`. The deploy
+condition refuses any workflow but `ci.yml` (`tech-stack.md` §7), so a
+keepalive workflow can't deploy even by mistake.
 
 ---
 
@@ -289,6 +309,12 @@ is an answer written into `CLAUDE.md` or the relevant document.
   disturbed day is stepped over while a missing day breaks the line. This is the
   only known sharp edge in the project. Meet it while the codebase is small, when
   swapping to visx would still be cheap.
+  *Set up by 0e:* Recharts is not installed yet. Add it (React 19 is in its
+  peer range) as a dependency to approve. The CSP allows no inline styles,
+  so check the browser console: if Recharts writes `style` attributes as
+  markup, the CSP needs loosening (`tech-stack.md` §8.4). Colours come from
+  the `@theme` tokens (§8.2), never Tailwind's palette, which is switched
+  off.
 
 ---
 

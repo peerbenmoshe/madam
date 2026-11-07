@@ -495,7 +495,7 @@ Because the array decision removed every junction table, **nothing in the schema
 points at an entry**, which makes natural composite keys practical. The
 uniqueness rule the spec needs *is* the primary key rather than a second
 constraint alongside an ID, and the API addresses days by date
-(`GET /entries/2026-03-15`), so there is no ID for the frontend to carry.
+(`GET /api/entries/2026-03-15`), so there is no ID for the frontend to carry.
 
 Rejected: UUID primary keys. UUIDs earn their keep when IDs are publicly exposed
 and a neighbouring ID would leak something. Ours are scoped per user and addressed
