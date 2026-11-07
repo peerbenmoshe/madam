@@ -1,0 +1,76 @@
+name: Keepalive
+
+# Keeps both Supabase projects from pausing. The free plan pauses a project
+# that gets too little "user database activity" in a week, so each job makes
+# the database answer a real query (docs/tech-stack.md §5).
+on:
+  schedule:
+    # 04:41, 10:41, 16:41 and 22:41 in Israel in winter (cron is UTC). Off the
+    # hour on purpose: GitHub delays, and at busy times drops, scheduled runs
+    # at the start of every hour. Four a day means a dropped run doesn't matter.
+    - cron: "41 2,8,14,20 * * *"
+  # The "Run workflow" button, for testing by hand: gh workflow run keepalive.yml --ref main
+  workflow_dispatch:
+
+# The token gets no access at all. There is no id-token permission either, so
+# this workflow can't even ask GitHub for the token that deploys use. (The
+# deploy condition also accepts only ci.yml: docs/tech-stack.md §7.)
+permissions: {}
+
+jobs:
+  # Never name a job here "ci": that's the required status check on main.
+  # This workflow runs no pull_request event, so it never posts a check on a PR.
+
+  # Production needs no credentials: /api/health runs SELECT 1 on madam-prod
+  # as madam_app. A paused or unreachable database answers 503, which fails.
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping production's health check
+        run: |
+          body=$(curl -fsS --max-time 20 --retry 2 --retry-delay 30 --retry-all-errors \
+            https://madam-966460417479.europe-west1.run.app/api/health)
+          echo "health: $body"
+          test "$body" = ok
+
+  # madam-dev has nothing public in front of it, so the job queries it
+  # directly as madam_app. MADAM_DEV_DATABASE_URL is a repository secret,
+  # the same URL as in .env; it reaches no production resource.
+  dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # Only Supabase's root CA, which verify-full needs.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: backend/certs
+          persist-credentials: false
+
+      - name: Query madam-dev
+        env:
+          DATABASE_URL: ${{ secrets.MADAM_DEV_DATABASE_URL }}
+          PGSSLROOTCERT: backend/certs/supabase-root-2021-ca.crt
+          PGCONNECT_TIMEOUT: "15"
+        run: |
+          # The server's own rule (cmd/server/db.go): a postgres:// URL with
+          # verify-full. A missing or broken secret must fail here, not
+          # quietly try a local socket or unverified TLS.
+          case "$DATABASE_URL" in
+            postgres://*sslmode=verify-full*) ;;
+            *)
+              echo "::error::MADAM_DEV_DATABASE_URL must be a postgres:// URL with sslmode=verify-full"
+              exit 1
+              ;;
+          esac
+          # -X: ignore any psqlrc. -tA: print just the value.
+          for attempt in 1 2 3; do
+            if psql "$DATABASE_URL" -X -tA -v ON_ERROR_STOP=1 -c 'SELECT 1'; then
+              exit 0
+            fi
+            echo "attempt $attempt failed"
+            [ "$attempt" -lt 3 ] && sleep 30
+          done
+          exit 1
