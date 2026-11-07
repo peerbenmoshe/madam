@@ -35,6 +35,10 @@ function handlers call, not chi middleware, and the stub identity is test-only
 _Amended in Phase 0e (Nov 2026): 0e is done. The graph spike gains what 0e
 set up for it, and 0f a note on finding its runs (both below)._
 
+_Amended in Phase 0f (Nov 2026): 0f is done, so Phase 0 is complete. The
+keepalive runs four times a day, not "every few days", because Supabase asks
+for "a few user requests to the database each day" (below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -288,6 +292,22 @@ broken app on the morning she tries to log a temperature.
 so find a workflow's runs with `gh run list --workflow <file>`. The deploy
 condition refuses any workflow but `ci.yml` (`tech-stack.md` §7), so a
 keepalive workflow can't deploy even by mistake.
+
+**✅ Done (7 November 2026, PRs #21 and #22).**
+`.github/workflows/keepalive.yml` runs at :41 past 02, 08, 14 and 20 UTC
+and ran green on schedule the same day.
+- **Production** is pinged through the public `/api/health`, with no
+  credential in GitHub.
+- **madam-dev** gets `psql` as `madam_app`, from one repository secret.
+- **Measured:** one run adds one recorded query on madam-dev, and the
+  workflow has no `id-token`, so it can't deploy.
+- Four a day, not "every few days", because Supabase counts "user database
+  activity" and asks for "a few user requests to the database each day".
+- GitHub disables a public repository's schedules after 60 days without
+  activity; during the build, merges prevent that.
+
+The decisions are in `tech-stack.md` §5 (Mitigation), §9 and §12, and the
+story is in `build-log.md`.
 
 ---
 

@@ -459,3 +459,78 @@ possible".
   tool; reading each one is what turned alarm into a decision.
 - **Filter before concluding something is missing.** A busier branch made a
   healthy run invisible in a short list.
+
+---
+
+## Phase 0f — Keepalive (7 November 2026, PRs #21 and #22)
+
+**Goal.** Neither Supabase project may pause. The free plan pauses after a
+week of too little activity, and a paused madam-prod is a broken app on the
+morning she tries to log a temperature.
+
+**How it was done.** The plan was approved with two choices put to Pe'er
+(below). #21 added the workflow. Its first manual run failed on madam-dev, and
+#22 fixed that. The first scheduled run passed the same evening.
+
+**Decisions** (details in `tech-stack.md` §5, Mitigation, and §12):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Production | `curl` of the public `/api/health` | It already queries madam-prod as `madam_app`, so **no production credential is in GitHub**. §9 had assumed one |
+| madam-dev | `psql` as `madam_app`, with the repository secret `MADAM_DEV_DATABASE_URL` | Nothing public reaches it. Pe'er chose this over a new no-privilege role: a leak reaches only fake data, and the role would have cost a migration and an extra PR |
+| What counts | A database query | Supabase's docs say "user database activity". So Auth's health endpoint (probably no query) and REST (Data API off) were out |
+| Schedule | `41 2,8,14,20 * * *` | Supabase asks for "a few user requests to the database each day". GitHub delays and drops runs at the top of the hour. Pe'er chose four a day over 0f's "every few days" |
+| Workflow | A separate file, two jobs, `permissions: {}`, no `id-token`, no `pull_request` trigger | It can't deploy, can't become a required check, and a failure names the project |
+| 60 days | No automation | During the build, merges keep the repository active. `main` is protected with no bypass, so a commit-based keepalive couldn't push anyway. Supabase's warning email is the backstop |
+
+**Surprise: my guard was stricter than the server it copied.** The `dev` job
+refuses a secret that isn't a `postgres://` URL with `verify-full`, the
+server's rule. But the server accepts `postgresql://` too, the scheme
+Supabase's dashboard gives, and the guard was written from memory. The first
+run failed at the guard, in a fraction of a second, with a readable message
+and before any connection. That was the right kind of failure, but for the
+wrong reason. #22 matched the server.
+
+**Surprise: `SELECT 1` has no row in `pg_stat_statements`.** After a green
+run, madam-dev's statistics showed no `SELECT 1` from any role. A test with
+three variants (`SELECT 1`, `SELECT 1::integer AS ok`, `SELECT 1 AS
+keepalive`) showed why. Postgres groups statements by a fingerprint that
+ignores constants and column aliases, so all of them were counted under the
+app's own `-- name: Ping`, the text it saw first. The query was there all
+along; the filter was looking for the wrong text.
+
+**Surprise: the first scheduled run came at no scheduled time.**
+- Nothing ran at 14:41 UTC, the first slot after the merge. A scheduled run
+  started at **19:00 UTC**, which isn't a slot at all.
+- GitHub's run record doesn't say which cron line fired. The likeliest
+  reading is the 14:41 slot delayed by 4 h 19 min, but that's unverified.
+- Either way, this is what four slots a day are for. A pause needs a week of
+  silence, about 28 missed slots.
+
+**Verified rather than assumed:**
+- **The ping registers on madam-dev.** With counters read before and after,
+  one run added exactly one call to `madam_app`'s `Ping` entry and one
+  `DISCARD ALL`, the pooler ending the session.
+- **Production:** Cloud Run logged a `200` from a GitHub runner, and the
+  handler answers `200` only after its query succeeds. Whether Supabase's
+  pause counter reads the same numbers stays unverified; its docs don't say.
+- **It can't deploy.** The run log's token permissions are `Metadata: read`
+  (always granted), plus `Contents: read` for `dev`, with no `IdToken`. The
+  deploy condition, re-read with `gcloud`, still names `ci.yml` only.
+- **It can't become required.** `main`'s required checks are still only `ci`.
+- **Nothing secret in the logs.** The URL appears only as `***`. The only
+  `postgres` strings are the script's own text.
+- **Manual runs green,** both jobs (after #22), and then the first
+  **scheduled** run (run 42404050371). It had the same permissions, a `1`
+  from madam-dev, `ok` from production, and nothing secret in its log.
+
+**Lessons:**
+- **Copy a rule from its code, not from memory.** A guard meant to match
+  another check must be checked against it, with the edge cases that check
+  allows.
+- **Before concluding something is missing, check how it would be filed.**
+  The query was recorded, under another name. A baseline taken before the
+  change, plus a test that varies one thing, is what showed it.
+- **Read what the provider counts.** "Any request keeps it awake" had become
+  this project's belief. Supabase's own words, "user database activity", ruled
+  out two options and set the schedule.
