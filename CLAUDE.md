@@ -31,7 +31,8 @@ the document is wrong, change it *first*, in the same PR, with the tests.
 
 Go 1.27 with chi · Supabase PostgreSQL 17 (Frankfurt) · sqlc + pgx · goose
 migrations · Supabase Auth (JWT) · React 19 + TypeScript 6 + Tailwind 4 +
-Vite 8 on Node 26 (Recharts arrives with the graph spike), embedded in the
+Vite 8 on Node 26 (Recharts 3.10.1, confirmed by the graph spike, is
+installed in Slice 6), embedded in the
 binary with `go:embed` · Google Cloud Run (`europe-west1`, Belgium) · GitHub
 Actions.
 
@@ -178,8 +179,15 @@ hand-edit generated code.
   use `make psql-app` to see what the app sees.
 - **Two kinds of hole in the graph line.** A *disturbed* reading is skipped and
   its neighbours connect; a *missing* day is a gap. Recharts can't express both
-  with one setting, so the line is drawn as separate segments. Don't "simplify"
-  it back to one line.
+  with one setting, so the line is drawn as separate segments: one `<Line
+  connectNulls>` per run, where a day without a temperature ends a run and a
+  disturbed day doesn't (`docs/tech-stack.md` §8.3; working code on the
+  unmerged branch `spike/graph`). Don't "simplify" it back to one line.
+- **On touch, Recharts' active index is one tap behind.** It handles pointer
+  moves once per animation frame, and a tap's click runs before that frame. So
+  never read `activeIndex` in a click handler; tappable dots carry their own
+  handlers (measured in the graph spike). Its draw-on line animation also
+  stays on frame one in headless Chrome, so screenshot tests turn it off.
 - **Cycle starts are their own table**, not a flag on an entry, so a cycle can
   start on a day with no entry. Saving a day may therefore be two writes — in one
   transaction.
@@ -256,9 +264,11 @@ hand-edit generated code.
   those files out of the image build anyway.
 - **The CSP allows only `'self'`, with no inline script or style.** A new
   origin the browser must talk to (Supabase Auth in Slice 2) needs adding to
-  `connect-src` in `internal/api/headers.go`. A blank page in production but
-  not in `make dev` (Vite serves its own pages, without our headers) usually
-  means a CSP refusal: check the browser console.
+  `connect-src` in `internal/api/headers.go`. Recharts needs no loosening: it
+  sets styles through the DOM, which the CSP allows (graph spike). A blank
+  page in production but not in `make dev` (Vite serves its own pages,
+  without our headers) usually means a CSP refusal: check the browser
+  console.
 - **Supabase pauses a free project for too few database queries, not HTTP
   requests.** Its docs say "user database activity" (`docs/tech-stack.md` §5).
   `.github/workflows/keepalive.yml` keeps both projects awake 4× a day.

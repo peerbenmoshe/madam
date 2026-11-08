@@ -534,3 +534,79 @@ along; the filter was looking for the wrong text.
 - **Read what the provider counts.** "Any request keeps it awake" had become
   this project's belief. Supabase's own words, "user database activity", ruled
   out two options and set the schedule.
+
+---
+
+## Spike — The graph (8 November 2026, branch `spike/graph`, not merged)
+
+**Goal.** Before Slice 1, find out whether Recharts can draw the chart the
+rules describe. The known sharp edge was the line: a disturbed day is stepped
+over, a missing day breaks the line, and Recharts has one `connectNulls` switch
+per line.
+
+**How it was done.** The plan was approved as written. Pe'er chose to test on
+phones through a temporary Windows port proxy, rather than merging a `/spike`
+page (which would have gone live) or deploying a separate service. The six
+criteria for switching to visx were written **before** any chart existed, so
+the result couldn't be argued into fitting them.
+
+The spike page used 90 days of fake data, with 18 edge cases placed on known
+dates and values from `fam-rules.md` §12. It also reported on itself:
+- a CSP violation log, with a button that causes a violation on purpose;
+- an audit of every painted colour;
+- a tap log.
+
+That let headless Chrome and both phones say what happened, with no console
+to read.
+
+**Decisions** (details in `tech-stack.md` §8.3):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Library | Recharts 3.10.1, plus `react-is` 19.3.1 explicitly | Passed all six criteria. The peer is named in `package.json`, not left in the lockfile |
+| The line | One `<Line connectNulls>` per run, from a 20-line `lineSegments` | Inside a run the only blanks are disturbed days, so the one switch does the right thing there |
+| Taps | 48 px hit circles under the visible marks | 9–10/10 on both phones. The chart-level alternative reads a stale day on touch |
+| Cycle-start line | Dashed ink, with an accent marker on top | A thin line in accent fails 3:1 |
+| Where the spike lives | An unmerged, pushed branch | Every merge deploys |
+
+**Surprise: the frozen line.** The first headless screenshot had dots and
+no line. Each segment's `stroke-dasharray` was `0px <length>`: Recharts'
+draw-on animation, stuck on its first frame. With the animation off, the lines
+were exactly right. In Pe'er's browser and on both phones the animation runs.
+That's a headless quirk, but one that any screenshot test in Slice 6 would hit.
+
+**Surprise: a tap one step behind.** The "tap a column" mode misfired now
+and then on Android. Recharts' source explained it. Pointer moves are handled
+once per animation frame (`throttleDelay: 'raf'`). A tap's click runs before
+that frame, so it reads the active day the *previous* tap set. A test that
+taps the same day ten times hides this, because the stale day is the same day.
+
+**Surprise: a counter that couldn't fail the right way.** In the
+alternating-taps test, the counter counted only hits on the target day, so the
+perfect score was 5/10, not 10/10. Pe'er's notes ("as intended") are what
+confirm every tap landed. The counter alone couldn't have said so.
+
+**Verified rather than assumed:**
+- **No CSP loosening.** 0 violations in every state, under the real headers,
+  in headless Chrome, Windows Chrome, Android Chrome and iPhone Chrome. The
+  negative control added exactly 1 each time, so the zeros mean something.
+  Recharts' source sets styles only through the DOM.
+- **Every edge case**, from `lineSegments`' output and from screenshots in
+  °C and °F, with ghosts on and off, at 14, 30 and 90 days.
+- **Tokens only**, by the browser's computed colours. The only black was a clip
+  rectangle, which is never painted.
+- **Taps:** Android 9/10 on a dot and 10/10 on a ghost; iPhone 10/10 and 10/10;
+  neighbours 22 px apart resolved correctly. The popup showed 97.91 °F and the
+  adjusted 36.55 "(estimate) · late".
+- **Bundle:** +106.7 KB gzipped (69.2 → 175.9), under the 150 KB line.
+- **Packages:** 39 added, no new audit advisory.
+
+**Lessons:**
+- **Write the exit criteria before looking.** Six lines written in the plan
+  turned "it seems fine" into a pass or fail for each one.
+- **A zero needs a one beside it.** The negative control is what made the CSP
+  result evidence instead of silence.
+- **Make the page report on itself.** Phones have no console. A violation log,
+  a colour audit and a tap log on the page turned two phones into instruments.
+- **A test that repeats one action can hide state bugs.** Varying the target
+  is what would show a stale value.

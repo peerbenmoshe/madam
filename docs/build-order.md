@@ -39,6 +39,9 @@ _Amended in Phase 0f (Nov 2026): 0f is done, so Phase 0 is complete. The
 keepalive runs four times a day, not "every few days", because Supabase asks
 for "a few user requests to the database each day" (below)._
 
+_Amended after the graph spike (Nov 2026): the graph spike is done and
+Recharts stays; Slice 6 gains what the spike learned (both below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -336,6 +339,19 @@ is an answer written into `CLAUDE.md` or the relevant document.
   the `@theme` tokens (§8.2), never Tailwind's palette, which is switched
   off.
 
+  **✅ Done (8 November 2026, branch `spike/graph`, never merged).**
+  **Recharts 3.10.1 stays.** It passed all six visx criteria fixed before
+  looking:
+  - the line as one `<Line connectNulls>` per run;
+  - no CSP loosening, with 0 violations on three browsers;
+  - edge cases E1–E18 drawn correctly;
+  - taps at least 9/10 on Android and iPhone;
+  - +106.7 KB gzipped;
+  - tokens only.
+
+  `react-is` 19.3.1 comes with it as a peer. The answer is in `tech-stack.md`
+  §8.3 (As built in the graph spike), and the story is in `build-log.md`.
+
 ---
 
 ## 4. The slices
@@ -398,6 +414,20 @@ range, ghost toggle, legend, day popup, "Show day".
 
 *Acceptance criteria:* AC-10, AC-11, AC-15, plus the visible halves of AC-3 and
 AC-13.
+
+*Learned in the graph spike, to act on here* (`tech-stack.md` §8.3):
+- Look up Recharts' version again and approve it; the spike's is 3.10.1, with
+  `react-is` matching React. The branch `spike/graph` has working code to
+  read, not to merge.
+- **Taps:** use per-dot hit circles under the visible marks. Never read
+  Recharts' active index in a click handler: on touch it's one tap behind.
+- **Density:** at 30 and 90 days, dots must shrink, and a tap can only mean
+  "nearest day". Decide with Pe'er how the popup moves between days.
+- Decide whether the line enters from the window's edge, and whether to
+  animate. Any screenshot test needs the animation off.
+- Two **readings** need confirming or writing into `fam-rules.md` §7:
+  - normal, disturbed, missing, normal doesn't connect;
+  - a tag on a day without a temperature is a gap.
 
 ### Slice 7 — Cycle view
 
