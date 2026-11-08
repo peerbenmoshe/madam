@@ -42,6 +42,11 @@ for "a few user requests to the database each day" (below)._
 _Amended after the graph spike (Nov 2026): the graph spike is done and
 Recharts stays; Slice 6 gains what the spike learned (both below)._
 
+_Amended in the design step (8 November 2026): the design is done
+(`design-brief.md`), so a small **design foundation** step comes before
+Slice 3, and Slices 4–8 gain what the design decided. Slice 6's open
+question about how the popup moves between days is answered (all below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -351,6 +356,15 @@ is an answer written into `CLAUDE.md` or the relevant document.
 
   `react-is` 19.3.1 comes with it as a peer. The answer is in `tech-stack.md`
   §8.3 (As built in the graph spike), and the story is in `build-log.md`.
+- **The design** *(after the graph spike, before Slice 3)*. Not in the
+  original plan: design was "post-v1" (`tech-stack.md` §11). Decide the
+  look, layout and interaction of every v1 screen before the first one is
+  built.
+
+  **✅ Done (8 November 2026, PR #25).** Pe'er approved a clickable phone
+  mock after four rounds. The decisions are in `design-brief.md`, and the
+  mock is `docs/design/mock.html`. The spec changes it brought are in
+  `spec-v1.md` (its header lists them), and the story is in `build-log.md`.
 
 ---
 
@@ -381,6 +395,22 @@ invite code on sign-up, email verification, password reset, log out.
 *Acceptance criteria:* AC-16 part one (no API request from user A reaches user B's
 data). Part two already passed in 0d.
 
+### Design foundation *(before Slice 3)*
+
+A small PR, so Slice 3 is about onboarding and not about restyling. It builds
+the shared parts of `design-brief.md` that every screen uses:
+- the eleven tokens in the `@theme` block (§3);
+- the self-hosted font (§4). Decide first where the files come from: an npm
+  package is a dependency to approve, or `.woff2` files are committed with
+  their licence. Measure their size;
+- the components in §5: segmented control, option buttons, chips, primary
+  and secondary buttons, switch, date box (dd/mm/yyyy over a native picker,
+  §9), and the in-place question that replaces Save;
+- the app bar and the dd/mm/yyyy date formatting helper.
+
+*Done when:* the shell page uses the new tokens and font, the CSP still
+reports no violation, and the components render on Pe'er's phone.
+
 ### Slice 3 — Onboarding
 
 Current cycle start or "I don't know", fixed measurement time written as the
@@ -396,6 +426,11 @@ no-temperature confirmation, one entry per date.
 
 *Acceptance criteria:* AC-4, AC-13, AC-14, AC-17.
 
+*From the design step* (`design-brief.md` §6.3): the field order puts the
+"cycle starts on this day" switch directly under the temperature card. The
+card shows live what a late or early reading will count as. The questions
+replace the Save button in place, never a browser dialog.
+
 ### Slice 5 — Cycle rules
 
 The new-cycle suggestion, the manual "cycle starts on this day" toggle, and the
@@ -406,6 +441,12 @@ Saving a day may now be two writes — `entries` and `cycle_starts` — in one
 transaction.
 
 *Acceptance criteria:* AC-5, AC-6, AC-7, AC-8.
+
+*From the design step* (`design-brief.md` §6.3): the suggestion is the
+switch itself, highlighted, not a separate button. The switch's message
+follows its state: "Cycle N will start on …" when turned on, "… will no
+longer start a cycle" when turned off on an existing start, and the question
+when bleeding qualifies.
 
 ### Slice 6 — The graph, on real data
 
@@ -422,7 +463,18 @@ AC-13.
 - **Taps:** use per-dot hit circles under the visible marks. Never read
   Recharts' active index in a click handler: on touch it's one tap behind.
 - **Density:** at 30 and 90 days, dots must shrink, and a tap can only mean
-  "nearest day". Decide with Pe'er how the popup moves between days.
+  "nearest day". *Decided in the design step* (`design-brief.md` §6.1–§6.2):
+  from 17px per day a tap opens exactly that day, narrower it snaps to the
+  nearest reading. The popup has ‹ › and a swipe that step one calendar day
+  at a time and page the graph when they leave it.
+
+*From the design step* (`design-brief.md` §6.1–§6.2), also in this slice:
+- the chart paper, and the bleeding and secretion rows under the plot. How
+  to align them with Recharts' plot is *unverified*; measure it with
+  screenshots at 14 and 90 days;
+- ‹ › paging by the whole range, and Custom as a sixth preset;
+- the popup's fixed height, with locked top and bottom and a scrolling
+  middle that includes the notes.
 - Decide whether the line enters from the window's edge, and whether to
   animate. Any screenshot test needs the animation off.
 - Two **readings** need confirming or writing into `fam-rules.md` §7:
@@ -433,12 +485,14 @@ AC-13.
 
 The second view on the graph: one cycle at a time, with previous/next navigation.
 Cycle day on the X axis, `?` inside an unknown-start cycle, blank outside any
-cycle.
+cycle. When the day popup steps out of the cycle shown, the view moves to the
+cycle holding that day (`design-brief.md` §6.2).
 
 ### Slice 8 — Cycles and stats
 
-The stats screen: current cycle, the four statistics with "based on N cycles", the
-bar chart with the ongoing cycle faded, and the cycle list.
+The stats screen: current cycle, the four statistics with "based on N cycles"
+shown once under them, the bar chart with the ongoing cycle faded, and the
+cycle list (`design-brief.md` §6.4).
 
 *Acceptance criteria:* AC-12 in full.
 
@@ -478,7 +532,9 @@ Two need the first user, not us:
 
 - **The direction of the correction** — early adds, late subtracts. Confirm before
   Slice 6 ships, because a sign error would be visibly wrong to her.
-- **The palette on her phone**, early in the morning. Before Slice 6.
+- **The design on her phone**, early in the morning: is it readable? Before
+  Slice 6. Pe'er approves the design (`design-brief.md`); this check is about
+  readability, not taste.
 
 The rest are in `CLAUDE.md`'s verification list and are attached to the steps
 above where they get answered.

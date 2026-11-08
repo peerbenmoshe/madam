@@ -36,6 +36,8 @@ _Amended after Phase 0f (Nov 2026):_ _§5 quotes what Supabase counts as activit
 
 _Amended after the graph spike (Nov 2026):_ _§8.3 records the spike's answer: Recharts 3.10.1 passed every criterion for switching to visx, fixed before looking, and it records how the line, dots, ticks, taps, colours and CSP are done, plus what Slice 6 inherits; §8.4's Recharts row and `style-src` expectation are settled._
 
+_Amended in the design step (8 November 2026):_ _§11 moves design from "optional, post-v1" to a step before Slice 3, now done (`design-brief.md`); §8.2 gains the design's tokens and a **self-hosted web font**, reversing "no web fonts"; §13 follows._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -1205,6 +1207,25 @@ Cream would lower every pair, so the background is white. No web fonts: the
 system font stack, so nothing is fetched from another origin. Seen working on
 Pe'er's phone; the first user's check remains before Slice 6.
 
+*Revised in the design step (8 November 2026).* Pe'er approved a design on a
+clickable mock (`design-brief.md`; §11 below). Three things above change:
+
+- **Eleven tokens instead of four,** with the neutrals tinted toward plum.
+  The names `accent`, `ink`, `muted` and `surface` stay. `ink` becomes
+  `#2B1726` (16.8:1 on `surface`, 6.3:1 on `accent`) and `muted` `#6E5866`
+  (6.5:1). A new `berry`, `#A0185A` (7.6:1), carries the temperature line
+  and links, which HotPink can't. HotPink stays, as a fill only. The full
+  table with contrast is `design-brief.md` §3. The `@theme` block changes in
+  the design foundation step (`build-order.md` §4).
+- **A web font, self-hosted:** Atkinson Hyperlegible Next, chosen for
+  legibility at 07:00. This reverses "no web fonts". That rule existed so
+  that nothing is fetched from another origin, and self-hosting keeps it:
+  the files are embedded in the binary like the rest of the frontend, so the
+  CSP stays `'self'`. The cost is the files' size, not yet measured. Where
+  the files come from (an npm package, or committed `.woff2` files) is open
+  until that step (`design-brief.md` §10).
+- **Light only in v1.** There is no dark theme.
+
 ### 8.3 Charting: Recharts (decided at step 4)
 
 **Correction to this document.** An earlier version of this section said
@@ -1609,11 +1630,26 @@ Found during setup; each one cost real time, so they are written down.
 
 ---
 
-## 11. The design handoff (optional, post-v1)
+## 11. Design (done before Slice 3)
 
-The first user is a junior UX/UI designer and may design a nicer UI after v1
-ships. **She has no Figma plan**, so at step 4 this moved from "planned workflow"
-to "available if she wants it later." Nothing in v1 depends on it.
+*Until 8 November 2026 this section was "The design handoff (optional,
+post-v1)":* v1 would get a plain look from Claude, and the first user, a
+junior UX/UI designer, might redesign it after v1. **That was reversed in the
+design step.** Tokens make colours and fonts cheap to change later, but not
+layout and interaction: how the graph handles 90 days on a phone, how the
+popup moves between days, how the entry form unfolds. Slices 3–9 build all
+of those, and redesigning them after v1 would mean rebuilding screens. Pe'er
+also found the shell looked "like some admin-control page".
+
+**How it was done.** Two Claude skills: Anthropic's `frontend-design` plugin
+(installed for Pe'er's user only, so nothing in the repository) and the
+built-in `dataviz` skill for the charts. Claude wrote a design plan and built
+a clickable phone mock with made-up data. Pe'er reviewed it on his phone in
+four rounds; he approves the design alone. The result is `design-brief.md`,
+and the mock is `docs/design/mock.html`.
+
+**The Figma route stays optional,** unchanged. **She has no Figma plan**, and
+nothing in v1 depends on it.
 
 If it does happen: Figma's official MCP server gives Claude Code structured access
 to Figma files — components, variables, layout — and can generate code from
@@ -1630,8 +1666,8 @@ Caveats:
   suggest the official route needs a paid plan. Only worth checking if she decides
   to do it.
 
-Free and worth doing either way: having her review the spec's screens and flows,
-and sanity-check the palette on a phone.
+Free and worth doing either way: her check that the design reads well on her
+phone early in the morning (`build-order.md` §6).
 
 ---
 
@@ -1858,15 +1894,17 @@ Decided at step 4 and no longer open: the charting library (§8.3), the free pla
 (§5), the palette (§8.2), the Figma handoff (§11), Row Level Security
 (`data-model.md` §9), and repository visibility (§12). Decided during setup: the
 Cloud Run region and the cost guardrails (§7), the Supabase region and project
-options (§5).
+options (§5). Decided in the design step: the visual design and a self-hosted
+font (§8.2, §11, `design-brief.md`).
 
 **Still genuinely open:**
 
 - **Supabase restore window** — docs say one year, older sources say 90 days.
   Re-check before relying on it. (Re-checked in 0f, 7 November 2026: still one
   year in the docs.)
-- **Palette contrast in practice** — the numbers in §8.2 set the limits; the first
-  user should confirm the result is readable on her phone.
+- **Palette contrast in practice** — the numbers in §8.2 and `design-brief.md`
+  §3 set the limits; the first user should confirm the result is readable on
+  her phone.
 
 **Moved to the build's verification list** (answers require measuring, not
 deciding — also listed in `CLAUDE.md`):
