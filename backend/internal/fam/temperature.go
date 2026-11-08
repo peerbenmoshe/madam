@@ -1,6 +1,9 @@
 package fam
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // MilliC is a temperature in thousandths of a degree Celsius, the unit the
 // database stores: 36.62 °C is 36620.
@@ -52,10 +55,76 @@ type Adjusted struct {
 	numerator int
 }
 
+// String names the timing, so test failures and logs say "late", not "2".
+func (t Timing) String() string {
+	switch t {
+	case OnTime:
+		return "on time"
+	case Early:
+		return "early"
+	case Late:
+		return "late"
+	}
+	return fmt.Sprintf("Timing(%d)", int(t))
+}
+
+// minutesPerDay bounds a time of day: 00:00 is 0, 23:59 is 1439.
+const minutesPerDay = 24 * 60
+
+func checkTemperature(raw MilliC) error {
+	if raw < MinMilliC || raw > MaxMilliC {
+		return fmt.Errorf("%w: got %d thousandths", ErrTemperatureOutOfRange, raw)
+	}
+	return nil
+}
+
+func checkTime(name string, m Minutes) error {
+	if m < 0 || m >= minutesPerDay {
+		return fmt.Errorf("%w: %s is %d minutes after midnight", ErrTimeOutOfRange, name, m)
+	}
+	return nil
+}
+
 // Adjust corrects a raw reading for the difference between the measured time
-// and the fixed time in effect for its date (fam-rules §3.2–§3.4).
+// and the fixed time in effect for its date (fam-rules §3.2–§3.4): 0.05 °C
+// per 30 minutes, early adds and late subtracts.
+//
+// The arithmetic is §3.3's, in integers. One minute is 5/3 of a thousandth,
+// so the exact adjusted value is kept multiplied by 3 (the numerator) and
+// rounded once, straight to displayed hundredths, in Celsius.
+//
+// Positive numerator: Go's integer division truncates toward zero, which is
+// floor, and so makes "+ 15, then / 30" round half-up, only while the
+// numerator is positive. The guards below admit raw ≥ 20000 and a delta of at
+// most ±1439 minutes, so the smallest possible numerator is
+// 3 × 20000 − 5 × 1439 = 52805 > 0. TestNumeratorPositive checks those
+// corners. Loosen a guard and that proof goes with it.
 func Adjust(raw MilliC, measured, fixed Minutes) (Adjusted, error) {
-	return Adjusted{}, nil // stub: tests first
+	if err := checkTemperature(raw); err != nil {
+		return Adjusted{}, err
+	}
+	if err := checkTime("measured time", measured); err != nil {
+		return Adjusted{}, err
+	}
+	if err := checkTime("fixed time", fixed); err != nil {
+		return Adjusted{}, err
+	}
+
+	delta := int(fixed - measured) // positive: measured early
+	a := Adjusted{Raw: raw, numerator: 3*int(raw) + 5*delta}
+
+	// §3.4: adjusted only if the rounded values differ. A one-minute
+	// difference usually rounds away, and then the reading counts as on time.
+	rawShown, adjustedShown := a.Celsius()
+	switch {
+	case adjustedShown == rawShown:
+		a.Timing = OnTime
+	case delta > 0:
+		a.Timing = Early
+	default:
+		a.Timing = Late
+	}
+	return a, nil
 }
 
 // IsAdjusted reports whether the reading counts as adjusted: whether it gets
@@ -64,7 +133,10 @@ func (a Adjusted) IsAdjusted() bool {
 	return a.Timing != OnTime
 }
 
-// Celsius returns the raw and adjusted values as displayed, in hundredths.
+// Celsius returns the raw and adjusted values as displayed, in hundredths,
+// each rounded half-up exactly once (fam-rules §3.3–§3.4).
 func (a Adjusted) Celsius() (raw, adjusted HundredthsC) {
-	return 0, 0 // stub: tests first
+	raw = HundredthsC((int(a.Raw) + 5) / 10)
+	adjusted = HundredthsC((a.numerator + 15) / 30)
+	return raw, adjusted
 }
