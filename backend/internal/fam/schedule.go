@@ -1,5 +1,10 @@
 package fam
 
+import (
+	"fmt"
+	"slices"
+)
+
 // TimeChange is one measurement_time_periods row after onboarding's: Time
 // applies from From (its valid_from) until the day before the next change.
 type TimeChange struct {
@@ -25,11 +30,35 @@ type Schedule struct {
 // returns an error wrapping ErrDuplicateDate; a time outside 00:00–23:59
 // wraps ErrTimeOutOfRange.
 func NewSchedule(initial Minutes, changes []TimeChange) (Schedule, error) {
-	return Schedule{}, nil // stub: tests first
+	if err := checkTime("onboarding measurement time", initial); err != nil {
+		return Schedule{}, err
+	}
+	sorted := slices.Clone(changes)
+	slices.SortFunc(sorted, func(a, b TimeChange) int { return a.From.Compare(b.From) })
+	for i, c := range sorted {
+		if err := checkTime("measurement time from "+c.From.String(), c.Time); err != nil {
+			return Schedule{}, err
+		}
+		if i > 0 && c.From == sorted[i-1].From {
+			return Schedule{}, fmt.Errorf("%w: measurement time change on %v", ErrDuplicateDate, c.From)
+		}
+	}
+	return Schedule{initial: initial, changes: sorted}, nil
 }
 
 // FixedTime returns the measurement time in effect on d: the one from the
 // latest change on or before d, or the onboarding time if there is none.
 func (s Schedule) FixedTime(d Date) Minutes {
-	return 0 // stub: tests first
+	// The same search as Cycles.latestStartIndex: d's index if a change
+	// starts on d, otherwise one past the latest change before d.
+	i, found := slices.BinarySearchFunc(s.changes, d, func(c TimeChange, d Date) int {
+		return c.From.Compare(d)
+	})
+	if !found {
+		i--
+	}
+	if i < 0 {
+		return s.initial // §4: the -infinity row covers everything before
+	}
+	return s.changes[i].Time
 }
