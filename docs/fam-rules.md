@@ -5,6 +5,11 @@ logic**: the exact arithmetic and the exact conditions the backend implements.
 `spec-v1.md` says what the app does; this file says precisely how each rule
 computes. The unit tests in `internal/fam` are written directly from §12._
 
+_Amended in Slice 1 (8 November 2026): §3.4 states that "adjusted?" is decided
+in Celsius whatever the display unit; §3.5 gains the exact Fahrenheit
+arithmetic; §5.2 recognises the unknown-start cycle by the stored onboarding
+answer; §12 gains vectors F3, C11–C14 and M1–M5 (§12.8)._
+
 ---
 
 ## 1. Provenance and honesty
@@ -116,6 +121,20 @@ the reading was taken on time: **no ghost dot, no late/early indicator** (AC-3).
 Late/early status is **derived on every read and never stored**. There is no
 late/early tag and the user cannot set one.
 
+**Decided in Celsius, whatever the display unit** (decided in Slice 1,
+8 November 2026). A user who views °F gets the same adjusted status as one who
+views °C with the same data, and the status never changes when she switches
+units. Accepted cost: near a rounding edge the two units can disagree, in both
+directions:
+
+- raw 35.000 °C measured 3 minutes late is **not** adjusted (35.00 → 35.00 °C),
+  although its °F values are 95.00 and 94.99 (vector F3);
+- raw 35.003 °C measured 2 minutes early **is** adjusted (35.00 → 35.01 °C),
+  although both of its °F values are 95.01.
+
+The alternative, comparing in the unit she views, was rejected: the status would
+depend on a setting, and the arithmetic would need the unit as an input.
+
 ### 3.5 Fahrenheit
 
 Fahrenheit is **display and input only**. All arithmetic happens in Celsius
@@ -128,6 +147,23 @@ thousandths.
 The round trip must be invisible: a user who types `97.91 °F` must be shown
 `97.91 °F` back, never `97.92 °F`. Storing thousandths rather than hundredths is
 what makes that hold, since one step of 0.01 °F is finer than 0.01 °C.
+
+The arithmetic, exactly (added in Slice 1, 8 November 2026). Input is typed in
+hundredths of a degree, like Celsius, and both directions round half-up:
+
+```
+// input: accepted from 68.00 to 122.00 °F, which is exactly 20.00–50.00 °C;
+// anything outside is rejected, like the 20–50 °C rule in §9
+x            = f_hundredths − 3200                // positive across the accepted range
+milli        = (100 × x + 9) / 18                 // half-up(x × 50 / 9)
+
+// display: from the exact numerator of §3.3 (for a raw value, 3 × raw_milli)
+f_hundredths = (3 × numerator + 25) / 50 + 3200   // half-up(numerator × 3 / 50) + 32.00 °F
+```
+
+Both numerators are positive across the accepted range, so §3.3's constraint on
+truncating division holds here too. The round trip was checked for every one of
+the 5,401 inputs from 68.00 to 122.00 °F, and a unit test checks all of them.
 
 ---
 
@@ -187,8 +223,18 @@ entry to the day before her first known cycle start.
 - If she later marks a start date inside it, it becomes an ordinary cycle and all
   numbering updates.
 
-It needs no storage: it is recognised by `onboarded_at IS NOT NULL` together with
-entries that no `cycle_starts` row covers.
+With no cycle start at all, it runs from her first entry onward (AC-12). Dates
+before her first entry belong to no cycle (§5.3), whatever onboarding answered.
+
+The cycle itself is not stored, but **the onboarding answer is**, as
+`users.cycle_start_unknown` (`data-model.md` §4.1; amended in Slice 1,
+8 November 2026). An unknown-start cycle exists when that answer is true and she
+has entries before her first cycle start, or any entries if there is no start.
+The answer has to be stored because the data alone can't tell the two
+onboardings apart: "I don't know" followed by entries, and a known start date
+followed by entries backfilled before it (§5.3), leave exactly the same rows
+behind. `onboarded_at` only says whether onboarding finished, not what she
+answered.
 
 ### 5.3 Entries outside any cycle
 
@@ -387,12 +433,17 @@ a hundredth, so after rounding it is identical and the reading is **not** adjust
 | F1 | 97.91 °F | 36617 | **97.91 °F** |
 | F2 | 98.60 °F | 37000 | **98.60 °F** |
 
+| # | Raw (milli) | Measured (fixed 07:00) | °C raw → adjusted | °F raw → adjusted | Adjusted? |
+|---|---|---|---|---|---|
+| F3 | 35000 | 07:03 | 35.00 → 35.00 | 95.00 → **94.99** | **no**: Celsius decides (§3.4) |
+
 F1 is the case that justifies thousandths: stored in hundredths it would come back
 as 97.92 °F, silently changing a number the user typed.
 
 ### 12.3 Cycles
 
-Cycle starts: 1 Jan, 29 Jan, 26 Feb (all same year).
+Cycle starts: 1 Jan, 29 Jan, 26 Feb (all same year). Onboarding gave a known
+start date. 20 Dec is in the year **before**.
 
 | # | Case | Expected |
 |---|---|---|
@@ -406,6 +457,16 @@ Cycle starts: 1 Jan, 29 Jan, 26 Feb (all same year).
 | C8 | Cycle day of 20 Dec (before the first start) | blank, no cycle |
 | C9 | Day 45 of an ongoing cycle | 45, not an error |
 | C10 | Insert a start at 20 Dec | everything renumbers; 20 Dec becomes cycle 1 (AC-8) |
+
+Added in Slice 1 (§5.2): the same starts, but onboarding answered "I don't know"
+and her first entry is 10 Dec of the year before.
+
+| # | Case | Expected |
+|---|---|---|
+| C11 | Cycle day of 20 Dec | **?**, the unknown-start cycle |
+| C12 | Cycle day of 5 Dec (before her first entry) | blank, no cycle |
+| C13 | Number of the cycle starting 1 Jan | 1; the unknown-start cycle has no number |
+| C14 | No cycle starts at all; cycle day of 15 Jan | **?** (AC-12) |
 
 ### 12.4 Cycle suggestion
 
@@ -453,6 +514,19 @@ Completed lengths 28, 30, 27; one ongoing cycle; plus an unknown-start cycle.
 I3 is the one that proves Row Level Security is really switched on. Without it,
 a misconfigured owner role would silently bypass every policy while the app
 appeared to work perfectly.
+
+### 12.8 Fixed time
+
+Added in Slice 1 (§4). The onboarding row says 07:00 (`valid_from = -infinity`);
+a change says 06:30 from 1 April 2026.
+
+| # | Date | Expected fixed time |
+|---|---|---|
+| M1 | 15 Mar 2026 | 07:00 (AC-9) |
+| M2 | 31 Mar 2026, the last day of the first period | 07:00 |
+| M3 | 1 Apr 2026 | 06:30 |
+| M4 | 1 Jan 2020, before the account existed | 07:00, from the `-infinity` row |
+| M5 | Only the onboarding row; 1 Jan 2030 | 07:00 |
 
 ---
 

@@ -696,3 +696,72 @@ mock.
 - **Write decisions down as they're made.** The lost session cost only time
   because its transcript happened to survive. The memory note is now written
   as soon as a decision is made.
+
+## Slice 1 — Domain logic (8 November 2026, PR #26)
+
+**Goal.** Build `backend/internal/fam`, the pure-Go heart of the app:
+- time adjustment and °F conversion;
+- cycle days, lengths and numbers, and the fixed measurement time for a date;
+- the two bleeding rules;
+- the statistics.
+
+It is test-first from `fam-rules.md` §12, with no dependencies, and imports
+nothing from the project.
+
+**How it was done.** Claude read the rules and checked §12's arithmetic by
+hand before planning. Then a short script ran §3.4's "adjusted?" test in both
+units over every raw value from 35.000 to 39.000 °C and every delta up to
+±10 minutes. It found two ambiguities, which Pe'er settled before any code
+was written. The documents changed first, in one commit. After that, each
+section followed the same rhythm, every red run shown to Pe'er before the
+code:
+1. tests and stubs that return zero values;
+2. a red run;
+3. the implementation;
+4. a green run.
+
+The sections went T → F → C → M → S → B → A.
+
+**Decisions:**
+
+| Decision | Choice | Why |
+|---|---|---|
+| "Adjusted?" for a °F user | Decided in °C, as §3.4 says | Pe'er chose it over "in the unit she views". The status never depends on a setting. The cost (the units disagree near a rounding edge) is written into §3.4, and vector F3 pins it |
+| Unknown-start vs. outside any cycle | Store the onboarding answer, `users.cycle_start_unknown` (Slice 3's migration) | §5.2's rule can't tell "I don't know" from a known date followed by backfilling. Both leave the same rows |
+| °F arithmetic | Hundredths in, accepted 68.00–122.00 °F, half-up both ways, display from the exact numerator | §3.5 named the goal, not the formulas. All 5,401 inputs round-trip |
+| Dates | `fam.Date`, a count of days, not `time.Time` | Cycle-day arithmetic becomes subtraction, with no DST and no location, and `==` is safe. No dependency |
+| Units | Named integer types: `MilliC`, `HundredthsC`, `HundredthsF`, `Minutes` | Passing °F where °C was meant fails to compile |
+| The `-infinity` row | `NewSchedule(initial, changes)`: the onboarding time is a required argument | "No fixed time" and overlapping periods can't be expressed, so they need no error handling |
+| The bleeding lookback | One unexported function used by both rules, given dated history | §6.3's "both rules must use the same lookback" holds by construction, and S3, B4 and B6's gaps are tested inside fam |
+| Errors | Wrapped sentinel errors (`errors.Is`), never panics | Excluded input (20–50 °C, 00:00–23:59, duplicate dates, 31 Feb) is refused at the constructors, so the lookups can't fail |
+| Keeping fam pure | golangci-lint's depguard: `internal/fam` may import only `$gostd` | A planted import of `db` and of pgx failed lint, so the rule works |
+
+**Surprises:**
+- **The two units disagree a lot.** Over 35–39 °C and ±10 minutes, the
+  check found the following among 80,020 combinations:
+  - 2,640 are adjusted in °C but not in °F;
+  - 13,043 are adjusted in °F but not in °C.
+
+  Reading §3.4 alone didn't show it. Running the numbers did.
+- **A stub turns only half the vectors red.** A predicate stub answers
+  "no", so every vector expecting "no" passed before any code existed:
+  - S2–S4, B3, B5 and A7;
+  - C8 and C12, because "blank" is the zero value.
+
+  The red runs were still honest, because §12 has a "yes" for each rule.
+- **`time.Date` doesn't refuse 31 February.** It quietly normalises it to
+  3 March. `NewDate` checks that the date comes back unchanged.
+
+**Lessons:**
+- **Check a spec by computing it.** The rules were careful and still
+  ambiguous in two places. Both showed up only when the arithmetic ran in
+  every unit and every onboarding path.
+- **Every rule needs a vector for each answer.** If §12 had only "no
+  suggestion" cases, a function that always says no would pass them all.
+- **Make wrong states impossible before handling them.** The required
+  `initial` time, the start-dates-only changes, and `Date`'s unexported field
+  removed whole classes of errors that would otherwise need tests.
+
+**Carried forward:** Slice 4's "no future dates" needs a "today". The
+server's clock is UTC, so in Israel, between midnight and 02:00 or 03:00,
+her own today would look like the future. Raise it when Slice 4 is planned.

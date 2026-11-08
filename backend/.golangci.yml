@@ -4,6 +4,20 @@ version: "2"
 # unused), plus gofmt as a formatter check. Add linters one at a time, with a reason.
 linters:
   default: standard
+  enable:
+    # depguard (Slice 1): internal/fam is pure domain logic and imports only
+    # the standard library, never api/, db/ or any other module (CLAUDE.md,
+    # "Layout"). This rule makes that a lint failure instead of a review note.
+    - depguard
+  settings:
+    depguard:
+      rules:
+        fam-stdlib-only:
+          list-mode: strict # anything not allowed below is denied
+          files:
+            - "**/internal/fam/*.go"
+          allow:
+            - $gostd
 
 formatters:
   enable:

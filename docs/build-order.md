@@ -47,6 +47,10 @@ _Amended in the design step (8 November 2026): the design is done
 Slice 3, and Slices 4–8 gain what the design decided. Slice 6's open
 question about how the popup moves between days is answered (all below)._
 
+_Amended in Slice 1 (8 November 2026): Slice 1 is done. Slice 3 gains a
+migration for the stored onboarding answer, `users.cycle_start_unknown`
+(below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -387,6 +391,16 @@ it's the one slice in the project that offers that. Every later slice gets easie
 because this one is solid. Nothing is user-visible at the end of it, which is the
 accepted cost.
 
+**✅ Done (8 November 2026, PR #26).** `backend/internal/fam` passes every
+§12 vector: T1–T6, F1–F3, C1–C14, M1–M5, S1–S5, B1–B6, A1–A7. F3, C11–C14
+and M1–M5 were added to `fam-rules.md` first, in the same PR. A depguard rule
+keeps the package on the standard library. Reading the rules first found two
+ambiguities, which Pe'er settled:
+- "adjusted?" is decided in °C, whatever the display unit;
+- the "I don't know" onboarding answer is stored.
+
+§3.5 also gained its exact °F arithmetic. The story is in `build-log.md`.
+
 ### Slice 2 — Auth
 
 Supabase Auth wiring, JWT verification middleware replacing the 0d stub, the
@@ -415,6 +429,11 @@ reports no violation, and the components render on Pe'er's phone.
 
 Current cycle start or "I don't know", fixed measurement time written as the
 `-infinity` row in `measurement_time_periods`, `onboarded_at` set.
+
+*From Slice 1* (`fam-rules.md` §5.2): the answer itself is stored, in
+`users.cycle_start_unknown` (`data-model.md` §4.1). That column is a
+migration, so it is its own PR first, migrated to production before the code
+that writes it (`tech-stack.md` §6).
 
 *Acceptance criteria:* the setup half of AC-12.
 

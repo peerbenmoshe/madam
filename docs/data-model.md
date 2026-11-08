@@ -15,6 +15,10 @@ _Amended in Phase 0c (Nov 2026): the `users` table exists (migration `00001`).
 `postgres` role bypasses RLS and that Supabase grants its API roles access to
 new tables._
 
+_Amended in Slice 1 (8 November 2026): `users` gains a planned column,
+`cycle_start_unknown`, for the onboarding answer (§4.1, §6.2). Slice 3's
+migration adds it._
+
 ---
 
 ## 1. Principles
@@ -141,6 +145,7 @@ code to know which members of one set are the chart-affecting ones.
 | `id` | `UUID` | no | **PK.** The UUID issued by Supabase Auth. |
 | `temperature_unit` | `temperature_unit` | no | Default `celsius`. |
 | `onboarded_at` | `TIMESTAMPTZ` | yes | `NULL` until onboarding is finished. |
+| `cycle_start_unknown` | `BOOLEAN` | no | Default `false`. `true` when onboarding answered "I don't know". **Planned:** added by Slice 3's migration. |
 | `created_at` | `TIMESTAMPTZ` | no | Default `now()`. |
 
 No email, no password, no name — identity is the auth provider's job and
@@ -149,6 +154,11 @@ duplicating the email here would only create two versions of the truth.
 `onboarded_at` exists to solve one specific problem from `spec-v1.md` §8.4:
 "no cycle starts because she chose *I don't know*" and "no cycle starts because
 she hasn't finished onboarding" otherwise look identical.
+
+`cycle_start_unknown` solves the next problem down (Slice 1): once onboarding
+has finished, entries before the first cycle start show `?` after "I don't know"
+but blank after a known date followed by backfilling (`fam-rules.md` §5.2–§5.3).
+Both leave the same rows behind, so the answer itself has to be stored.
 
 ### 4.2 `entries`
 
@@ -357,10 +367,12 @@ A cycle is a span, not a row:
   no length and is excluded from stats (§10 of `spec-v1.md`).
 - **Cycle number** = the position of the `start_date` in the user's ordered list,
   starting at 1.
-- **The unknown-start cycle** needs no storage: it is "everything from the first
-  entry up to the day before the first `cycle_starts` row," and it exists only
-  when `onboarded_at IS NOT NULL` and the user has no cycle start covering her
-  early entries.
+- **The unknown-start cycle** is not stored itself: it is "everything from the
+  first entry up to the day before the first `cycle_starts` row," and it exists
+  only when `cycle_start_unknown` is true and the user has no cycle start
+  covering her early entries (`fam-rules.md` §5.2). *Amended in Slice 1:* the
+  onboarding answer is stored (§4.1), because `onboarded_at` can't tell
+  "I don't know" from a known start date followed by backfilled entries.
 
 Because all of it is computed from `cycle_starts`, inserting or deleting one row
 renumbers and recomputes everything automatically (AC-8). There is nothing to
