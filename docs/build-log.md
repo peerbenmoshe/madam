@@ -610,3 +610,89 @@ confirm every tap landed. The counter alone couldn't have said so.
   a colour audit and a tap log on the page turned two phones into instruments.
 - **A test that repeats one action can hide state bugs.** Varying the target
   is what would show a stale value.
+
+---
+
+## Design step (8 November 2026, PR #25)
+
+**Goal.** Decide how Madam looks and behaves before Slice 3 builds the first
+real screen. The plan said "design post-v1": a plain look now, and a
+redesign by the first user later. Looking at the graph spike, Pe'er said the
+app looked "like some admin-control page" and asked whether that was the
+final design.
+
+**How it was done.** Claude offered three options:
+- a design step with the first user before Slice 3;
+- a design pass by Claude that she reviews;
+- keeping design post-v1.
+
+Pe'er chose a design *skill* instead. Claude explained what a skill is (written
+instructions Claude loads for a task, not code in the app) and recommended
+Anthropic's `frontend-design` plugin, read in full before installing, with
+the built-in `dataviz` skill for the charts. Pe'er installed it for his user
+only. He answered four questions:
+- HotPink stays, and the rest of the palette is open;
+- a self-hosted font is allowed;
+- light only in v1;
+- he approves the design alone.
+
+Claude's first move was to write the brief. Pe'er stopped it: he wanted to
+*see* the direction first. So Claude built a clickable phone mock with
+made-up data, published as a private page he could open on his phone, and he
+reviewed it in four rounds. The brief was written last, from the approved
+mock.
+
+**Decisions** (details in `design-brief.md`; the spec changes are listed in
+`spec-v1.md`'s header):
+
+| Decision | Choice | Why |
+|---|---|---|
+| When | Before Slice 3, not post-v1 | Tokens make colours cheap to change, not layout and interaction, and Slices 3–9 build those |
+| Direction | Her paper chart: pink chart paper, a berry line, bleeding and secretion rows under the days | The most characteristic thing in her world, and the one bold element on a quiet page |
+| Colour | Eleven plum-tinted tokens. HotPink as a fill only; `berry` (7.6:1) for the line | HotPink is 2.65:1 on white, so it can't be a line or text (`tech-stack.md` §8.2) |
+| Font | Atkinson Hyperlegible Next, self-hosted | Designed for legibility. Self-hosting keeps the reason for "no web fonts": nothing from another origin |
+| Dates | dd/mm/yyyy | As in Israel (Pe'er) |
+| Cycle start | The switch sits above Bleeding and carries the suggestion; its message says what Save will change | Round 2: a separate pink "Start new cycle" button looked already chosen |
+| The day popup | ‹ › and a swipe step one calendar day; one fixed height; locked top and bottom | Rounds 1–3: stepping is how she reads days, and a popup that changes height moves the arrows under her thumb |
+| The mock | Committed as `docs/design/mock.html` | A decision counts once it's in the repo, and the published page is private |
+
+**The rounds:**
+1. The first mock was liked as it stood ("It looks great!").
+2. Eight requests:
+   - ‹ › paging in the days view;
+   - ‹ › in the popup;
+   - a custom range;
+   - a smaller temperature input;
+   - the cycle-start button's ambiguity;
+   - a cycle-start note in the popup;
+   - dd/mm/yyyy;
+   - the switch moved above Bleeding.
+3. A fixed popup height, with only the details scrolling.
+4. The switch's message should also appear without Bleeding, and notes should
+   show in the popup.
+
+**Surprises:**
+- **The session vanished halfway.** It happened just after Pe'er chose the
+  mock over the brief. Nothing had been written to the repo or to memory. The
+  next session recovered the decisions from Claude Code's transcript on disk
+  (`~/.claude/projects/…/*.jsonl`), and they are now in Claude's memory
+  notes as well as here.
+- **The CI run on `main` after #24 failed at Lint, with no code to lint
+  differently.** A re-run passed and deployed. The cause wasn't investigated.
+  It belongs with the GitHub Actions oddities seen in 0a and 0e.
+- **Two controls for one fact.** The new-cycle suggestion had its own pink
+  button next to the switch that actually decides. Pe'er read the button as
+  "already selected" until he saw the switch was off. The fix removed the
+  button rather than restyling it.
+
+**Lessons:**
+- **Show before writing.** A text brief couldn't have produced the round 2
+  list. Every item came from tapping through a working mock on a phone.
+- **One fact, one control.** When two elements describe the same state, one
+  of them will eventually disagree with it. It mirrors the data model, where
+  a cycle start is one row or none.
+- **Things you step through must stay still.** Arrows and buttons that move
+  as the content changes make stepping hard.
+- **Write decisions down as they're made.** The lost session cost only time
+  because its transcript happened to survive. The memory note is now written
+  as soon as a decision is made.

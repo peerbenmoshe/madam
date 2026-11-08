@@ -19,6 +19,7 @@ to behave. It is not the spec.
 | `docs/data-model.md` | Tables, columns, constraints, and the reasoning. |
 | `docs/tech-stack.md` | Stack decisions, rejected options, accepted trade-offs. |
 | `docs/build-order.md` | What gets built next, in what order, and its acceptance criteria. |
+| `docs/design-brief.md` | **Source of truth for the look and touch behaviour** of every screen: tokens, type, components, layouts, dd/mm/yyyy dates. The approved mock is `docs/design/mock.html`. |
 | `docs/build-log.md` | Retrospective: what was decided and learned in each phase, in order. |
 
 **Never implement a FAM rule from memory or from this file — read

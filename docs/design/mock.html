@@ -1,0 +1,1174 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!--
+  Madam design mock (8 November 2026). A reference, not app code: open it in a browser.
+  The decisions it shows are written down in docs/design-brief.md, which wins if the two differ.
+  The data is made up. The font comes from Google Fonts here only; the app self-hosts it.
+-->
+<title>Madam design mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap">
+<style>
+/* Layout: one phone column. The graph sits on pink chart paper, with the paper chart's own rows
+   (date, cycle day, bleeding, secretion) lined up under it. HotPink is a fill only; berry carries lines and links. */
+:root {
+  --paper: #FFFFFF;        /* app background */
+  --sheet: #FFF8FB;        /* the chart-paper band */
+  --ink: #2B1726;          /* text, outlines: 16:1 on paper */
+  --muted: #6E5866;        /* secondary text: 6.5:1 on paper */
+  --berry: #A0185A;        /* temperature line, links: 7.6:1 on paper */
+  --pink: #FF69B4;         /* HotPink: fills with ink on top, never text or thin lines */
+  --blush: #FFEAF3;        /* today's column, control tracks */
+  --grid: #F7DCE8;         /* chart paper, fine lines */
+  --grid-strong: #EBB6CE;  /* chart paper, every 0.10 °C */
+  --rule: #EAD7E0;         /* hairlines between groups */
+  --danger: #B3261E;
+  --stage: #F4EAEF;        /* desktop only: around the phone */
+  --scrim: rgba(43, 23, 38, .42);
+
+  --sans: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --t-xs: .75rem;  --t-sm: .875rem;  --t-md: 1rem;  --t-lg: 1.25rem;  --t-xl: 1.75rem;  --t-num: 2.5rem;
+  --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--paper); }
+body { background: var(--paper); color: var(--ink); font: 400 var(--t-md)/1.5 var(--sans); -webkit-text-size-adjust: 100%; }
+h1, h2, h3, p { margin: 0; }
+h1, h2 { text-wrap: balance; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--berry); outline-offset: 2px; border-radius: 6px; }
+
+/* ---------- stage: phone on its own, phone + notes on a desk ---------- */
+.stage { display: flex; flex-direction: column; }
+.phone { position: relative; background: var(--paper); }
+.viewport { position: relative; }
+.mockflag {
+  background: var(--blush); color: var(--muted); font-size: var(--t-xs);
+  padding: 6px var(--gutter-r) 6px var(--gutter-l);
+}
+.notes { padding: 32px var(--gutter-r) 48px var(--gutter-l); border-top: 1px solid var(--rule); display: grid; gap: 14px; max-width: 34rem; }
+.notes h1 { font-size: var(--t-xl); font-weight: 800; letter-spacing: -.01em; }
+.notes h2 { font-size: var(--t-md); font-weight: 700; margin-top: 10px; }
+.notes p, .notes li { color: var(--ink); font-size: var(--t-sm); line-height: 1.55; }
+.notes ul { margin: 0; padding-left: 1.1em; display: grid; gap: 6px; }
+.notes button { background: none; border: 0; padding: 0; color: var(--berry); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+
+@media (min-width: 960px) {
+  html, body { background: var(--stage); }
+  .stage { flex-direction: row-reverse; justify-content: center; align-items: flex-start; gap: 56px; padding-block: 40px; }
+  .phone {
+    width: 400px; height: min(860px, calc(100vh - 80px)); flex: none;
+    border-radius: 34px; overflow: hidden; display: flex; flex-direction: column;
+    box-shadow: 0 0 0 1px var(--rule), 0 40px 80px -40px rgba(43, 23, 38, .45);
+  }
+  .viewport { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+  .notes { border-top: 0; width: 340px; padding: 24px 0 0; }
+  .scrim, .toast { position: absolute !important; }
+}
+
+/* ---------- shared pieces ---------- */
+.screen { padding: 0 var(--gutter-r) 0 var(--gutter-l); }
+.appbar { display: flex; align-items: center; justify-content: space-between; padding-block: 14px 6px; }
+.wordmark { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.125rem; letter-spacing: -.01em; }
+.wordmark svg { width: 14px; height: 14px; }
+.navlinks { display: flex; gap: 2px; margin-right: -10px; }
+.navlink { background: none; border: 0; padding: 10px; font-weight: 500; font-size: var(--t-sm); color: var(--ink); border-radius: 10px; }
+.navlink:hover { background: var(--blush); }
+.back { background: none; border: 0; padding: 12px 10px 12px 0; color: var(--berry); font-weight: 700; font-size: var(--t-sm); display: inline-flex; gap: 6px; align-items: center; }
+.back svg { width: 16px; height: 16px; }
+.title { font-size: var(--t-xl); font-weight: 800; line-height: 1.15; letter-spacing: -.015em; }
+.sub { color: var(--muted); font-size: var(--t-md); margin-top: 4px; }
+
+.seg { display: inline-flex; background: var(--blush); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; font-weight: 500; font-size: var(--t-sm); line-height: 1; padding: 0 13px; min-height: 36px; border-radius: 999px; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { background: var(--pink); font-weight: 700; box-shadow: inset 0 0 0 1.5px var(--ink); }
+
+.primary {
+  width: 100%; min-height: 54px; border: 0; border-radius: 16px;
+  background: var(--pink); color: var(--ink); font-weight: 800; font-size: 1.0625rem;
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.primary:active { transform: translateY(1px); }
+.secondary { min-height: 48px; padding: 0 18px; border-radius: 14px; border: 1.5px solid var(--ink); background: var(--paper); font-weight: 700; }
+.linkbtn { background: none; border: 0; padding: 10px 0; color: var(--berry); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+
+/* ---------- home ---------- */
+.home-head { padding-block: 10px 18px; }
+.chartband { background: var(--sheet); border-block: 1px solid var(--rule); padding: 12px var(--gutter-r) 10px var(--gutter-l); }
+.controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; position: relative; }
+.controls2 { margin-top: 10px; }
+.cyclenav { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 8px; }
+.cyclenav .name { text-align: center; font-weight: 700; font-size: .9375rem; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.cyclenav .name small { display: block; color: var(--muted); font-weight: 400; font-size: var(--t-xs); }
+.presets button { padding: 0 11px; }
+.navrow { margin-top: 10px; }
+.custom { margin-top: 10px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.custom .hintline { grid-column: 1 / -1; font-size: var(--t-xs); }
+.datebox { position: relative; display: grid; gap: 1px; border: 1.5px solid var(--rule); border-radius: 12px; background: var(--paper); padding: 6px 12px; min-height: 48px; cursor: pointer; }
+.datebox:focus-within { border-color: var(--berry); box-shadow: 0 0 0 3px var(--blush); }
+.datebox .dl { font-size: var(--t-xs); color: var(--muted); }
+.datebox .dv { font-weight: 700; font-variant-numeric: tabular-nums; }
+.datebox input { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; opacity: 0; border: 0; padding: 0; margin: 0; cursor: pointer; }
+.iconbtn { width: 42px; height: 42px; border-radius: 999px; border: 1.5px solid var(--rule); background: var(--paper); display: grid; place-items: center; padding: 0; }
+.iconbtn svg { width: 18px; height: 18px; }
+.iconbtn:disabled { opacity: .35; cursor: default; }
+.iconbtn[aria-expanded="true"] { background: var(--pink); border-color: var(--ink); }
+#chartwrap { margin-top: 8px; width: 100%; }
+#chartwrap svg { display: block; overflow: visible; touch-action: manipulation; }
+
+.legend {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 15;
+  width: min(310px, calc(100vw - 32px)); background: var(--paper);
+  border: 1px solid var(--rule); border-radius: 18px; padding: 16px;
+  box-shadow: 0 18px 40px -18px rgba(43, 23, 38, .4);
+  display: grid; gap: 10px; font-size: var(--t-sm);
+}
+.legend h2 { font-size: var(--t-sm); font-weight: 700; }
+.legend .row { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: center; }
+.legend .row svg { width: 34px; height: 20px; overflow: visible; }
+.legend hr { border: 0; border-top: 1px solid var(--rule); margin: 2px 0; width: 100%; }
+
+.switchrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.switch { appearance: none; -webkit-appearance: none; width: 50px; height: 30px; border-radius: 999px; background: var(--rule); position: relative; flex: none; margin: 0; cursor: pointer; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--paper); box-shadow: 0 1px 3px rgba(43, 23, 38, .35); transition: transform .15s; }
+.switch:checked { background: var(--pink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.switch:checked::after { transform: translateX(20px); }
+
+.home-foot { padding-block: 18px 0; display: grid; gap: 4px; }
+.home-foot p { color: var(--muted); font-size: var(--t-sm); }
+.dock { position: sticky; bottom: 0; z-index: 5; background: var(--paper); padding-block: 12px calc(14px + env(safe-area-inset-bottom, 0px)); margin-top: 18px; }
+
+/* ---------- chart marks (SVG) ---------- */
+.g-minor { stroke: var(--grid); stroke-width: 1; }
+.g-major { stroke: var(--grid-strong); stroke-width: 1; }
+.ax { fill: var(--muted); font: 500 11px var(--sans); font-variant-numeric: tabular-nums; }
+.ax-row { fill: var(--muted); font: 500 10.5px var(--sans); }
+.ax-strong { fill: var(--ink); font-weight: 800; }
+.c-today { fill: var(--blush); }
+.c-sel { fill: var(--pink); fill-opacity: .2; }
+.c-line { fill: none; stroke: var(--berry); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.c-dot { fill: var(--pink); stroke: var(--berry); stroke-width: 1.75; }
+.c-ring { fill: var(--sheet); stroke: var(--berry); stroke-width: 2; }
+.c-ghost { fill: var(--berry); fill-opacity: .38; }
+.c-ghostlink { stroke: var(--berry); stroke-opacity: .45; stroke-dasharray: 2 2; }
+.c-start { stroke: var(--ink); stroke-opacity: .7; stroke-dasharray: 4 3; }
+.c-startmark { fill: var(--pink); stroke: var(--ink); stroke-width: 1.5; }
+.c-cd1 { fill: var(--pink); stroke: var(--ink); stroke-width: 1; }
+.c-bleed { fill: var(--berry); }
+.c-sec-clear { fill: var(--pink); }
+.c-sec-milky { fill: var(--pink); fill-opacity: .42; }
+.c-sec-sticky { fill: var(--grid-strong); }
+.c-sectxt { fill: var(--ink); font: 700 10px var(--sans); }
+.c-hit { fill: transparent; cursor: pointer; outline: none; }
+.c-hit:focus-visible { stroke: var(--berry); stroke-width: 2; }
+.c-bar { fill: var(--pink); stroke: var(--ink); stroke-width: 1.25; }
+.c-bar-ongoing { fill: var(--pink); fill-opacity: .3; stroke: var(--ink); stroke-width: 1.25; stroke-dasharray: 3 3; }
+.c-barlabel { fill: var(--ink); font: 700 12px var(--sans); font-variant-numeric: tabular-nums; }
+
+/* ---------- day popup (bottom sheet) ---------- */
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 30; display: flex; align-items: flex-end; }
+.sheet {
+  width: 100%; background: var(--paper); border-radius: 26px 26px 0 0;
+  padding: 10px var(--gutter-r) calc(20px + env(safe-area-inset-bottom, 0px)) var(--gutter-l);
+  /* One height for every day, so the arrows and buttons never move while stepping. */
+  height: min(88%, max(56%, 440px)); display: flex; flex-direction: column; overflow: hidden;
+  animation: rise .22s ease-out; touch-action: pan-y;
+}
+.sheet-top { flex: none; display: grid; gap: 12px; padding-bottom: 12px; }
+.sheet-body { min-height: 5.75rem; }
+.sheet-scroll {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: grid; align-content: start; gap: 12px; padding-bottom: 12px;
+  /* Scroll shadows: the paper-coloured covers move with the content and hide the shadows at either end. */
+  background:
+    linear-gradient(var(--paper) 40%, transparent) top / 100% 28px no-repeat local,
+    linear-gradient(transparent, var(--paper) 60%) bottom / 100% 28px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgba(43, 23, 38, .2), transparent) top / 100% 10px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgba(43, 23, 38, .2), transparent) bottom / 100% 10px no-repeat scroll;
+}
+.dayhead { display: grid; grid-template-columns: 42px minmax(0, 1fr) 42px; gap: 8px; align-items: center; text-align: center; }
+.startnote { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: var(--t-sm); background: var(--blush); border-radius: 12px; padding: 8px 12px; }
+.startnote svg { width: 34px; height: 20px; flex: none; overflow: visible; }
+.noreading { color: var(--muted); padding: 6px 0; }
+.daynote { display: grid; gap: 4px; }
+.daynote h3 { font-size: var(--t-sm); font-weight: 400; color: var(--muted); }
+.daynote p { font-size: var(--t-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cycrow .d span { white-space: nowrap; }
+@keyframes rise { from { transform: translateY(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+.handle { width: 40px; height: 5px; border-radius: 3px; background: var(--rule); justify-self: center; }
+.sheet .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.sheet h2 { font-size: var(--t-lg); font-weight: 800; line-height: 1.2; }
+.bigtemp { display: flex; align-items: baseline; gap: 6px; font-weight: 800; font-size: 2.75rem; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.bigtemp span { font-size: var(--t-lg); font-weight: 500; color: var(--muted); letter-spacing: 0; }
+.estimate { color: var(--muted); font-size: var(--t-sm); margin-top: 6px; }
+.facts { display: grid; gap: 8px; padding: 12px 0; border-block: 1px solid var(--rule); font-size: var(--t-sm); }
+.facts .f { display: flex; justify-content: space-between; gap: 12px; }
+.facts .f dt { color: var(--muted); }
+.facts .f dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.flag { display: inline-block; background: var(--blush); border: 1.5px solid var(--berry); color: var(--berry); border-radius: 999px; padding: 1px 10px; font-weight: 700; font-size: var(--t-xs); }
+.tagline { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { border: 1.5px solid var(--ink); border-radius: 999px; padding: 3px 11px; font-size: var(--t-sm); font-weight: 500; }
+.sheet .actions { flex: none; display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding-top: 12px; border-top: 1px solid var(--rule); }
+
+/* ---------- entry form ---------- */
+.entry-head { padding-block: 0 20px; }
+.form { display: grid; gap: 26px; }
+.field { display: grid; gap: 8px; }
+.lbl, fieldset > legend { font-weight: 700; font-size: var(--t-md); padding: 0; }
+fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 10px; min-width: 0; }
+.hintline { color: var(--muted); font-size: var(--t-sm); }
+input[type="date"], input[type="time"], input.text, textarea {
+  border: 1.5px solid var(--rule); border-radius: 12px; background: var(--paper);
+  min-height: 48px; padding: 10px 12px; font-size: 1rem; width: 100%;
+}
+textarea { resize: vertical; min-height: 72px; }
+input:focus, textarea:focus { outline: none; border-color: var(--berry); box-shadow: 0 0 0 3px var(--blush); }
+
+.tempcard { display: grid; gap: 14px; padding: 16px; border-radius: 20px; background: var(--sheet); box-shadow: inset 0 0 0 1px var(--rule); }
+.tempin { display: flex; align-items: baseline; gap: 6px; border-bottom: 2.5px solid var(--ink); }
+.tempin input {
+  border: 0; background: transparent; width: 100%; min-width: 0; padding: 0;
+  font-size: var(--t-num); font-weight: 800; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+.tempin input::placeholder { color: var(--grid-strong); }
+.tempin input:focus { box-shadow: none; }
+.tempin span { font-size: var(--t-lg); color: var(--muted); font-weight: 500; }
+.tempcard .time { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tempcard .time input { width: 8rem; }
+.tempcard .hint { font-size: var(--t-sm); color: var(--ink); min-height: 1.5em; }
+.startbox { display: grid; gap: 4px; }
+.startbox.suggest { background: var(--blush); border: 1.5px solid var(--berry); border-radius: 16px; padding: 12px 14px 6px; animation: rise .2s ease-out; }
+.startbox .q { font-size: var(--t-sm); font-weight: 700; color: var(--berry); }
+.tempcard .hint b { color: var(--berry); }
+.err { color: var(--danger); font-weight: 700; font-size: var(--t-sm); }
+
+.options { display: flex; flex-wrap: wrap; gap: 8px; }
+.opt { min-height: 48px; padding: 0 16px; border-radius: 14px; border: 1.5px solid var(--rule); background: var(--paper); font-weight: 500; }
+.opt[aria-pressed="true"] { background: var(--pink); border-color: var(--ink); font-weight: 700; }
+.options.chips .opt { min-height: 40px; border-radius: 999px; padding: 0 14px; font-size: var(--t-sm); }
+.ask-inline { background: var(--blush); border-radius: 16px; padding: 14px; display: grid; gap: 10px; }
+.ask-inline p { font-weight: 700; }
+.ask-inline .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.ask-inline .note { font-weight: 400; color: var(--ink); font-size: var(--t-sm); }
+
+details.more { border-top: 1px solid var(--rule); padding-top: 6px; }
+details.more summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; min-height: 48px; font-weight: 700; color: var(--berry); }
+details.more summary::-webkit-details-marker { display: none; }
+details.more summary svg { width: 18px; height: 18px; transition: transform .2s; }
+details.more[open] summary svg { transform: rotate(180deg); }
+details.more .inner { display: grid; gap: 24px; padding-top: 12px; }
+.pair { display: grid; gap: 10px; }
+
+.savebar { position: sticky; bottom: 0; z-index: 5; background: var(--paper); border-top: 1px solid var(--rule); padding-block: 12px calc(14px + env(safe-area-inset-bottom, 0px)); margin-top: 22px; display: grid; gap: 10px; }
+.savebar .ask { display: grid; gap: 10px; }
+.savebar .ask p { font-weight: 700; }
+.savebar .ask .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.savebar .ask .btns .primary { min-height: 48px; font-size: 1rem; }
+.danger-link { background: none; border: 0; padding: 12px 0; color: var(--danger); font-weight: 700; justify-self: start; }
+
+/* ---------- cycles ---------- */
+.cyc-head { padding-block: 0 22px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-block: 1px solid var(--rule); }
+.stat { padding: 14px 0 12px; display: grid; gap: 2px; }
+.stat + .stat { padding-left: 12px; border-left: 1px solid var(--rule); }
+.stat dt { color: var(--muted); font-size: var(--t-xs); }
+.stat dd { margin: 0; font-size: 1.625rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.statnote { color: var(--muted); font-size: var(--t-sm); margin-top: 10px; }
+.section-h { font-size: var(--t-lg); font-weight: 800; margin: 30px 0 10px; }
+#barwrap svg { display: block; overflow: visible; }
+.cyclist { display: grid; margin: 0 0 32px; padding: 0; list-style: none; }
+.cycrow { width: 100%; display: grid; grid-template-columns: 4.5rem 1fr auto; gap: 10px; align-items: center; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--rule); padding: 14px 0; min-height: 56px; }
+.cycrow:hover { background: var(--sheet); }
+.cycrow .n { font-weight: 800; }
+.cycrow .d { color: var(--ink); font-size: var(--t-sm); }
+.cycrow .l { font-weight: 700; font-variant-numeric: tabular-nums; font-size: var(--t-sm); text-align: right; }
+.cycrow .l.muted, .cycrow .d.muted { color: var(--muted); font-weight: 500; }
+
+/* ---------- settings ---------- */
+.set-group { display: grid; gap: 12px; padding-block: 20px; border-bottom: 1px solid var(--rule); }
+.set-group h2 { font-size: var(--t-lg); font-weight: 800; }
+.timeline { display: grid; gap: 4px; font-size: var(--t-sm); }
+.timeline .now { font-size: 2rem; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* ---------- toast ---------- */
+.toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 40; background: var(--ink); color: var(--paper); padding: 12px 18px; border-radius: 999px; font-weight: 700; font-size: var(--t-sm); white-space: nowrap; animation: rise .2s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media (max-width: 360px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat:nth-child(3) { padding-left: 0; border-left: 0; }
+  .stat:nth-child(n+3) { border-top: 1px solid var(--rule); }
+}
+</style>
+
+<div class="stage">
+  <div class="phone" id="phone">
+    <div class="viewport" id="viewport">
+      <p class="mockflag">Design mock with made-up data. Nothing you enter is saved.</p>
+
+      <!-- ===================== HOME ===================== -->
+      <section id="s-home" class="view">
+        <div class="screen">
+          <div class="appbar">
+            <div class="wordmark">
+              <svg viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" style="fill:var(--pink);stroke:var(--berry);stroke-width:1.75"/></svg>
+              Madam
+            </div>
+            <nav class="navlinks" aria-label="Main">
+              <button class="navlink" data-go="cycles">Cycles</button>
+              <button class="navlink" data-go="settings">Settings</button>
+            </nav>
+          </div>
+          <div class="home-head">
+            <h1 class="title" id="home-title"></h1>
+            <p class="sub" id="home-sub"></p>
+          </div>
+        </div>
+
+        <div class="chartband">
+          <div class="controls">
+            <div class="seg" role="group" aria-label="Graph view">
+              <button id="v-dates" aria-pressed="true">Dates</button>
+              <button id="v-cycle" aria-pressed="false">Cycle</button>
+            </div>
+            <button class="iconbtn" id="legend-btn" aria-expanded="false" aria-controls="legend" aria-label="What the marks mean">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8.25" fill="none" style="stroke:var(--ink)" stroke-width="1.75"/><circle cx="10" cy="6.2" r="1.2" style="fill:var(--ink)"/><path d="M10 9v5.5" style="stroke:var(--ink)" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+            <div class="legend" id="legend" hidden></div>
+          </div>
+          <div class="controls2" id="controls2"></div>
+          <div id="chartwrap"></div>
+        </div>
+
+        <div class="screen">
+          <div class="home-foot" id="home-foot"></div>
+          <div class="dock"><button class="primary" id="add-btn"></button></div>
+        </div>
+      </section>
+
+      <!-- ===================== ENTRY ===================== -->
+      <section id="s-entry" class="view" hidden>
+        <div class="screen">
+          <button class="back" data-go="home"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" style="stroke:var(--berry)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Graph</button>
+          <div class="entry-head">
+            <h1 class="title" id="e-title"></h1>
+            <p class="sub" id="e-sub"></p>
+          </div>
+
+          <div class="form">
+            <label class="datebox">
+              <span class="dl">Date</span>
+              <span class="dv" id="e-date-v"></span>
+              <input type="date" id="e-date" max="2026-11-08" min="2026-01-01" aria-label="Date">
+            </label>
+
+            <div class="tempcard">
+              <div class="field">
+                <label class="lbl" for="e-temp">Temperature</label>
+                <div class="tempin"><input id="e-temp" inputmode="decimal" autocomplete="off" placeholder="36.45" aria-describedby="e-hint"><span>°C</span></div>
+              </div>
+              <div class="time">
+                <label class="lbl" for="e-time">Measured at</label>
+                <input type="time" id="e-time">
+              </div>
+              <p class="hint" id="e-hint" aria-live="polite"></p>
+            </div>
+
+            <div class="startbox" id="e-startbox">
+              <p class="q" id="e-start-q" aria-live="polite" hidden></p>
+              <div class="switchrow">
+                <label class="lbl" for="e-start">Cycle starts on this day</label>
+                <input type="checkbox" role="switch" class="switch" id="e-start">
+              </div>
+            </div>
+
+            <fieldset>
+              <legend>Bleeding</legend>
+              <div class="options" data-field="bleeding" data-required>
+                <button type="button" class="opt" data-v="none">None</button>
+                <button type="button" class="opt" data-v="spotting">Spotting</button>
+                <button type="button" class="opt" data-v="bleeding">Bleeding</button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Cervical secretion</legend>
+              <div class="options" data-field="sec">
+                <button type="button" class="opt" data-v="clear">Clear, stretchy</button>
+                <button type="button" class="opt" data-v="milky">Milky</button>
+                <button type="button" class="opt" data-v="sticky">Sticky</button>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Disturbances</legend>
+              <p class="hintline">A disturbed reading shows as a ring, and the line skips it.</p>
+              <div class="options chips" data-field="tags" data-multi>
+                <button type="button" class="opt" data-v="Alcohol">Alcohol</button>
+                <button type="button" class="opt" data-v="Poor sleep">Poor sleep</button>
+                <button type="button" class="opt" data-v="Illness">Illness</button>
+                <button type="button" class="opt" data-v="Medication">Medication</button>
+                <button type="button" class="opt" data-v="Travel">Travel</button>
+                <button type="button" class="opt" data-v="Vacation">Vacation</button>
+                <button type="button" class="opt" data-v="New thermometer">New thermometer</button>
+                <button type="button" class="opt" data-v="UTI">UTI</button>
+                <button type="button" class="opt" data-v="Yeast infection">Yeast infection</button>
+              </div>
+            </fieldset>
+
+            <div class="field">
+              <label class="lbl" for="e-notes">Notes</label>
+              <textarea id="e-notes" rows="2" placeholder="Mood, travel, anything else"></textarea>
+            </div>
+
+            <details class="more" id="e-more">
+              <summary><span id="e-more-label">Show all fields</span><svg viewBox="0 0 18 18" aria-hidden="true"><path d="m4 7 5 5 5-5" fill="none" style="stroke:var(--berry)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></summary>
+              <div class="inner">
+                <fieldset>
+                  <legend>Sensation</legend>
+                  <div class="options" data-field="sensation">
+                    <button type="button" class="opt" data-v="dry">Dry</button>
+                    <button type="button" class="opt" data-v="creamy">Creamy</button>
+                    <button type="button" class="opt" data-v="wet">Wet</button>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>Secretion amount</legend>
+                  <div class="options" data-field="amount">
+                    <button type="button" class="opt" data-v="1">1</button>
+                    <button type="button" class="opt" data-v="2">2</button>
+                    <button type="button" class="opt" data-v="3">3</button>
+                  </div>
+                  <label class="hintline" for="e-desc">Description</label>
+                  <input class="text" id="e-desc" placeholder="In your own words">
+                </fieldset>
+                <fieldset>
+                  <legend>Cervix</legend>
+                  <div class="pair">
+                    <div class="options" data-field="firmness">
+                      <button type="button" class="opt" data-v="firm">Firm</button>
+                      <button type="button" class="opt" data-v="soft">Soft</button>
+                    </div>
+                    <div class="options" data-field="position">
+                      <button type="button" class="opt" data-v="high">High, open</button>
+                      <button type="button" class="opt" data-v="low">Low, closed</button>
+                    </div>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>Symptoms</legend>
+                  <div class="options chips" data-field="symptoms" data-multi>
+                    <button type="button" class="opt" data-v="Breast tenderness">Breast tenderness</button>
+                    <button type="button" class="opt" data-v="Bloating">Bloating</button>
+                    <button type="button" class="opt" data-v="PMS">PMS</button>
+                  </div>
+                </fieldset>
+                <fieldset>
+                  <legend>Intercourse</legend>
+                  <div class="options" data-field="intercourse">
+                    <button type="button" class="opt" data-v="none">None</button>
+                    <button type="button" class="opt" data-v="protected">Protected</button>
+                    <button type="button" class="opt" data-v="unprotected">Unprotected</button>
+                  </div>
+                </fieldset>
+              </div>
+            </details>
+
+            <button type="button" class="danger-link" id="e-delete">Delete entry</button>
+          </div>
+
+          <div class="savebar">
+            <p class="err" id="e-err" hidden></p>
+            <div class="ask" id="e-ask" hidden>
+              <p id="e-ask-q"></p>
+              <div class="btns"><button type="button" class="secondary" id="e-ask-no"></button><button type="button" class="primary" id="e-ask-yes"></button></div>
+            </div>
+            <button type="button" class="primary" id="e-save">Save entry</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== CYCLES ===================== -->
+      <section id="s-cycles" class="view" hidden>
+        <div class="screen">
+          <button class="back" data-go="home"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" style="stroke:var(--berry)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Graph</button>
+          <div class="cyc-head">
+            <h1 class="title" id="c-title"></h1>
+            <p class="sub" id="c-sub"></p>
+          </div>
+          <h2 class="section-h" style="margin-top:0">Cycle length</h2>
+          <dl class="stats" id="c-stats"></dl>
+          <p class="statnote" id="c-statnote"></p>
+          <h2 class="section-h">Every cycle</h2>
+          <div id="barwrap"></div>
+          <ul class="cyclist" id="c-list"></ul>
+        </div>
+      </section>
+
+      <!-- ===================== SETTINGS ===================== -->
+      <section id="s-settings" class="view" hidden>
+        <div class="screen">
+          <button class="back" data-go="home"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" style="stroke:var(--berry)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Graph</button>
+          <h1 class="title">Settings</h1>
+          <div class="set-group">
+            <h2>Units</h2>
+            <div class="seg" role="group" aria-label="Temperature unit">
+              <button aria-pressed="true" data-unit>°C</button>
+              <button aria-pressed="false" data-unit>°F</button>
+            </div>
+          </div>
+          <div class="set-group">
+            <h2>Measurement time</h2>
+            <div class="timeline">
+              <span class="now">07:00</span>
+              <span>Since you joined. Readings taken earlier or later are adjusted to this time.</span>
+            </div>
+            <div><button class="secondary" type="button">Change measurement time</button></div>
+          </div>
+          <div class="set-group" style="border-bottom:0">
+            <h2>Account</h2>
+            <p class="hintline">Signed in as you@example.com</p>
+            <div><button class="secondary" type="button">Log out</button></div>
+            <button class="danger-link" type="button">Delete account</button>
+            <p class="hintline">Deleting your account erases every entry and cycle. It can't be undone.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="scrim" id="scrim" hidden>
+      <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-title" tabindex="-1"></div>
+    </div>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </div>
+
+  <aside class="notes" aria-label="About this mock">
+    <h1>Madam design mock</h1>
+    <p>A proposal for how Madam could look, built around her paper chart: pink chart paper, the temperature line in deep berry, and HotPink wherever you choose or select something. All the data is made up: four cycles from July to today, Sunday 8 November.</p>
+    <h2>Things to try</h2>
+    <ul>
+      <li><button data-go="popup">Tap a reading</button> to open the day popup, then step through the days with ‹ › or a swipe.</li>
+      <li>Switch to <button data-go="r90">90 days</button> and page back with ‹ ›, or choose Custom and pick the dates.</li>
+      <li>Switch to Cycle view and page back through the cycles.</li>
+      <li>Open the ⓘ legend and turn on raw readings.</li>
+      <li><button data-go="entry">Add today's entry</button>, type a temperature, change the time, and choose Bleeding.</li>
+      <li>Open <button data-go="cycles">Cycles</button>, then tap a cycle in the list.</li>
+    </ul>
+    <h2>Ideas the spec doesn't have yet</h2>
+    <ul>
+      <li>Bleeding and secretion rows under the graph, lined up with the days, as on the paper chart.</li>
+      <li>The day popup steps through every day, including days without a reading, and shows bleeding and secretion.</li>
+      <li>The "Cycle starts on this day" switch sits under the temperature. Choosing Bleeding highlights it with the question, instead of a separate prompt.</li>
+      <li>While you type, the form shows what a late or early reading will count as.</li>
+      <li>The stats say "based on 3 cycles" once, not under each number.</li>
+      <li>Dates show as dd/mm/yyyy.</li>
+    </ul>
+    <h2>Not drawn yet</h2>
+    <p>Sign-up, onboarding and the measurement-time change flow.</p>
+  </aside>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+  const DAY = 864e5;
+  const parse = s => Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10));
+  const iso = t => new Date(t).toISOString().slice(0, 10);
+  const TODAY = parse('2026-11-08');
+  const FIRST = parse('2026-07-20');
+  const FIXED = 7 * 60; // 07:00, in minutes
+  // Dates show as dd/mm/yyyy, as in Israel; weekdays stay in words.
+  const fmtWd = new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone: 'UTC' });
+  const fmtDMY = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+  const dmy = t => fmtDMY.format(t);
+  const longDate = t => `${fmtWd.format(t)} ${dmy(t)}`;
+  const fmtDM = { format: dmy }, fmtShort = { format: dmy };
+  const temp = h => (h / 100).toFixed(2);
+  const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  /* ---------------- made-up data ---------------- */
+  const starts = new Set(['2026-08-08', '2026-09-03', '2026-10-04', '2026-11-01']);
+  const entries = new Map();
+  let seed = 20261108;
+  const rand = () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const sortedStarts = () => [...starts].map(parse).sort((a, b) => a - b);
+  const blankMore = () => ({ sensation: null, amount: null, desc: '', firmness: null, position: null, symptoms: [], intercourse: null });
+
+  (function generate() {
+    const s = sortedStarts();
+    const TAGS = ['Alcohol', 'Poor sleep', 'Illness', 'Medication', 'Travel', 'Vacation', 'New thermometer'];
+    for (let t = FIRST; t < TODAY; t += DAY) {
+      let k = -1; s.forEach((st, j) => { if (st <= t) k = j; });
+      const day = k < 0 ? Math.round((t - FIRST) / DAY) + 10 : Math.round((t - s[k]) / DAY) + 1;
+      const len = k < 0 ? 28 : (k + 1 < s.length ? Math.round((s[k + 1] - s[k]) / DAY) : 28);
+      const ov = len - 14;
+      const base = day <= 2 && k >= 0 ? 36.45 : day <= ov ? 36.33 : day === ov + 1 ? 36.52 : day === ov + 2 ? 36.68 : day === len ? 36.62 : 36.80;
+      const r1 = rand(), r2 = rand(), r3 = rand(), r4 = rand();
+      if (r1 < 0.06) continue;
+      const target = Math.round((base + (r2 - 0.5) * 0.12) * 100);
+      let time = FIXED;
+      if (r3 < 0.08) time = FIXED + (r3 < 0.04 ? 30 : 45); else if (r3 < 0.12) time = FIXED - 30;
+      const raw = Math.round((target * 10 - 50 * (FIXED - time) / 30) / 10) * 10;
+      let bleeding = 'none';
+      if (k >= 0 && day <= 3) bleeding = 'bleeding'; else if (k >= 0 && day === 4) bleeding = 'spotting';
+      let sec = null;
+      if (day >= 6 && day <= ov - 4) sec = 'sticky';
+      else if (day >= ov - 3 && day <= ov - 2) sec = 'milky';
+      else if (day >= ov - 1 && day <= ov + 1) sec = 'clear';
+      else if (day > ov + 1 && day <= ov + 5) sec = 'sticky';
+      const tags = r4 < 0.06 ? [TAGS[Math.floor(rand() * TAGS.length)]] : [];
+      entries.set(iso(t), { raw, time, bleeding, sec, tags, notes: '', more: blankMore() });
+    }
+    // The last two weeks, set by hand so the default view shows every kind of mark.
+    const hand = [
+      ['2026-10-26', 36860, 420, 'none', 'sticky', [], ''],
+      ['2026-10-27', 36900, 420, 'none', 'sticky', [], ''],
+      ['2026-10-28', 36750, 390, 'none', null, [], ''],
+      ['2026-10-29', 36840, 420, 'none', null, [], ''],
+      ['2026-10-30', 36700, 420, 'none', null, [], 'Cramps in the evening'],
+      ['2026-10-31', 36560, 420, 'spotting', null, [], ''],
+      ['2026-11-01', 36460, 420, 'bleeding', null, [], ''],
+      ['2026-11-02', 36410, 420, 'bleeding', null, [], ''],
+      ['2026-11-03', 36360, 420, 'bleeding', null, [], ''],
+      ['2026-11-04', null],
+      ['2026-11-05', 36370, 465, 'spotting', null, [], ''],
+      ['2026-11-06', 36420, 420, 'none', 'sticky', ['Alcohol'], 'Friend’s birthday'],
+      ['2026-11-07', 36330, 425, 'none', 'sticky', [], ''],
+    ];
+    hand.forEach(([d, raw, time, bleeding, sec, tags, notes]) => {
+      if (raw === null) { entries.delete(d); return; }
+      entries.set(d, { raw, time, bleeding, sec, tags, notes, more: blankMore() });
+    });
+  })();
+
+  /* ---------------- derived on read ---------------- */
+  // fam-rules arithmetic: adjusted = raw + 0.05 °C per 30 min early, rounded half-up to 0.01 once.
+  function reading(e) {
+    if (!e || e.raw == null) return null;
+    const d = FIXED - e.time;
+    const h = Math.floor((30 * e.raw + 50 * d + 150) / 300);
+    return { h, rawH: e.raw / 10, adjusted: h * 10 !== e.raw, late: e.time - FIXED, disturbed: e.tags.length > 0 };
+  }
+  function firstEntry() { let m = null; for (const k of entries.keys()) { const t = parse(k); if (m === null || t < m) m = t; } return m; }
+  function cycles() {
+    const s = sortedStarts(), out = [], first = firstEntry();
+    if (first !== null && (!s.length || first < s[0])) out.push({ no: null, unknown: true, start: first, end: s.length ? s[0] - DAY : null });
+    s.forEach((st, k) => out.push({ no: k + 1, unknown: false, start: st, end: k + 1 < s.length ? s[k + 1] - DAY : null }));
+    return out;
+  }
+  function cycleOf(t) { const cs = cycles(); for (let i = cs.length - 1; i >= 0; i--) { if (cs[i].start <= t) return cs[i]; } return null; }
+  function cycleDay(t) { const c = cycleOf(t); if (!c) return ''; if (c.unknown) return '?'; return Math.round((t - c.start) / DAY) + 1; }
+  function cycleText(t) {
+    const c = cycleOf(t);
+    if (!c) return 'Outside any cycle';
+    if (c.unknown) return 'Cycle ? (start unknown)';
+    return `Cycle ${c.no}, day ${cycleDay(t)}`;
+  }
+  const cycLen = c => c.end ? Math.round((c.end - c.start) / DAY) + 1 : null;
+  function prevEntry(d) { let best = null; for (const k of entries.keys()) if (k < d && (!best || k > best)) best = k; return best ? entries.get(best) : null; }
+
+  /* ---------------- state + navigation ---------------- */
+  const state = { view: 'dates', range: 14, end: TODAY, custom: false, cycleIdx: null, showRaw: false, selected: null, editing: null, screen: 'home' };
+  function go(screen) {
+    state.screen = screen;
+    ['home', 'entry', 'cycles', 'settings'].forEach(s => { $('#s-' + s).hidden = s !== screen; });
+    closeSheet(); closeLegend();
+    window.scrollTo(0, 0); $('#viewport').scrollTop = 0;
+    if (screen === 'home') renderHome();
+    if (screen === 'cycles') renderCycles();
+  }
+  let toastTimer;
+  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 2200); }
+
+  /* ---------------- home ---------------- */
+  function renderHome() {
+    const e = entries.get(iso(TODAY)), r = reading(e);
+    $('#home-title').textContent = longDate(TODAY);
+    $('#home-sub').textContent = cycleText(TODAY) + '.' + (r ? ` This morning: ${temp(r.h)} °C.` : ' Nothing logged yet today.');
+    $('#add-btn').textContent = e ? 'Edit today’s entry' : 'Add today’s entry';
+    $('#v-dates').setAttribute('aria-pressed', state.view === 'dates');
+    $('#v-cycle').setAttribute('aria-pressed', state.view === 'cycle');
+    renderControls2(); renderLegend(); renderChart();
+  }
+
+  const arrow = (dir, attr, label, dis) => `<button class="iconbtn" ${attr}="${dir}" aria-label="${label}" ${dis ? 'disabled' : ''}><svg viewBox="0 0 18 18" aria-hidden="true"><path d="${dir < 0 ? 'M11 4 6 9l5 5' : 'm7 4 5 5-5 5'}" fill="none" style="stroke:var(--ink)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  // A native date picker shows the phone's own format, so the box shows dd/mm/yyyy and the picker sits invisibly on top.
+  const dateBox = (id, label, t, min, max) => `<label class="datebox"><span class="dl">${label}</span><span class="dv">${dmy(t)}</span><input type="date" id="${id}" value="${iso(t)}" min="${iso(min)}" max="${iso(max)}" aria-label="${label}"></label>`;
+
+  function renderControls2() {
+    const box = $('#controls2');
+    if (state.view === 'dates') {
+      const start = state.end - (state.range - 1) * DAY, first = firstEntry();
+      const presets = `<div class="seg presets" role="group" aria-label="Range in days">${[7, 14, 30, 60, 90].map(n => `<button data-range="${n}" aria-pressed="${!state.custom && state.range === n}">${n}</button>`).join('')}<button data-range="custom" aria-pressed="${state.custom}">Custom</button></div>`;
+      const custom = state.custom ? `<div class="custom">
+          ${dateBox('cr-from', 'From', start, Math.max(first, state.end - 89 * DAY), state.end)}
+          ${dateBox('cr-to', 'To', state.end, start, Math.min(TODAY, start + 89 * DAY))}
+          <p class="hintline">Up to 90 days.</p></div>` : '';
+      box.innerHTML = presets + custom + `<div class="cyclenav navrow">
+        ${arrow(-1, 'data-page', 'Earlier days', start <= first)}
+        <div class="name">${dmy(start)} to ${dmy(state.end)}<small>${state.range} day${state.range === 1 ? '' : 's'}</small></div>
+        ${arrow(1, 'data-page', 'Later days', state.end >= TODAY)}
+      </div>`;
+    } else {
+      const cs = cycles(), c = cs[state.cycleIdx];
+      const name = c.unknown ? 'Cycle ? (start unknown)' : `Cycle ${c.no}`;
+      const span = c.unknown ? `until ${dmy(c.end)}` : `${dmy(c.start)} to ${c.end ? dmy(c.end) : 'today'}`;
+      box.innerHTML = `<div class="cyclenav">
+        ${arrow(-1, 'data-cyc', 'Previous cycle', state.cycleIdx === 0)}
+        <div class="name">${name}<small>${span}</small></div>
+        ${arrow(1, 'data-cyc', 'Next cycle', state.cycleIdx === cs.length - 1)}
+      </div>`;
+    }
+  }
+
+  // Paging moves by the whole range, and never starts before the first entry or ends after today.
+  function clampEnd(end) { const n = state.range, first = firstEntry(); if (end - (n - 1) * DAY < first) end = first + (n - 1) * DAY; return Math.min(TODAY, end); }
+  function page(dir) { state.end = clampEnd(state.end + dir * state.range * DAY); }
+  function applyCustom(id, v) {
+    if (!v) return;
+    const first = firstEntry(), t = parse(v);
+    let from = state.end - (state.range - 1) * DAY, to = state.end;
+    if (id === 'cr-from') { from = Math.max(first, Math.min(t, to)); if (to - from > 89 * DAY) to = from + 89 * DAY; }
+    else { to = Math.min(TODAY, Math.max(t, from)); if (to - from > 89 * DAY) from = to - 89 * DAY; }
+    state.end = to; state.range = Math.round((to - from) / DAY) + 1;
+  }
+
+  function visibleDays() {
+    const out = [];
+    if (state.view === 'dates') { for (let i = state.range - 1; i >= 0; i--) out.push(state.end - i * DAY); return out; }
+    const c = cycles()[state.cycleIdx];
+    for (let t = c.start; t <= (c.end ?? TODAY); t += DAY) out.push(t);
+    return out;
+  }
+
+  let lastDays = [], lastColW = 20;
+  function renderChart() {
+    const wrap = $('#chartwrap');
+    const W = Math.max(280, Math.floor(wrap.clientWidth));
+    const days = visibleDays(); lastDays = days;
+    const N = days.length;
+    const L = 60, R = 4, T = 18, PH = 236, ROW = 21, GAP = 8;
+    const PW = W - L - R, cw = PW / N;
+    lastColW = cw;
+    const ST = T + PH + GAP, H = ST + ROW * 4 + 2;
+    const cx = i => L + cw * (i + 0.5);
+    const rs = days.map(t => reading(entries.get(iso(t))));
+    let lo = 3620, hi = 3700;
+    rs.forEach(r => { if (!r) return; [r.h, ...(state.showRaw ? [r.rawH] : [])].forEach(v => { lo = Math.min(lo, Math.floor((v - 4) / 10) * 10); hi = Math.max(hi, Math.ceil((v + 4) / 10) * 10); }); });
+    const y = v => T + (hi - v) / (hi - lo) * PH;
+    const k = cw >= 17 ? 1 : Math.ceil(19 / cw);
+    let s = '';
+
+    // bands
+    days.forEach((t, i) => {
+      if (t === TODAY) s += `<rect x="${L + cw * i}" y="${T}" width="${cw}" height="${H - T}" class="c-today"/>`;
+      if (iso(t) === state.selected) s += `<rect x="${L + cw * i}" y="${T}" width="${cw}" height="${H - T}" class="c-sel"/>`;
+    });
+    // chart paper
+    for (let v = lo; v <= hi; v += 5) {
+      const yy = y(v).toFixed(1);
+      s += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" class="${v % 10 === 0 ? 'g-major' : 'g-minor'}"/>`;
+      if (v % 10 === 0) s += `<text x="${L - 7}" y="${yy}" class="ax" text-anchor="end" dominant-baseline="central">${(v / 100).toFixed(1)}</text>`;
+    }
+    s += `<text x="${L - 7}" y="${T - 10}" class="ax" text-anchor="end" dominant-baseline="central">°C</text>`;
+    if (cw >= 7) for (let i = 0; i <= N; i++) { const xx = (L + cw * i).toFixed(1); s += `<line x1="${xx}" x2="${xx}" y1="${T}" y2="${T + PH}" class="g-minor"/><line x1="${xx}" x2="${xx}" y1="${ST}" y2="${ST + ROW * 4}" class="g-minor"/>`; }
+    for (let r = 0; r <= 4; r++) { const yy = ST + r * ROW; s += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" class="${r === 0 || r === 4 ? 'g-major' : 'g-minor'}"/>`; }
+    ['Date', 'Day', 'Bleeding', 'Secretion'].forEach((lab, r) => { s += `<text x="${L - 7}" y="${ST + r * ROW + ROW / 2}" class="ax-row" text-anchor="end" dominant-baseline="central">${lab}</text>`; });
+
+    // the paper chart's rows
+    days.forEach((t, i) => {
+      const d = new Date(t).getUTCDate();
+      const show = (N - 1 - i) % k === 0;
+      const e = entries.get(iso(t));
+      if (show) s += `<text x="${cx(i)}" y="${ST + ROW / 2}" class="ax${t === TODAY ? ' ax-strong' : ''}" text-anchor="middle" dominant-baseline="central">${d}</text>`;
+      const cd = cycleDay(t);
+      if (cd === 1) s += `<circle cx="${cx(i)}" cy="${ST + ROW * 1.5}" r="${Math.max(6, Math.min(8.5, cw / 2 - 1))}" class="c-cd1"/><text x="${cx(i)}" y="${ST + ROW * 1.5}" class="ax ax-strong" text-anchor="middle" dominant-baseline="central">1</text>`;
+      else if (cd !== '' && show) s += `<text x="${cx(i)}" y="${ST + ROW * 1.5}" class="ax" text-anchor="middle" dominant-baseline="central">${cd}</text>`;
+      if (e && e.bleeding === 'bleeding') { const w = Math.max(1.5, Math.min(cw - 4, 13)); s += `<rect x="${cx(i) - w / 2}" y="${ST + ROW * 2.5 - 6}" width="${w}" height="12" rx="${Math.min(3, w / 2)}" class="c-bleed"/>`; }
+      else if (e && e.bleeding === 'spotting') s += `<circle cx="${cx(i)}" cy="${ST + ROW * 2.5}" r="${Math.max(1.2, Math.min(3, cw / 3))}" class="c-bleed"/>`;
+      if (e && e.sec) {
+        const w = Math.max(1.5, Math.min(cw - 3, 16));
+        s += `<rect x="${cx(i) - w / 2}" y="${ST + ROW * 3.5 - 7}" width="${w}" height="14" rx="${Math.min(3, w / 2)}" class="c-sec-${e.sec}"/>`;
+        if (cw >= 17) s += `<text x="${cx(i)}" y="${ST + ROW * 3.5 + .5}" class="c-sectxt" text-anchor="middle" dominant-baseline="central">${{ clear: 'C', milky: 'M', sticky: 'S' }[e.sec]}</text>`;
+      }
+    });
+
+    // cycle starts
+    days.forEach((t, i) => { if (starts.has(iso(t))) { const xx = L + cw * i; s += `<line x1="${xx}" x2="${xx}" y1="${T - 4}" y2="${ST + ROW * 4}" class="c-start"/><circle cx="${xx}" cy="${T - 8}" r="4.5" class="c-startmark"/>`; } });
+
+    // the line: a missing day ends a run, a disturbed day is stepped over
+    const segs = []; let seg = [];
+    rs.forEach((r, i) => { if (!r) { if (seg.length) segs.push(seg); seg = []; return; } if (r.disturbed) return; seg.push(`${cx(i).toFixed(1)},${y(r.h).toFixed(1)}`); });
+    if (seg.length) segs.push(seg);
+    segs.forEach(p => { if (p.length > 1) s += `<polyline points="${p.join(' ')}" class="c-line"/>`; });
+
+    // dots, rings, ghosts
+    const rad = cw >= 17 ? 5.5 : cw >= 9 ? 4 : 2.6;
+    rs.forEach((r, i) => {
+      if (!r) return;
+      if (state.showRaw && r.adjusted) s += `<line x1="${cx(i)}" x2="${cx(i)}" y1="${y(r.rawH)}" y2="${y(r.h)}" class="c-ghostlink"/><circle cx="${cx(i)}" cy="${y(r.rawH)}" r="${(rad * .62).toFixed(1)}" class="c-ghost"/>`;
+      s += `<circle cx="${cx(i)}" cy="${y(r.h)}" r="${iso(days[i]) === state.selected ? rad + 2 : rad}" class="${r.disturbed ? 'c-ring' : 'c-dot'}"/>`;
+    });
+
+    // tap targets: one full-height column per day
+    days.forEach((t, i) => {
+      const r = rs[i];
+      const label = r ? `${fmtDM.format(t)}: ${temp(r.h)} °C${r.disturbed ? ', disturbed' : ''}` : `${fmtDM.format(t)}: no reading`;
+      s += `<rect x="${L + cw * i}" y="${T}" width="${cw}" height="${H - T}" class="c-hit" data-i="${i}" ${cw >= 7 ? 'tabindex="0"' : ''} role="button" aria-label="${label}"/>`;
+    });
+
+    wrap.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="group" aria-label="Temperature chart">${s}</svg>`;
+  }
+
+  function nearestReading(i) {
+    const reach = Math.max(2, Math.ceil(lastDays.length / 14));
+    for (let d = 0; d <= reach; d++) for (const j of [i - d, i + d]) {
+      if (j >= 0 && j < lastDays.length && reading(entries.get(iso(lastDays[j])))) return iso(lastDays[j]);
+    }
+    return null;
+  }
+  // Wide columns open exactly the day tapped; narrow ones (30+ days) snap to the nearest reading.
+  function dayForColumn(i) {
+    const exact = iso(lastDays[i]);
+    if (lastColW >= 17 || entries.has(exact)) return exact;
+    return nearestReading(i) || exact;
+  }
+
+  function markSvg(kind) {
+    const m = {
+      dot: `<line x1="2" x2="32" y1="10" y2="10" class="c-line"/><circle cx="17" cy="10" r="5.5" class="c-dot"/>`,
+      ring: `<line x1="2" x2="32" y1="14" y2="6" class="c-line"/><circle cx="17" cy="4" r="5.5" class="c-ring"/>`,
+      ghost: `<line x1="17" x2="17" y1="4" y2="15" class="c-ghostlink"/><circle cx="17" cy="15" r="3.4" class="c-ghost"/><circle cx="17" cy="4" r="5" class="c-dot"/>`,
+      gap: `<line x1="2" x2="11" y1="10" y2="10" class="c-line"/><circle cx="11" cy="10" r="4" class="c-dot"/><line x1="23" x2="32" y1="10" y2="10" class="c-line"/><circle cx="23" cy="10" r="4" class="c-dot"/>`,
+      start: `<line x1="17" x2="17" y1="4" y2="20" class="c-start"/><circle cx="17" cy="4" r="4.5" class="c-startmark"/>`,
+      bleed: `<rect x="11" y="4" width="12" height="12" rx="3" class="c-bleed"/>`,
+      spot: `<circle cx="17" cy="10" r="3" class="c-bleed"/>`,
+      clear: `<rect x="9" y="3" width="16" height="14" rx="3" class="c-sec-clear"/><text x="17" y="10.5" class="c-sectxt" text-anchor="middle" dominant-baseline="central">C</text>`,
+      milky: `<rect x="9" y="3" width="16" height="14" rx="3" class="c-sec-milky"/><text x="17" y="10.5" class="c-sectxt" text-anchor="middle" dominant-baseline="central">M</text>`,
+      sticky: `<rect x="9" y="3" width="16" height="14" rx="3" class="c-sec-sticky"/><text x="17" y="10.5" class="c-sectxt" text-anchor="middle" dominant-baseline="central">S</text>`,
+    };
+    return `<svg viewBox="0 0 34 20" aria-hidden="true">${m[kind]}</svg>`;
+  }
+  function renderLegend() {
+    const row = (k, t) => `<div class="row">${markSvg(k)}<span>${t}</span></div>`;
+    $('#legend').innerHTML = `
+      <h2>On the graph</h2>
+      ${row('dot', 'Reading, adjusted to 07:00 when taken early or late')}
+      ${row('ring', 'Disturbed reading. The line skips it')}
+      ${state.showRaw ? row('ghost', 'Raw reading, before the time adjustment') : ''}
+      ${row('gap', 'No reading that day')}
+      ${row('start', 'A cycle starts')}
+      <hr>
+      <h2>Under the graph</h2>
+      ${row('bleed', 'Bleeding')}
+      ${row('spot', 'Spotting')}
+      ${row('clear', 'Secretion: clear, stretchy')}
+      ${row('milky', 'Secretion: milky')}
+      ${row('sticky', 'Secretion: sticky')}
+      <hr>
+      <div class="switchrow"><label for="raw-toggle">Show raw readings</label><input type="checkbox" role="switch" class="switch" id="raw-toggle" ${state.showRaw ? 'checked' : ''}></div>`;
+  }
+  function closeLegend() { $('#legend').hidden = true; $('#legend-btn').setAttribute('aria-expanded', 'false'); }
+
+  /* ---------------- day popup ---------------- */
+  let sheetReturn = null, sheetDay = null;
+  const BLEED = { none: 'None', spotting: 'Spotting', bleeding: 'Bleeding' };
+  const SEC = { clear: 'Clear, stretchy', milky: 'Milky', sticky: 'Sticky' };
+  function openDay(d) {
+    const t = parse(d), e = entries.get(d), r = reading(e), c = cycleOf(t);
+    const wasOpen = !$('#scrim').hidden;
+    sheetDay = d; state.selected = d; renderChart();
+    const fact = (a, b) => `<div class="f"><dt>${a}</dt><dd>${b}</dd></div>`;
+    let body, facts = '';
+    if (r) {
+      let timing;
+      if (r.adjusted) timing = `<span class="flag">${Math.abs(r.late)} min ${r.late > 0 ? 'late' : 'early'}</span>`;
+      else if (e.time === FIXED) timing = 'On time';
+      else timing = `${Math.abs(e.time - FIXED)} min ${e.time > FIXED ? 'late' : 'early'}, no change`;
+      body = `<div><div class="bigtemp">${temp(r.h)}<span>°C</span></div>${r.adjusted ? `<p class="estimate">Estimate. Adjusted from ${temp(r.rawH)} °C to your usual time, 07:00.</p>` : ''}</div>`;
+      facts += fact('Measured', `${temp(r.rawH)} °C`) + fact('At', hhmm(e.time)) + fact('Timing', timing);
+    } else {
+      body = `<p class="noreading">${e ? 'No temperature on this day.' : 'Nothing logged on this day.'}</p>`;
+    }
+    if (e) { facts += fact('Bleeding', BLEED[e.bleeding]); if (e.sec) facts += fact('Secretion', SEC[e.sec]); }
+    const startNote = starts.has(d) && c ? `<p class="startnote">${markSvg('start')}<span>Cycle ${c.no} starts on this day.</span></p>` : '';
+    const tags = e && e.tags.length ? `<div class="tagline">${e.tags.map(x => `<span class="tag">${esc(x)}</span>`).join('')}</div>${r ? '<p class="hintline">Disturbed, so the line skips this reading.</p>' : ''}` : '';
+    // Locked top (date, cycle start, temperature), scrolling middle (details), locked bottom (actions).
+    const note = e && e.notes.trim() ? `<div class="daynote"><h3>Notes</h3><p>${esc(e.notes.trim())}</p></div>` : '';
+    $('#sheet').innerHTML = `
+      <div class="sheet-top">
+        <div class="handle" aria-hidden="true"></div>
+        <div class="dayhead">
+          ${arrow(-1, 'data-step', 'Previous day', t <= firstEntry())}
+          <div><h2 id="sh-title">${longDate(t)}</h2><p class="sub">${cycleText(t)}</p></div>
+          ${arrow(1, 'data-step', 'Next day', t >= TODAY)}
+        </div>
+        ${startNote}
+        <div class="sheet-body">${body}</div>
+      </div>
+      <div class="sheet-scroll">
+        ${facts ? `<dl class="facts">${facts}</dl>` : ''}
+        ${tags}
+        ${note}
+      </div>
+      <div class="actions"><button class="primary" id="sh-show">${e ? 'Show day' : 'Add entry'}</button><button class="secondary" id="sh-close">Close</button></div>`;
+    if (!wasOpen) { sheetReturn = document.activeElement; $('#scrim').hidden = false; $('#sheet').focus(); }
+    $('#sh-show').onclick = () => openEntry(d);
+    $('#sh-close').onclick = closeSheet;
+  }
+  // Stepping past the edge of the graph pages the graph along with the popup.
+  function stepDay(dir) {
+    if (!sheetDay) return;
+    const t = parse(sheetDay) + dir * DAY;
+    if (t > TODAY || t < firstEntry()) return;
+    if (state.view === 'dates') { if (t > state.end || t < state.end - (state.range - 1) * DAY) page(dir); }
+    else { const idx = cycles().findIndex(c => c.start <= t && t <= (c.end ?? TODAY)); if (idx >= 0) state.cycleIdx = idx; }
+    renderControls2();
+    openDay(iso(t));
+    const btn = $(`#sheet [data-step="${dir}"]`);
+    if (btn && !btn.disabled) btn.focus(); else $('#sheet').focus();
+  }
+  function closeSheet() {
+    if ($('#scrim').hidden) return;
+    $('#scrim').hidden = true; state.selected = null; sheetDay = null;
+    if (state.screen === 'home') renderChart();
+    if (sheetReturn && document.contains(sheetReturn)) sheetReturn.focus?.();
+  }
+
+  /* ---------------- entry form ---------------- */
+  const opts = f => $(`.options[data-field="${f}"]`);
+  function setOpt(f, v) { opts(f).querySelectorAll('.opt').forEach(b => b.setAttribute('aria-pressed', String(Array.isArray(v) ? v.includes(b.dataset.v) : b.dataset.v === String(v)))); }
+  function getOpt(f) { const b = opts(f).querySelector('.opt[aria-pressed="true"]'); return b ? b.dataset.v : null; }
+  function getMulti(f) { return [...opts(f).querySelectorAll('.opt[aria-pressed="true"]')].map(b => b.dataset.v); }
+
+  function openEntry(d) {
+    state.editing = d;
+    const t = parse(d), e = entries.get(d);
+    go('entry');
+    $('#e-title').textContent = t === TODAY ? 'Today’s entry' : longDate(t);
+    $('#e-sub').textContent = cycleText(t) + (e ? '.' : '. No entry yet.');
+    $('#e-date').value = d;
+    $('#e-date-v').textContent = longDate(t);
+    $('#e-temp').value = e && e.raw != null ? (e.raw / 1000).toFixed(2) : '';
+    $('#e-time').value = hhmm(e ? e.time : FIXED);
+    setOpt('bleeding', e ? e.bleeding : 'none');
+    setOpt('sec', e ? e.sec : null);
+    setOpt('tags', e ? e.tags : []);
+    $('#e-notes').value = e ? e.notes : '';
+    $('#e-start').checked = starts.has(d);
+    const m = e ? e.more : blankMore();
+    setOpt('sensation', m.sensation); setOpt('amount', m.amount); setOpt('firmness', m.firmness); setOpt('position', m.position); setOpt('symptoms', m.symptoms); setOpt('intercourse', m.intercourse);
+    $('#e-desc').value = m.desc;
+    $('#e-delete').hidden = !e;
+    $('#e-err').hidden = true; hideAsk();
+    updateHint(); checkSuggest();
+  }
+
+  function parseTemp() {
+    const s = $('#e-temp').value.trim().replace(',', '.');
+    if (!s) return { empty: true };
+    if (!/^\d{2}(\.\d{1,2})?$/.test(s)) return { bad: true };
+    return { milli: Math.round(parseFloat(s) * 100) * 10 };
+  }
+  function minutesOf(v) { const [h, m] = v.split(':').map(Number); return h * 60 + m; }
+  function updateHint() {
+    const p = parseTemp(), hint = $('#e-hint');
+    const time = $('#e-time').value ? minutesOf($('#e-time').value) : FIXED;
+    const diff = time - FIXED;
+    const when = diff === 0 ? 'at your usual time' : `${Math.abs(diff)} min ${diff > 0 ? 'late' : 'early'}`;
+    if (p.empty || p.bad) { hint.innerHTML = diff === 0 ? 'Your usual time is 07:00.' : `Measured ${when}. The value will be adjusted to 07:00.`; return; }
+    const r = reading({ raw: p.milli, time, tags: [] });
+    if (diff === 0) hint.textContent = 'Measured at your usual time, so no adjustment.';
+    else if (!r.adjusted) hint.textContent = `Measured ${when}. Too little to change the value.`;
+    else hint.innerHTML = `Measured ${when}, so it counts as <b>${temp(r.h)} °C</b>. That's an estimate.`;
+  }
+
+  // The suggestion is the switch itself, highlighted: one control, so nothing can look chosen when it isn't.
+  // The message follows the switch: what saving will change, or (switch off, bleeding logged) the question.
+  function checkSuggest() {
+    const d = $('#e-date').value, t = parse(d), prev = prevEntry(d), q = $('#e-start-q');
+    const on = $('#e-start').checked, saved = starts.has(d);
+    const no = sortedStarts().filter(s => s < t).length + 1;
+    let msg = '';
+    if (on && !saved) msg = `Cycle ${no} will start on ${dmy(t)} when you save.`;
+    else if (!on && saved) msg = `${dmy(t)} will no longer start a cycle when you save.`;
+    else if (!on && getOpt('bleeding') === 'bleeding' && !(prev && prev.bleeding === 'bleeding')) msg = 'You logged bleeding. If your period started on this day, turn this on.';
+    $('#e-startbox').classList.toggle('suggest', Boolean(msg));
+    q.hidden = !msg;
+    q.textContent = msg;
+  }
+
+  let askResolve = null;
+  function ask(q, yes, no) {
+    $('#e-ask-q').textContent = q; $('#e-ask-yes').textContent = yes; $('#e-ask-no').textContent = no;
+    $('#e-ask').hidden = false; $('#e-save').hidden = true; $('#e-err').hidden = true;
+    $('#e-ask-yes').focus();
+    return new Promise(res => { askResolve = res; });
+  }
+  function hideAsk() { $('#e-ask').hidden = true; $('#e-save').hidden = false; }
+  $('#e-ask-yes').onclick = () => { hideAsk(); askResolve && askResolve(true); };
+  $('#e-ask-no').onclick = () => { hideAsk(); askResolve && askResolve(false); };
+  function showErr(msg) { const e = $('#e-err'); e.textContent = msg; e.hidden = false; $('#e-temp').focus(); }
+
+  async function save() {
+    const d = $('#e-date').value, p = parseTemp();
+    if (!d || parse(d) > TODAY) { showErr('Choose today or an earlier date.'); return; }
+    let raw = null;
+    if (p.bad) { showErr('Enter the temperature as a number, like 36.45.'); return; }
+    if (p.empty) {
+      if (!await ask('Save without a temperature?', 'Save without', 'Add a temperature')) { $('#e-temp').focus(); return; }
+    } else {
+      raw = p.milli;
+      if (raw < 20000 || raw > 50000) { showErr('That isn’t a body temperature. Enter a value between 20.00 and 50.00 °C.'); return; }
+      if (raw < 35000 || raw > 39000) {
+        if (!await ask(`${(raw / 1000).toFixed(2)} °C is unusual. Is it correct?`, 'Yes, save it', 'No, fix it')) { $('#e-temp').focus(); $('#e-temp').select(); return; }
+      }
+    }
+    const bleeding = getOpt('bleeding') || 'none';
+    const prev = prevEntry(d);
+    if (bleeding !== 'bleeding' && prev && prev.bleeding === 'bleeding') {
+      if (!await ask('Did bleeding stop?', 'Yes, it stopped', 'No')) { opts('bleeding').querySelector('[data-v="bleeding"]').focus(); return; }
+    }
+    entries.set(d, {
+      raw, time: minutesOf($('#e-time').value || '07:00'), bleeding, sec: getOpt('sec'), tags: getMulti('tags'), notes: $('#e-notes').value,
+      more: { sensation: getOpt('sensation'), amount: getOpt('amount'), desc: $('#e-desc').value, firmness: getOpt('firmness'), position: getOpt('position'), symptoms: getMulti('symptoms'), intercourse: getOpt('intercourse') },
+    });
+    if ($('#e-start').checked) starts.add(d); else starts.delete(d);
+    if (state.view === 'cycle') state.cycleIdx = Math.min(state.cycleIdx, cycles().length - 1);
+    go('home'); toast('Entry saved');
+  }
+
+  /* ---------------- cycles ---------------- */
+  function renderCycles() {
+    const cs = cycles(), cur = cs[cs.length - 1];
+    const curDay = Math.round((TODAY - cur.start) / DAY) + 1;
+    $('#c-title').textContent = cur.unknown ? 'Cycle ? (start unknown)' : `Cycle ${cur.no}, day ${curDay}`;
+    $('#c-sub').textContent = cur.unknown ? '' : `Started ${longDate(cur.start)}.`;
+    const done = cs.filter(c => !c.unknown && c.end), lens = done.map(cycLen);
+    const stat = (a, b) => `<div class="stat"><dt>${a}</dt><dd>${b}</dd></div>`;
+    if (!lens.length) { $('#c-stats').innerHTML = ''; $('#c-statnote').textContent = 'Not enough data yet. Stats appear once a cycle has ended.'; }
+    else {
+      const avg = (lens.reduce((a, b) => a + b, 0) / lens.length).toFixed(1);
+      $('#c-stats').innerHTML = stat('Average', avg) + stat('Shortest', Math.min(...lens)) + stat('Longest', Math.max(...lens)) + stat('Latest', lens[lens.length - 1]);
+      $('#c-statnote').textContent = `In days, based on ${lens.length} completed cycle${lens.length === 1 ? '' : 's'}. The current cycle counts once it ends.`;
+    }
+    renderBars(cs.filter(c => !c.unknown));
+    $('#c-list').innerHTML = cs.map((c, i) => ({ c, i })).reverse().map(({ c, i }) => {
+      const n = c.unknown ? 'Cycle ?' : `Cycle ${c.no}`;
+      const dates = c.unknown ? `<span>Start unknown,</span> <span>to ${dmy(c.end)}</span>` : `<span>${dmy(c.start)}</span> <span>to ${c.end ? dmy(c.end) : 'today'}</span>`;
+      const len = c.unknown ? '<span class="l muted">Length unknown</span>' : c.end ? `<span class="l">${cycLen(c)} days</span>` : `<span class="l muted">${Math.round((TODAY - c.start) / DAY) + 1} days so far</span>`;
+      return `<li><button class="cycrow" data-ci="${i}"><span class="n">${n}</span><span class="d${c.unknown ? ' muted' : ''}">${dates}</span>${len}</button></li>`;
+    }).join('');
+  }
+  function renderBars(cs) {
+    const wrap = $('#barwrap');
+    const W = Math.max(260, Math.floor(wrap.clientWidth)), H = 190;
+    const L = 26, R = 4, T = 22, B = 26, PH = H - T - B;
+    const vals = cs.map(c => c.end ? cycLen(c) : Math.round((TODAY - c.start) / DAY) + 1);
+    const max = Math.max(35, Math.ceil(Math.max(...vals) / 7) * 7);
+    const y = v => T + PH - v / max * PH;
+    const band = (W - L - R) / cs.length, bw = Math.min(46, band * .58);
+    let s = '';
+    for (let v = 0; v <= max; v += 7) s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="${v === 0 ? 'g-major' : 'g-minor'}"/><text x="${L - 6}" y="${y(v)}" class="ax" text-anchor="end" dominant-baseline="central">${v}</text>`;
+    cs.forEach((c, i) => {
+      const x = L + band * (i + .5), v = vals[i], ongoing = !c.end;
+      s += `<rect x="${x - bw / 2}" y="${y(v)}" width="${bw}" height="${y(0) - y(v)}" rx="4" class="${ongoing ? 'c-bar-ongoing' : 'c-bar'}"/>`;
+      s += `<text x="${x}" y="${y(v) - 9}" class="c-barlabel" text-anchor="middle">${ongoing ? 'ongoing' : v}</text>`;
+      s += `<text x="${x}" y="${H - 8}" class="ax" text-anchor="middle">${fmtShort.format(c.start)}</text>`;
+    });
+    wrap.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cycle lengths: ${cs.map((c, i) => `${fmtShort.format(c.start)} ${c.end ? vals[i] + ' days' : 'ongoing'}`).join(', ')}">${s}</svg>`;
+  }
+
+  /* ---------------- wiring ---------------- */
+  document.addEventListener('click', ev => {
+    const g = ev.target.closest('[data-go]');
+    if (g) {
+      const to = g.dataset.go;
+      if (to === 'popup') { go('home'); openDay('2026-11-05'); }
+      else if (to === 'entry') openEntry(iso(TODAY));
+      else if (to === 'r90') { state.view = 'dates'; state.range = 90; state.custom = false; state.end = TODAY; go('home'); }
+      else go(to);
+      return;
+    }
+    const dbi = ev.target.closest('.datebox input');
+    if (dbi) { try { dbi.showPicker(); } catch (_) { /* phones open the picker themselves */ } return; }
+    const st = ev.target.closest('[data-step]');
+    if (st) { if (!st.disabled) stepDay(+st.dataset.step); return; }
+    const pg = ev.target.closest('[data-page]');
+    if (pg) { if (!pg.disabled) { page(+pg.dataset.page); renderHome(); } return; }
+    const rb = ev.target.closest('[data-range]');
+    if (rb) {
+      if (rb.dataset.range === 'custom') state.custom = true;
+      else { state.custom = false; state.range = +rb.dataset.range; state.end = clampEnd(state.end); }
+      renderHome(); return;
+    }
+    const cb = ev.target.closest('[data-cyc]');
+    if (cb && !cb.disabled) { state.cycleIdx += +cb.dataset.cyc; renderHome(); return; }
+    const hit = ev.target.closest('.c-hit');
+    if (hit) { openDay(dayForColumn(+hit.dataset.i)); return; }
+    const row = ev.target.closest('.cycrow');
+    if (row) { state.view = 'cycle'; state.cycleIdx = +row.dataset.ci; go('home'); return; }
+    const o = ev.target.closest('.opt');
+    if (o) {
+      const box = o.parentElement, on = o.getAttribute('aria-pressed') === 'true';
+      if (box.hasAttribute('data-multi')) o.setAttribute('aria-pressed', String(!on));
+      else if (box.hasAttribute('data-required')) setOpt(box.dataset.field, o.dataset.v);
+      else setOpt(box.dataset.field, on ? null : o.dataset.v);
+      if (box.dataset.field === 'bleeding') checkSuggest();
+      return;
+    }
+    const u = ev.target.closest('[data-unit]');
+    if (u) { $$('[data-unit]').forEach(b => b.setAttribute('aria-pressed', String(b === u))); return; }
+    if (ev.target === $('#scrim')) { closeSheet(); return; }
+    if (!ev.target.closest('#legend') && !ev.target.closest('#legend-btn')) closeLegend();
+  });
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { closeSheet(); closeLegend(); }
+    if (!$('#scrim').hidden && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')) { ev.preventDefault(); stepDay(ev.key === 'ArrowLeft' ? -1 : 1); }
+    if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.classList && ev.target.classList.contains('c-hit')) { ev.preventDefault(); openDay(dayForColumn(+ev.target.dataset.i)); }
+  });
+  // Swipe the popup sideways to step through the days.
+  let sx = null, sy = 0;
+  $('#sheet').addEventListener('pointerdown', ev => { sx = ev.clientX; sy = ev.clientY; });
+  $('#sheet').addEventListener('pointerup', ev => {
+    if (sx === null) return;
+    const dx = ev.clientX - sx, dy = ev.clientY - sy; sx = null;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepDay(dx < 0 ? 1 : -1);
+  });
+  document.addEventListener('change', ev => {
+    if (ev.target.id === 'cr-from' || ev.target.id === 'cr-to') { applyCustom(ev.target.id, ev.target.value); renderHome(); }
+    if (ev.target.id === 'raw-toggle') { state.showRaw = ev.target.checked; renderLegend(); renderChart(); $('#raw-toggle').focus(); }
+    if (ev.target.id === 'e-date') { const d = ev.target.value; if (d && parse(d) <= TODAY) openEntry(d); }
+    if (ev.target.id === 'e-start') checkSuggest();
+  });
+  $('#v-dates').onclick = () => { state.view = 'dates'; renderHome(); };
+  $('#v-cycle').onclick = () => { if (state.view !== 'cycle') { state.view = 'cycle'; state.cycleIdx = cycles().length - 1; } renderHome(); };
+  $('#legend-btn').onclick = () => { const l = $('#legend'); l.hidden = !l.hidden; $('#legend-btn').setAttribute('aria-expanded', String(!l.hidden)); };
+  $('#add-btn').onclick = () => openEntry(iso(TODAY));
+  $('#e-temp').addEventListener('input', updateHint);
+  $('#e-time').addEventListener('input', updateHint);
+  $('#e-save').onclick = save;
+  $('#e-delete').onclick = async () => {
+    const d = state.editing;
+    if (await ask(`Delete the entry for ${fmtDM.format(parse(d))}? This can't be undone.`, 'Delete entry', 'Keep it')) { entries.delete(d); go('home'); toast('Entry deleted'); }
+  };
+  $('#e-more').addEventListener('toggle', () => { $('#e-more-label').textContent = $('#e-more').open ? 'Hide extra fields' : 'Show all fields'; });
+
+  let rz;
+  new ResizeObserver(() => { cancelAnimationFrame(rz); rz = requestAnimationFrame(() => { if (state.screen === 'home') renderChart(); if (state.screen === 'cycles') renderBars(cycles().filter(c => !c.unknown)); }); }).observe($('#phone'));
+  renderHome();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (state.screen === 'home') renderChart(); });
+})();
+</script>

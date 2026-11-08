@@ -215,7 +215,8 @@ suggestion: 1 March bleeding, 2 March no entry, 3 March bleeding → **no
 suggestion**, because the most recent earlier entry (1 March) was bleeding (AC-6).
 
 The suggestion is a **question**, never an automatic action. The user confirms or
-dismisses it.
+dismisses it. It appears on the "cycle starts on this day" switch (§6.2): turning
+the switch on confirms, leaving it off dismisses (`design-brief.md` §6.3).
 
 ### 6.2 Manual start
 
@@ -298,7 +299,9 @@ cycle and the unknown-start cycle are always excluded.
 | Longest | Maximum completed length. |
 | Average | Mean of completed lengths, displayed to **1 decimal**, half-up. |
 
-- Every stat displays **"based on N cycles"**.
+- The stats display **"based on N cycles"** once, under all four: they count the
+  same completed cycles, so N is always the same (amended in the design step,
+  8 November 2026; `spec-v1.md` §10).
 - With no completed cycles: **"Not enough data yet"**.
 - The bar chart shows completed cycles plus the ongoing one as a faded bar
   labelled "ongoing". The unknown-start cycle is not shown at all.

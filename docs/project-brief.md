@@ -28,6 +28,7 @@ A mobile-friendly web app that digitizes a paper FAM (Fertility Awareness Method
 - `tech-stack.md`: every stack decision with its reasoning, the rejected options, and the accepted trade-offs. **Source of truth for stack questions.**
 - `data-model.md`: the tables, columns, constraints, derived-value formulas, and the reasoning behind each choice. **Source of truth for schema questions.**
 - `build-order.md`: what gets built, in what order, and how each slice is known to be done.
+- `design-brief.md`: how every screen looks and behaves to the touch: tokens, type, components, layouts, dates and words. **Source of truth for design questions.** The mock it was approved from is `docs/design/mock.html`.
 - `CLAUDE.md`: the short operating file Claude Code reads every session — where the documents are, the conventions, the non-obvious traps, and the verification list.
 
 ## Decisions made
@@ -56,7 +57,13 @@ A mobile-friendly web app that digitizes a paper FAM (Fertility Awareness Method
   - **Palette: HotPink `#FF69B4` as an accent**, used as a fill with dark text on it. It fails contrast requirements as text or as the chart line on a light background.
   - **"Did bleeding stop?" now uses the same lookback as the new-cycle suggestion** — the most recent earlier entry, whatever its date. The narrower version left a hole that produced a false new-cycle suggestion mid-period.
   - **The "shortest − 21 (20)" value is dropped permanently**, not deferred.
-  - **Figma handoff dropped from planning.** The designer has no paid plan and doesn't need one; the redesign is post-v1 touch-ups. Design tokens stay, because they make a later reskin cheap regardless.
+  - **Figma handoff dropped from planning.** The designer has no paid plan and doesn't need one; the redesign is post-v1 touch-ups. Design tokens stay, because they make a later reskin cheap regardless. *Reversed in the design step (below): the design is done before Slice 3.*
+- **Design step (8 November 2026, see `design-brief.md`):**
+  - **Design before Slice 3, not after v1.** Tokens make colours cheap to change, not layout and interaction, and the shell looked "like some admin-control page". Done with the `frontend-design` and `dataviz` skills and a clickable mock that Pe'er approved after four rounds. He approves the design alone.
+  - **Direction: her paper chart, on a phone.** Pink chart paper, a berry temperature line, and the paper chart's rows (bleeding, secretion) under the graph. HotPink stays as the "chosen" colour, as a fill only.
+  - **A self-hosted web font** (Atkinson Hyperlegible Next), reversing "no web fonts"; nothing is fetched from another origin. **Light only** in v1.
+  - **Dates as dd/mm/yyyy.**
+  - **Behaviour changes in the spec:** the cycle-start switch sits above bleeding and carries the new-cycle suggestion; the graph pages with ‹ ›; the day popup steps through the days at a fixed height; the stats show "based on N cycles" once.
 - **Setup decisions (step 4, second half):**
   - **The repository is public from day one**, reversing "private until v1." On GitHub's free plan, protected branches exist only on public repositories. The secret risk that motivated "private" is handled by `.gitignore` from the first commit, GitHub's secret scanning and push protection (both verified on), and a Claude Code rule denying reads of `.env` (`tech-stack.md` §12).
   - **The documents refer to "the first user,"** never by name or relationship, because the repository and its full history are public.
@@ -99,7 +106,7 @@ Almost everything from steps 1–4 is now closed. What's left falls into three k
 **Needs the first user, not us:**
 
 - Confirm the **direction of the correction** — early adds, late subtracts. Currently an assumption; a sign error would be visibly wrong to someone who has charted by hand for months.
-- Confirm the palette is readable on her phone, early in the morning.
+- Confirm the design is readable on her phone, early in the morning.
 
 **Answerable only by measuring** (the verification list in `CLAUDE.md`):
 

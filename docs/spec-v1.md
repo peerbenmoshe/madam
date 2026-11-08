@@ -11,6 +11,13 @@ _Amended at step 4 (rules and setup):_
 - _§15 is trimmed: the method-fidelity research is resolved, the legal check remains._
 - _`docs/fam-rules.md` is now the source of truth for the exact domain arithmetic and conditions. This spec says what the app does; that file says precisely how each rule computes, with test vectors._
 
+_Amended in the design step (8 November 2026), approved by Pe'er on a clickable mock. `docs/design-brief.md` is the source of truth for how each screen looks and behaves to the touch:_
+- _Dates display as **dd/mm/yyyy** (§3)._
+- _The day entry's quick section gains the **"cycle starts on this day" switch**, directly above bleeding, and the new-cycle suggestion now appears on that switch (§5.1, §8.2, AC-5)._
+- _The graph gains **bleeding and secretion rows** under the plot, and **‹ › paging** in the date view (§9.1, §9.2)._
+- _The day popup **steps through the days** and shows bleeding, secretion, notes and cycle starts (§9.3)._
+- _The stats show "based on N cycles" **once** (§10)._
+
 ## 1. Purpose
 
 A mobile-friendly web app that replaces a paper FAM/BBT chart. v1 covers recording daily data, charting temperatures, and showing cycle-length statistics. It gives **no fertility verdicts** (interpretation level B).
@@ -35,6 +42,8 @@ The rules implemented are the ones from the paper chart the first user already f
 6. **Cycles and stats:** opened only on request. Shows the current cycle day, four stats, a bar chart, and the cycle list.
 7. **Settings:** units, measurement time (with change history), and account.
 
+**Dates display as dd/mm/yyyy** (for example 08/11/2026), as in Israel, with the weekday in words first where there is room. The graph's date row shows the day of the month only. Times are 24-hour. Layout and visual rules for every screen are in `docs/design-brief.md`.
+
 ## 4. Onboarding
 
 After sign-up, the user enters two things.
@@ -53,7 +62,8 @@ Units default to Celsius and can be changed later in Settings. There are no foll
 |---|---|
 | Date | Defaults to today. Editable. No future dates. |
 | Measurement time | Defaults to the fixed measurement time in effect for that date. Editable, minute precision. Only relevant when a temperature is entered. |
-| Temperature | Optional. Entered to 2 decimals in the user's display unit. Saving an entry without a temperature asks "Save without a temperature?" |
+| Temperature | Optional. Entered to 2 decimals in the user's display unit. Saving an entry without a temperature asks "Save without a temperature?" While typing, the screen shows what the reading will count as after the time adjustment (section 6), labeled as an estimate. |
+| Cycle starts on this day | A switch, placed directly above bleeding, because the new-cycle suggestion appears on it (section 8.2). |
 | Bleeding / spotting | None, spotting, or bleeding. |
 | Cervical secretion category | Clear/stretchy, milky, or sticky. |
 | Disturbance tags | Alcohol, poor sleep, illness, medication, travel, vacation, new thermometer, UTI, yeast infection. |
@@ -118,10 +128,11 @@ Late/early measurement is **not** a manual tag. It is derived only from the meas
 
 ### 8.2 Starting a new cycle
 
-- **Suggested start.** When the user logs bleeding (not spotting), the app asks "Start a new cycle on this date?" and she confirms or dismisses. The suggestion appears only when both of these are true:
+- **Suggested start.** When the user logs bleeding (not spotting), the app asks whether a new cycle started on this date. The question appears **on the "cycle starts on this day" switch**, which is highlighted: she confirms by turning the switch on, and dismisses by leaving it off. There is no separate button, so nothing can look chosen when it isn't. The suggestion appears only when both of these are true:
   - the date isn't already a cycle start;
   - the most recent earlier entry, whatever its date, isn't a bleeding entry, so a single missing day in the middle of a period doesn't trigger a false suggestion.
-- **Manual start.** The day entry screen has a "cycle starts on this day" toggle, usable on any past date, for fixes and backfilling. It overrides the conditions above entirely.
+- **Manual start.** The same switch is usable on any past date, for fixes and backfilling. It overrides the conditions above entirely.
+- **The switch says what saving will change.** Turned on for a date that isn't a cycle start: "Cycle N will start on dd/mm/yyyy when you save." Turned off on a date that is one: "dd/mm/yyyy will no longer start a cycle when you save." Removing a start renumbers the cycles after it (8.1), so it is never silent.
 
 ### 8.3 "Did bleeding stop?" check
 
@@ -152,6 +163,7 @@ The user toggles between two views. **In both views, the X axis shows the date a
   - presets: 7, 14, 30, 60, 90 days;
   - custom from–to range capped at 90 days, and a start before the first entry is clamped to the first entry;
   - no future dates, and the date pickers themselves block invalid choices (end before start, more than 90 days, future dates);
+  - **‹ › arrows page by the whole range** (a 14-day view moves 14 days). The next arrow stops at today, and the previous one stops at the first entry, so a page never starts before it. A custom range pages by its own length;
   - cycle starts are drawn as vertical lines.
 - **Cycle view:**
   - shows one cycle;
@@ -166,15 +178,21 @@ The user toggles between two views. **In both views, the X axis shows the date a
 
 Note that the last two are different holes: a disturbed day is stepped over, a missing day stops the line. A charting library controls that with a single setting per series, so the line is drawn as separate connected segments (`tech-stack.md` §8.3).
 
+**Rows under the graph.** As on the paper chart, the days carry rows under the plot: date, cycle day, **bleeding** (bleeding or spotting) and **cervical secretion** (clear/stretchy, milky or sticky). The legend explains their marks.
+
 ### 9.3 Legend and interaction
 
 - A small legend explains the dot types and the cycle-start line.
   - The ghost item appears only while ghosts are shown.
   - On desktop the legend is always visible in the top-right corner. On mobile it sits behind an "ⓘ" icon.
-- Tapping a dot or its ghost opens the **day popup**. The popup shows:
+- Tapping a dot or its ghost opens the **day popup**. When days are wide enough to tap one by one, tapping any day opens that day, including an empty one. When they are too narrow (30 days and more on a phone), a tap opens the nearest day with a reading. The popup shows:
   - raw value, adjusted value (labeled as an estimate), and measurement time (the raw value always shows here, whatever the ghost toggle says);
   - the late/early indicator and the disturbance tags;
-  - a **"Show day"** button that opens the day entry screen.
+  - bleeding, cervical secretion and the notes;
+  - a note when a cycle starts on that day;
+  - a **"Show day"** button that opens the day entry screen ("Add entry" on a day without one).
+- **‹ › arrows in the popup step one calendar day** at a time, including days without an entry, from the first entry up to today. Swiping sideways does the same. When a step leaves the visible range, the graph pages with it.
+- The popup has **one height on every day**, so the arrows and buttons stay in place while stepping. Longer days scroll in the middle, under a fixed top (date, cycle-start note, temperature).
 
 ## 10. Cycles and stats screen
 
@@ -186,7 +204,7 @@ Note that the last two are different holes: a disturbed day is stepped over, a m
   - longest cycle;
   - average cycle length.
 - **Cycle length** runs from day 1 up to the day before the next day 1. The current cycle is excluded from stats.
-- Each stat shows "based on N cycles." With no completed cycles, it shows "Not enough data yet."
+- The stats share one note, "based on N completed cycles," shown once under them, since all four count the same cycles. With no completed cycles, it shows "Not enough data yet."
 - The average is shown to 1 decimal.
 - **Bar chart:** X = cycle start date, Y = length in days. The ongoing cycle appears as a faded bar labeled "ongoing." The unknown-start cycle is not shown.
 - **Cycle list:** newest first, with cycle number, start date, end date, and length. The unknown-start cycle shows as "start unknown, length unknown." Tapping a row opens that cycle in Cycle view.
@@ -205,7 +223,7 @@ These are a starting set; more get written per feature during the build. The pre
 - **AC-2 Adjustment (early).** Given fixed time 07:00, when the user saves 36.40 at 06:30, then the adjusted value is 36.45.
 - **AC-3 No ghost when rounding cancels.** Given fixed time 07:00, when the user saves 36.50 at 07:01, then no ghost dot and no late/early indicator exist for that day.
 - **AC-4 Duplicate date.** Given an entry exists for 3 March, when the user picks 3 March in a new entry, then the existing entry opens for editing.
-- **AC-5 Cycle suggestion.** Given the most recent earlier entry is not bleeding, when the user logs bleeding, then the app asks whether to start a new cycle on that date. It does not ask for spotting.
+- **AC-5 Cycle suggestion.** Given the most recent earlier entry is not bleeding, when the user logs bleeding, then the "cycle starts on this day" switch is highlighted with the question whether a new cycle started on that date, and turning it on starts one when she saves. It does not ask for spotting.
 - **AC-6 No false suggestion over a gap.** Given 1 March is bleeding and 2 March has no entry, when the user logs bleeding on 3 March, then no new-cycle suggestion appears.
 - **AC-7 "Did bleeding stop?"** Given 3 March is bleeding and 4 March has no entry, when the user saves 5 March with none, then the app asks "Did bleeding stop?", and "No" returns her to the bleeding field. The gap on 4 March does not suppress the question.
 - **AC-8 Retroactive cycle start.** Given cycle 3 starts 1 May, when the user marks 20 April as a cycle start, then entries from 20 April onward show recomputed cycle days, and numbers and stats update.
