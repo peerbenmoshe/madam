@@ -136,7 +136,5 @@ func (a Adjusted) IsAdjusted() bool {
 // Celsius returns the raw and adjusted values as displayed, in hundredths,
 // each rounded half-up exactly once (fam-rules §3.3–§3.4).
 func (a Adjusted) Celsius() (raw, adjusted HundredthsC) {
-	raw = HundredthsC((int(a.Raw) + 5) / 10)
-	adjusted = HundredthsC((a.numerator + 15) / 30)
-	return raw, adjusted
+	return a.Raw.Celsius(), HundredthsC((a.numerator + 15) / 30)
 }
