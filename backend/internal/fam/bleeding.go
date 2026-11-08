@@ -33,6 +33,14 @@ func SuggestCycleStart(day DayBleeding, isStart bool, history []DayBleeding) boo
 	return !found || previous.Level != Bleeding
 }
 
+// AskBleedingStopped reports whether saving day should ask "Did bleeding
+// stop?" (fam-rules §6.3): day is none or spotting, and the most recent
+// earlier entry, whatever its date, is bleeding. history works as in
+// SuggestCycleStart.
+func AskBleedingStopped(day DayBleeding, history []DayBleeding) bool {
+	return false // stub: tests first
+}
+
 // mostRecentEarlier finds the entry with the latest date before d, whatever
 // its date: no cut-off, and a missing day is simply skipped over.
 //

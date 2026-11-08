@@ -37,6 +37,34 @@ func TestSuggestCycleStart(t *testing.T) {
 	}
 }
 
+// TestAskBleedingStopped is fam-rules §12.5.
+func TestAskBleedingStopped(t *testing.T) {
+	tests := []struct {
+		id      string
+		history []DayBleeding
+		day     DayBleeding
+		want    bool
+	}{
+		{"B1", []DayBleeding{on(t, "2026-03-04", Bleeding)}, on(t, "2026-03-05", NoBleeding), true}, // AC-7
+		{"B2", []DayBleeding{on(t, "2026-03-04", Bleeding)}, on(t, "2026-03-05", Spotting), true},
+		{"B3", []DayBleeding{on(t, "2026-03-04", NoBleeding)}, on(t, "2026-03-05", NoBleeding), false},
+		// B4: the gap on 4 Mar doesn't suppress the question.
+		{"B4", []DayBleeding{on(t, "2026-03-03", Bleeding)}, on(t, "2026-03-05", NoBleeding), true},
+		{"B5", nil, on(t, "2026-03-05", NoBleeding), false},
+		// B6: no cut-off, by design.
+		{"B6", []DayBleeding{on(t, "2026-03-03", Bleeding)}, on(t, "2026-04-01", NoBleeding), true},
+		// Not a §12 vector, but §6.3's condition: saving bleeding itself never asks.
+		{"bleeding after bleeding", []DayBleeding{on(t, "2026-03-04", Bleeding)}, on(t, "2026-03-05", Bleeding), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			if got := AskBleedingStopped(tc.day, tc.history); got != tc.want {
+				t.Errorf("AskBleedingStopped(%v, %v) = %v, want %v", tc.day, tc.history, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestLookback checks the lookback both bleeding rules share: the most
 // recent entry *before* the date, whatever its date. The caller may pass
 // more history than that, including the entry being edited and later ones.
@@ -49,5 +77,14 @@ func TestLookback(t *testing.T) {
 	}
 	if !SuggestCycleStart(on(t, "2026-03-02", Bleeding), false, history) {
 		t.Errorf("SuggestCycleStart = false, want true: the most recent earlier entry (1 Mar) is none")
+	}
+
+	history = []DayBleeding{
+		on(t, "2026-03-05", NoBleeding), // later: ignored
+		on(t, "2026-03-01", Bleeding),   // the most recent earlier entry
+		on(t, "2026-03-02", NoBleeding), // the entry being edited: ignored
+	}
+	if !AskBleedingStopped(on(t, "2026-03-02", NoBleeding), history) {
+		t.Errorf("AskBleedingStopped = false, want true: the most recent earlier entry (1 Mar) is bleeding")
 	}
 }
