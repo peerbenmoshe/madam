@@ -38,7 +38,11 @@ func SuggestCycleStart(day DayBleeding, isStart bool, history []DayBleeding) boo
 // earlier entry, whatever its date, is bleeding. history works as in
 // SuggestCycleStart.
 func AskBleedingStopped(day DayBleeding, history []DayBleeding) bool {
-	return false // stub: tests first
+	if day.Level == Bleeding {
+		return false
+	}
+	previous, found := mostRecentEarlier(day.Date, history)
+	return found && previous.Level == Bleeding
 }
 
 // mostRecentEarlier finds the entry with the latest date before d, whatever
