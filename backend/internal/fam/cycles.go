@@ -3,6 +3,7 @@ package fam
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // ErrDuplicateDate: the same date given twice where each date must be
@@ -26,12 +27,44 @@ type CycleFacts struct {
 // Cycles answers cycle questions for one user. Build it with NewCycles.
 type Cycles struct {
 	starts []Date // sorted, unique
+	// hasUnknown is true when an unknown-start cycle exists; it runs from
+	// unknownFrom (her first entry) to the day before the first start.
+	hasUnknown  bool
+	unknownFrom Date
 }
 
 // NewCycles validates the facts and prepares them for lookups. Its error
-// wraps ErrDuplicateDate if a start date appears twice.
+// wraps ErrDuplicateDate if a start date appears twice. It works on a copy,
+// so the caller's slice is never reordered.
 func NewCycles(f CycleFacts) (Cycles, error) {
-	return Cycles{}, nil // stub: tests first
+	starts := slices.Clone(f.Starts)
+	slices.SortFunc(starts, Date.Compare)
+	for i := 1; i < len(starts); i++ {
+		if starts[i] == starts[i-1] {
+			return Cycles{}, fmt.Errorf("%w: cycle start %v", ErrDuplicateDate, starts[i])
+		}
+	}
+
+	c := Cycles{starts: starts}
+	// §5.2: an unknown-start cycle exists when she answered "I don't know"
+	// and has entries that no known start covers.
+	if f.StartUnknown && f.HasEntries && (len(starts) == 0 || f.FirstEntry.Before(starts[0])) {
+		c.hasUnknown = true
+		c.unknownFrom = f.FirstEntry
+	}
+	return c, nil
+}
+
+// latestStartIndex returns the index of the greatest start on or before d,
+// or -1 if there is none.
+func (c Cycles) latestStartIndex(d Date) int {
+	// BinarySearchFunc returns d's index if it is a start, otherwise the
+	// index of the first start after d, which is one past the one we want.
+	i, found := slices.BinarySearchFunc(c.starts, d, Date.Compare)
+	if !found {
+		i--
+	}
+	return i
 }
 
 // DayKind says which of fam-rules §5's three states a date is in.
@@ -68,7 +101,14 @@ type CycleDay struct {
 
 // DayOf returns where d falls (fam-rules §5.1–§5.3).
 func (c Cycles) DayOf(d Date) CycleDay {
-	return CycleDay{} // stub: tests first
+	if i := c.latestStartIndex(d); i >= 0 {
+		// §5.1: cycle_day = date − (greatest start ≤ date) + 1
+		return CycleDay{Kind: InCycle, Day: d.DaysSince(c.starts[i]) + 1, Number: i + 1}
+	}
+	if c.hasUnknown && !d.Before(c.unknownFrom) {
+		return CycleDay{Kind: Unknown}
+	}
+	return CycleDay{Kind: Outside}
 }
 
 // Cycle is one cycle with a known start.
@@ -85,10 +125,21 @@ type Cycle struct {
 // All returns every cycle with a known start, oldest first. The
 // unknown-start cycle is not among them: it has no number and no length.
 func (c Cycles) All() []Cycle {
-	return nil // stub: tests first
+	all := make([]Cycle, len(c.starts))
+	for i, start := range c.starts {
+		all[i] = Cycle{Number: i + 1, Start: start}
+		if i+1 < len(c.starts) {
+			// §5.1: cycle_length = (next start after s) − s
+			all[i].Length = c.starts[i+1].DaysSince(start)
+		} else {
+			all[i].Ongoing = true
+		}
+	}
+	return all
 }
 
 // IsStart reports whether d is a cycle start.
 func (c Cycles) IsStart(d Date) bool {
-	return false // stub: tests first
+	_, found := slices.BinarySearchFunc(c.starts, d, Date.Compare)
+	return found
 }
