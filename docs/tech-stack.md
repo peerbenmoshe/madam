@@ -34,6 +34,8 @@ _Amended after Phase 0e (Nov 2026):_ _§8.4 records the frontend as built (toolc
 
 _Amended after Phase 0f (Nov 2026):_ _§5 quotes what Supabase counts as activity, closes "Open for 0f" with the keepalive as built (production through `/api/health` with no credential; madam-dev with one GitHub secret, and what it can do if it leaks), measures that the ping registers, and records the 60-day rule; §9 follows; §12 records the workflow; §13 the re-checked restore window._
 
+_Amended after the graph spike (Nov 2026):_ _§8.3 records the spike's answer: Recharts 3.10.1 passed every criterion for switching to visx, fixed before looking, and it records how the line, dots, ticks, taps, colours and CSP are done, plus what Slice 6 inherits; §8.4's Recharts row and `style-src` expectation are settled._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -56,7 +58,7 @@ stack questions; `project-brief.md` only summarises it.
 | Cost guardrails | **Budget alert + Cloud Run spend cap** (₪15 each), min instances 0, max instances 2 |
 | Frontend framework | React (TypeScript) |
 | Styling | Tailwind, design tokens |
-| Charting | **Recharts** |
+| Charting | **Recharts** (3.10.1 confirmed by the graph spike; installed in Slice 6) |
 | Frontend delivery | Embedded in the Go binary (`go:embed`) |
 | Tests | Go standard library `testing` |
 | CI | GitHub Actions |
@@ -1245,6 +1247,135 @@ Rejected alternatives:
 It is the centrepiece and the only part with a known sharp edge; meeting that edge
 while the codebase is small keeps a swap to visx cheap.
 
+### As built in the graph spike (8 November 2026)
+
+**Verdict: Recharts stays.** It passed all six criteria for switching to visx,
+which were fixed before looking. The code is on the branch `spike/graph`
+(commit `b20b2a1`), pushed but never merged. `main` has no Recharts until Slice
+6, which looks the version up again on the day.
+
+**Package.** `recharts` **3.10.1**, released 25 July 2026; nothing stable since
+(3.11 is canary). Its peers are `react` and `react-dom` (React 19 is in range)
+and **`react-is`**, so `react-is` **19.3.1**, matching React, is added
+explicitly. Left to npm, the peer would sit in the lockfile only.
+
+Together they add **39 installed packages**:
+- 11 `@types/*` (types only, never in the browser);
+- 11 d3 pieces through `victory-vendor`;
+- the Redux Toolkit stack (Recharts 3 keeps each chart's state in a small
+  store);
+- small helpers.
+
+`npm audit` found nothing new, and 0 in runtime packages.
+
+| # | Criterion for visx, fixed in advance | Result |
+|---|---|---|
+| 1 | The line as segments, from documented components and props only | **Pass**: one `<Line connectNulls>` per run |
+| 2 | No loosening of the CSP | **Pass**: 0 violations in every state, under the real headers, in Windows Chrome, Android Chrome and iPhone Chrome (WebKit). A negative control, a deliberate `style` attribute, showed exactly 1 each time |
+| 3 | Edge cases E1–E18 render as `fam-rules.md` §7 and `spec-v1.md` §9.2 say | **Pass** (below) |
+| 4 | Taps: ≥ 9 of 10 at the 14-day default, on both phones | **Pass**, per-dot: Android 9/10 on a dot and 10/10 on a ghost; iPhone 10/10 and 10/10. Alternating taps on neighbours 22 px apart all landed as aimed |
+| 5 | Recharts adds ≤ 150 KB gzipped | **Pass**: script 69.2 → 175.9 KB gzipped (**+106.7**, spike page included); 221 → 588 KB raw |
+| 6 | Every colour a token | **Pass**: the computed fill and stroke of every painted shape is one of the four tokens |
+
+**How each piece is done**
+
+- **The line.** `lineSegments(days)` walks the visible days in date order:
+  - a day with **no temperature** (no entry, or an entry without one) closes
+    the current run;
+  - a **disturbed** day is skipped, and the run stays open;
+  - any other day joins the run.
+
+  Run *k* puts its value in a field `sK` on its own rows only. Each run is drawn
+  by `<Line dataKey="sK" connectNulls dot={false}>`. `connectNulls` is safe
+  inside a run, because the only blanks there are disturbed days.
+
+  There is **one row per calendar day**, missing days included, so the
+  category axis is a true calendar and a `ReferenceLine` can sit on a gap. A
+  one-day run draws no line; the dot layer still draws its dot.
+- **Dots.** A dots-only `<Line stroke="none" dot={fn}>` draws them:
+  - a **solid dot**: accent fill, ink outline;
+  - a **hollow ring**: surface fill, 2 px ink outline;
+  - a **ghost**: another dots-only line underneath, muted at 50 % opacity,
+    smaller.
+
+  Recharts calls the dot function for every row, with `cy` undefined where
+  there is no value, so the function returns nothing there. Dots are clipped to
+  the plot area, so the X axis has 10 px of padding to keep edge dots whole.
+- **Cycle starts.** A `ReferenceLine` per start, dashed **ink**, with an
+  accent-filled triangle on top as its `label`. A 1 px line is a thin
+  element, and accent is 2.65:1, below the 3:1 that graphics need (§8.2), so
+  accent is used only on the fill.
+- **X tick.** A custom tick function draws the date as `d/m` (an assumption;
+  the spec names no format) over the cycle day, `?`, or blank. Labels are
+  thinned to about 32 px each. On a phone that's every day at 14 days, every
+  3rd at 30, and every 7th at 90.
+- **Taps.** Each dot and ghost has an invisible **48 px hit circle**, in a layer
+  *under* the visible marks, and the marks themselves are clickable too. So a
+  tap on a mark gets that mark, even where a neighbour's circle overlaps it.
+
+  Rejected: a chart-level click that reads Recharts' active index. Recharts
+  processes moves once per animation frame (`throttleDelay: 'raf'`). On a
+  touch screen the click therefore runs before the frame that updates the
+  index, and gets the **previous** tap's day. It misfired on Android. If column
+  taps are ever wanted, compute the day from the tap's x position.
+- **Colours.** Elements Recharts draws get the token as an attribute,
+  `stroke="var(--color-ink)"`, which browsers resolve. Our own SVG uses
+  Tailwind classes (`fill-accent`, `stroke-ink`).
+- **CSP.** Recharts writes styles only through the DOM: its text-measuring
+  element uses `Object.assign(el.style, …)` (`util/DOMUtils.js`). Its line
+  animation writes `stroke-dasharray` as an SVG attribute. Neither is
+  inline style in the CSP's sense, so `style-src 'self'` stays as it is.
+
+**Edge cases checked** (fake data, 90 days):
+- **Line:**
+  - E1: the line bridges one disturbed day.
+  - E2: it bridges two in a row.
+  - E3, E4: a gap at one missing day, and at three.
+  - E5: an entry without a temperature is a gap.
+  - E6: normal, disturbed, missing, normal does **not** connect.
+  - E7: a lone reading is a dot with no line.
+- **Window edges:**
+  - E8: a disturbed first day is a ring at the left edge, and the line starts
+    on day 2.
+  - E9: the last day's dot is whole at the right edge.
+- **Ghosts:**
+  - E10: T1 shows a dot at 36.55 and a ghost at 36.62, only with ghosts on.
+  - E11: T3 has no ghost.
+  - E12: a disturbed early reading shows a ring at 36.45 and a ghost at 36.40.
+- **Cycles:**
+  - E13: a cycle start on a day with no entry draws its line over a gap.
+  - E14: cycle days 41 and 42 appear in the ticks.
+  - E15: days before the first start show blank, or `?` with an unknown start.
+- **Values and units:**
+  - E16: a 38.90 fever is a ring, and the axis stretches to fit it.
+  - E17: the axis, dots and popup switch to °F, and 36617 shows as 97.91 °F.
+  - E18: a disturbance tag on a day without a temperature is a gap, not a
+    ring.
+
+E6 and E18 are **readings**, not rules; `fam-rules.md` doesn't name these
+cases. In E6, the bridge would have to cross a missing day. In E18, there is
+no reading to step over.
+
+**For Slice 6**
+- **Density.** At 90 days a phone has about 4.7 px per day against 9 px dots, so
+  the dots merge into a band. Dot size must shrink with the range. Beyond about
+  14 days, no tap target can be 48 px wide, whatever the library. A tap then
+  means "nearest day", which is a spec question (for example, ‹ › in the
+  popup).
+- **Animation.** Recharts' draw-on animation runs in real browsers, but stayed
+  on its first frame in headless Chrome, which leaves the lines invisible.
+  Automated screenshots need `isAnimationActive={false}`. Whether to animate
+  at all is a design choice.
+- **The window's edge.** Segments are computed inside the visible window. So
+  when the day before the window has a reading, the line doesn't enter from the
+  left edge.
+- **Bundle.** Vite now warns about a chunk over 500 KB. Code-splitting the
+  graph is an option, not a need.
+- **Testing on a phone.** WSL here is NAT-networked, so phones reached the
+  laptop through a temporary Windows port proxy and a firewall rule limited to
+  the local subnet. Both were removed afterwards. Headless Chrome on Windows
+  won't go narrower than 504 px, so phone widths need a real phone.
+
 ### 8.4 Delivery: embedded in the Go binary
 
 TypeScript is a build-time language: the build produces plain HTML, JS and CSS.
@@ -1288,7 +1419,7 @@ packages and 175 installed (`frontend/package.json`).
 | TypeScript | 6.0.3, not 7.0.2 (`latest`) | typescript-eslint, canary included, requires `typescript <6.1.0`, and its TS 7 issue is open. Vite's template has moved to TS 7 with oxlint; that would lose type-aware lint. Dependabot holds TS majors back | TS 7 + oxlint, which would also contradict §12 |
 | Lint and format | ESLint flat config: `@eslint/js` recommended, typescript-eslint `recommendedTypeChecked`, react-hooks recommended; Prettier with defaults | Type-aware rules catch bugs the compiler doesn't. A missing `void` on a promise was flagged as `no-floating-promises` (tried on purpose) | `eslint-plugin-react-refresh`, `globals`, `eslint-config-prettier`, `prettier-plugin-tailwindcss`: each optional, none needed |
 | Tailwind | 4, through `@tailwindcss/vite`; tokens in CSS (§8.2) | No JS config, no PostCSS | Keeping the default palette beside ours |
-| Recharts | Not yet; the graph spike adds it | 0e has no chart, and the spike is throwaway | Adding an unused dependency now |
+| Recharts | Not yet. The graph spike confirmed 3.10.1 with `react-is` 19.3.1 (§8.3); Slice 6 installs it | 0e has no chart, and the spike is throwaway | Adding an unused dependency now |
 | No build yet | A committed `.gitkeep`. `go build`, `go test` and golangci-lint work on a fresh clone; pages then answer `503 frontend not built`, `/api/` works, and startup logs a warning | Production can't ship that state: the image always builds the frontend, and CI's smoke test checks for the real page | A build tag (two code paths); nothing committed (a fresh clone doesn't compile); Vite writing into `assets/` (deletes `.gitkeep`) |
 | Routing | `/api` is a subrouter with its **own NotFound** (plain 404). `GET`/`HEAD /*` goes to the frontend: a file is served as itself; a missing name with an extension, or anything under `/assets/`, is 404; any other path gets `index.html` (client-side routes). Hidden names are 404, paths are cleaned first, and directories are never listed | An unknown API path must never be `200 text/html`: clients and monitoring would read it as success. **chi gives a mounted router its parent's NotFound when it has none of its own** (`mux.go`), so a top-level fallback would silently cover `/api/typo`. Breaking it on purpose made 7 router tests fail. A missing chunk gets 404 so an old tab fails clearly instead of receiving HTML as script | The page as the top-level NotFound |
 | Caching | `/assets/*`: `public, max-age=31536000, immutable`. Everything else on the page side: `no-cache`. `/api/*`: `no-store` | Hashed names never change content. `index.html` must be checked on every load to pick up a deploy. API responses will carry health data, and setting `no-store` on the subrouter means no route can forget it | ETags (embedded files have no modification time; `index.html` is 0.4 KB) |
@@ -1327,9 +1458,10 @@ alert did. npm's suggested "fix" is a downgrade to ESLint 9.
 **Expected to change, not yet verified:**
 - `connect-src` gains the Supabase URL in Slice 2, if the browser calls
   Supabase Auth itself.
-- `style-src` may need loosening if the spike finds Recharts writing `style`
-  attributes as markup. React's `style` prop sets them through the DOM, which
-  CSP allows.
+- ~~`style-src` may need loosening if the spike finds Recharts writing `style`
+  attributes as markup.~~ **Settled by the graph spike:** it doesn't. Recharts
+  writes styles through the DOM, as React's `style` prop does, which CSP
+  allows; 0 violations on three browsers (§8.3).
 - HSTS arrives with a custom domain.
 - TypeScript 7 arrives once typescript-eslint supports it.
 

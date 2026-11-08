@@ -5,9 +5,9 @@ import "net/http"
 // contentSecurityPolicy lets the page load only its own files and talk only
 // to its own origin. The built page has no inline script or style, so none is
 // allowed. Expected to change (docs/tech-stack.md §8.4): connect-src gains
-// Supabase if the browser calls Supabase Auth itself (Slice 2), and style-src
-// may need loosening if Recharts writes style attributes as markup (the
-// graph spike).
+// Supabase if the browser calls Supabase Auth itself (Slice 2). style-src
+// stays: the graph spike measured that Recharts sets styles through the DOM,
+// which this policy allows (docs/tech-stack.md §8.3).
 const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; " +
 	"img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; " +
 	"frame-ancestors 'none'; form-action 'self'"
