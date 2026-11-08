@@ -56,7 +56,8 @@ docs/                the documents above
 
 `internal/fam` is the heart. It takes plain values and returns plain values, so
 every acceptance criterion becomes a unit test with no server and no database.
-Keep it that way.
+Keep it that way: a depguard rule in `backend/.golangci.yml` fails lint if it
+imports anything outside the standard library.
 
 ## Commands
 
@@ -194,6 +195,16 @@ hand-edit generated code.
   transaction.
 - **Everything derived is derived on read**: cycle days, cycle lengths, adjusted
   temperatures, late/early status, all statistics. Never store them.
+- **`fam.Date` is not `time.Time`.** It is a count of days with no clock and
+  no time zone, so cycle-day arithmetic is subtraction and `==` is safe.
+  Convert at the boundary: `fam.DateOf(pgDate.Time)` in, `d.Time()` (midnight
+  UTC) out. The `-infinity` row of `measurement_time_periods` never becomes a
+  `Date`. Recognise it by `InfinityModifier` and pass its time as
+  `NewSchedule`'s `initial` (Slice 1).
+- **`?` versus blank depends on a stored answer, not on the dates.** Entries before the first cycle start show `?` only if onboarding
+  said "I don't know" (`users.cycle_start_unknown`, from Slice 3). Otherwise
+  they show blank. `onboarded_at` can't tell the two apart (`fam-rules.md`
+  §5.2).
 - **The development machine has no IPv6.** Supabase's direct connection is
   IPv6-only on the free plan, so from the laptop use the **shared pooler in
   session mode** (pooler host, port 5432). The transaction pooler (port 6543)
