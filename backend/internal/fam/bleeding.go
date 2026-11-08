@@ -26,5 +26,27 @@ type DayBleeding struct {
 // day's date matters, whatever its date, so the caller may pass just that
 // entry or many. Entries on or after day's date are ignored.
 func SuggestCycleStart(day DayBleeding, isStart bool, history []DayBleeding) bool {
-	return false // stub: tests first
+	if day.Level != Bleeding || isStart {
+		return false
+	}
+	previous, found := mostRecentEarlier(day.Date, history)
+	return !found || previous.Level != Bleeding
+}
+
+// mostRecentEarlier finds the entry with the latest date before d, whatever
+// its date: no cut-off, and a missing day is simply skipped over.
+//
+// Both bleeding rules use it, and they must (fam-rules §6.3): the "Did
+// bleeding stop?" net only catches a forgotten `none` if it reaches as far
+// back as the suggestion rule it protects. One function makes the two
+// lookbacks identical by construction.
+func mostRecentEarlier(d Date, history []DayBleeding) (DayBleeding, bool) {
+	var best DayBleeding
+	found := false
+	for _, e := range history {
+		if e.Date.Before(d) && (!found || best.Date.Before(e.Date)) {
+			best, found = e, true
+		}
+	}
+	return best, found
 }
