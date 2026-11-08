@@ -416,6 +416,11 @@ reports no violation, and the components render on Pe'er's phone.
 Current cycle start or "I don't know", fixed measurement time written as the
 `-infinity` row in `measurement_time_periods`, `onboarded_at` set.
 
+*From Slice 1* (`fam-rules.md` §5.2): the answer itself is stored, in
+`users.cycle_start_unknown` (`data-model.md` §4.1). That column is a
+migration, so it is its own PR first, migrated to production before the code
+that writes it (`tech-stack.md` §6).
+
 *Acceptance criteria:* the setup half of AC-12.
 
 ### Slice 4 — Daily entry
