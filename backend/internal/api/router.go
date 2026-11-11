@@ -9,10 +9,18 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// Option adds optional routes inside /api.
+type Option func(r chi.Router)
+
+// WithBeforeUserCreatedHook mounts Supabase Auth's sign-up hook (SPIKE).
+func WithBeforeUserCreatedHook(h http.Handler) Option {
+	return func(r chi.Router) { r.Post("/hooks/before-user-created", h.ServeHTTP) }
+}
+
 // NewRouter builds the application's HTTP handler. Everything under /api/ is
 // the API; every other GET or HEAD goes to frontend, the embedded app
 // (internal/web).
-func NewRouter(db Pinger, frontend http.Handler) http.Handler {
+func NewRouter(db Pinger, frontend http.Handler, opts ...Option) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -34,6 +42,10 @@ func NewRouter(db Pinger, frontend http.Handler) http.Handler {
 		// Not the conventional /healthz: Cloud Run reserves some paths ending
 		// in "z" and never forwards them to the container.
 		r.Get("/health", handleHealth(db, healthTimeout))
+
+		for _, opt := range opts {
+			opt(r)
+		}
 	})
 
 	r.Get("/*", frontend.ServeHTTP)

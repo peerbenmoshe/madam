@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -49,9 +50,27 @@ func run() error {
 		slog.Warn("frontend not built: pages answer 503 until `make frontend` runs; /api/ works")
 	}
 
+	// SPIKE (spike/invite-hook): Supabase's "before user created" hook, mounted
+	// only when both values are in the environment (.env, via the Makefile).
+	var opts []api.Option
+	if secret, code := os.Getenv("MADAM_SPIKE_HOOK_SECRET"), os.Getenv("MADAM_SPIKE_INVITE_CODE"); secret != "" && code != "" {
+		status := http.StatusBadRequest
+		if s := os.Getenv("MADAM_SPIKE_REJECT_STATUS"); s != "" {
+			if status, err = strconv.Atoi(s); err != nil {
+				return fmt.Errorf("MADAM_SPIKE_REJECT_STATUS: %w", err)
+			}
+		}
+		hook, err := api.NewBeforeUserCreatedHook(secret, code, status)
+		if err != nil {
+			return fmt.Errorf("spike hook: %w", err)
+		}
+		opts = append(opts, api.WithBeforeUserCreatedHook(hook))
+		slog.Info("spike: before-user-created hook mounted", "reject_status", status)
+	}
+
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(db.NewStore(pool), web.Handler(assets)),
+		Handler:           api.NewRouter(db.NewStore(pool), web.Handler(assets), opts...),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

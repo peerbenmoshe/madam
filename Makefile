@@ -262,3 +262,13 @@ $(GOLANGCI_LINT):
 	curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(CURDIR)/bin/tmp $(GOLANGCI_LINT_VERSION)
 	mv $(CURDIR)/bin/tmp/golangci-lint $@
 	rmdir $(CURDIR)/bin/tmp
+
+# SPIKE (spike/invite-hook, never merged). The server with the hook mounted,
+# reading MADAM_SPIKE_* from .env, and Supabase Auth calls on madam-dev.
+.PHONY: spike-server spike-auth
+spike-server:
+	cd backend && go build -o ../bin/server ./cmd/server
+	./bin/server
+
+spike-auth:
+	sh spike/invite-hook/auth.sh
