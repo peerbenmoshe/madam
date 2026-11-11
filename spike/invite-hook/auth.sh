@@ -23,7 +23,7 @@ auth=${MADAM_DEV_SUPABASE_URL%/}/auth/v1
 
 # post PATH JSON: prints the HTTP status, the time taken, then the body.
 post() {
-  curl -sS -o /dev/stdout -w '\n--- HTTP %{http_code} in %{time_total}s\n' \
+  curl -sS -w '\n--- HTTP %{http_code} in %{time_total}s\n' \
     -X POST "$auth$1" \
     -H "apikey: $MADAM_DEV_PUBLISHABLE_KEY" \
     -H 'Content-Type: application/json' \
