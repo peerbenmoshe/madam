@@ -332,6 +332,14 @@ is an answer written into `CLAUDE.md` or the relevant document.
   user-typed code actually reach Supabase's "before user created" hook? An hour of
   poking. If the answer is no, Slice 2 needs a different design, and it is much
   cheaper to learn that now.
+
+  **✅ Done (11 November 2026, branch `spike/invite-hook`, never merged).**
+  **Yes:** the code arrives as `user.user_metadata.invite_code`, and a
+  refusal stops the sign-up with no row left behind. Measured on madam-dev
+  through a Cloudflare quick tunnel to the laptop, with a signed Supabase
+  request verified in Go. The answer and the decision (an HTTP hook calling
+  the Go API) are in `tech-stack.md` §4 (As built in the invite-code spike).
+  The story is in `build-log.md`.
 - ~~**`-infinity` round-tripping** through pgx into Go.~~ **Answered in 0c:** it
   round-trips as `pgtype.Date{InfinityModifier: pgtype.NegativeInfinity}`, so
   no sentinel date is needed (`data-model.md` §10).
@@ -408,6 +416,21 @@ invite code on sign-up, email verification, password reset, log out.
 
 *Acceptance criteria:* AC-16 part one (no API request from user A reaches user B's
 data). Part two already passed in 0d.
+
+*From the invite-code spike* (`tech-stack.md` §4):
+- **The hook always answers 200.** It sends `{}` to allow and
+  `{"error":{"http_code":400,"message":…}}` to refuse. A 4xx from the hook
+  reaches the user as a 500 with Supabase's message, not ours.
+- **The signature is checked first:** Standard Webhooks, stdlib only. The
+  spike's handler and its OpenSSL-computed test vector are on
+  `spike/invite-hook`.
+- **Two secrets,** `madam-invite-code` and `madam-auth-hook-secret`, pinned,
+  with `madam-run` reading each. The production dashboard settings are listed
+  in §4.
+- **Tokens are ES256 with a `kid`,** so verification uses the project's JWKS.
+  How (a library or not) is a dependency decision.
+- **The code persists** in `user_metadata` and in every token. Decide whether
+  to clear it. Never trust `user_metadata`: its own user can edit it.
 
 ### Design foundation *(before Slice 3)*
 

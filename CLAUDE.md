@@ -299,6 +299,12 @@ hand-edit generated code.
   are grouped by a fingerprint that ignores constants and aliases, so every
   `SELECT 1` variant counts under the app's `-- name: Ping` entry. Filter by
   that text, not by `select $1` (measured in 0f).
+- **The sign-up hook refuses with HTTP 200, never a 4xx.** Supabase passes
+  the body's `error.http_code` and `message` to the user. A 4xx from the hook
+  becomes a 500 saying "Invalid payload sent to hook" (measured in the
+  invite-code spike). The typed code also stays in `user_metadata` and in
+  every access token. Its own user can edit `user_metadata`, so never treat
+  it as evidence of anything.
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
@@ -333,9 +339,14 @@ understanding the diff, not for finishing fast.
 
 Carry these forward; answer them in the build, don't assume.
 
-- Whether the sign-up invite code reaches Supabase's "before user created" hook.
 - The first month's billing report: confirm the spend cap measured gross usage
   and the bill stayed at zero.
+
+Answered in the invite-code spike (`docs/tech-stack.md` §4): the sign-up
+invite code reaches Supabase's "before user created" hook as
+`user.user_metadata.invite_code`. A refusal stops the sign-up, an unreachable
+hook fails closed, and OTP sign-ups fire the hook too. Dashboard "Add user"
+does not.
 
 Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.md`
 §5): the pgx/sqlc type mappings, `-infinity` round-tripping, table ownership,

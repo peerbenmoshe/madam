@@ -765,3 +765,80 @@ The sections went T → F → C → M → S → B → A.
 **Carried forward:** Slice 4's "no future dates" needs a "today". The
 server's clock is UTC, so in Israel, between midnight and 02:00 or 03:00,
 her own today would look like the future. Raise it when Slice 4 is planned.
+
+---
+
+## Spike — The invite-code hook (11 November 2026, branch `spike/invite-hook`, not merged)
+
+**Goal.** Before Slice 2 is planned, find out whether the invite code typed
+at sign-up reaches Supabase Auth's "before user created" hook, so that the
+hook can refuse a wrong code (`spec-v1.md` §2). `tech-stack.md` §4 had chosen
+Supabase partly on this, and marked it unverified.
+
+**How it was done.** Supabase's own pages didn't settle it:
+- the only payload example shows an empty `user_metadata`;
+- one page says a 4xx from the hook reaches the client, another that it
+  becomes a 500;
+- neither says which sign-up paths fire the hook, or what happens when the
+  hook is unreachable.
+
+The plan was approved as written. Pe'er chose a Cloudflare quick tunnel over
+a throwaway Cloud Run service or a Postgres-only capture, so Supabase's cloud
+could reach a Go handler on the laptop. The binary was pinned and its
+checksum checked; it needs no account. Everything happened on madam-dev. The
+hook's signing secret went from the dashboard into `.env` by Pe'er's hand,
+and the Makefile's `export` gave it to the server, so it never passed through
+Claude. The spike's invite code was deliberately not secret.
+
+**Decisions** (details in `tech-stack.md` §4):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Hook type | HTTP, calling the Go API | The code stays in Secret Manager ("server configuration"), checked in Go with tests. A Postgres function would need `supabase_auth_admin` grants the local container can't have, and an `UPDATE` on production to rotate the code |
+| Signature check | Standard library HMAC | Standard Webhooks is about 40 lines. The library would be a dependency |
+| Test vector | Computed by OpenSSL | The spec has none. A vector from our own code would only check the code against itself |
+| How to refuse | HTTP 200 with an error object | Measured: a 400 reaches the user as a 500 with Supabase's message |
+| Where the spike lives | An unmerged, pushed branch | Every merge deploys |
+
+**Surprise: the docs' contradiction had a precise answer.** The hook's own
+status means "did the hook work". Whether the sign-up is refused is in the
+body. Answering 400 for a wrong code told Supabase that *it* had sent a bad
+payload, and the user saw `Invalid payload sent to hook`.
+
+**Surprise: the code stays.** The hook can only allow or refuse, so the code
+remains in `raw_user_meta_data` and appears in every access token's
+`user_metadata`. That field is editable by its own user, so Slice 2 must
+never read it as proof of anything.
+
+**Surprise: a test script that erased its own output.** `curl -o /dev/stdout`
+opens standard output as a file, which truncates it when output is captured.
+The second request wiped the first one's result. curl writes to stdout by
+default, so the flag went.
+
+**Verified rather than assumed:**
+- **The path:** a real, signed Supabase request carried
+  `user.user_metadata.invite_code`, exactly as sent in `data`. supabase-js's
+  source sends `options.data` under that name.
+- **No residue:** none of the refused attempts left a row in `auth.users`.
+- **Every way in:** a magic-link sign-in that creates a user fires the hook
+  and was refused. An anonymous sign-up is refused by the setting before the
+  hook. The dashboard's "Add user" skips the hook entirely.
+- **Fails closed:** with the server down (502) and with the tunnel gone
+  (530), the sign-up was a 500 and no user.
+- **Forgeries:** an unsigned and a forged request to the public URL got 401
+  before the code was looked at.
+- **Tokens:** ES256 with a `kid`, so Slice 2 verifies against the JWKS.
+
+**Lessons:**
+- **When two docs disagree, measure both readings.** A switch for the refusal
+  status turned the contradiction into one row of results.
+- **Check a signature against a second implementation.** A test vector made
+  by the code under test proves nothing.
+- **Keep secrets on a path the assistant can't see.** Dashboard to `.env` to
+  `make`'s environment carried the signing secret end to end without it
+  appearing in the conversation.
+
+**Carried forward to Slice 2:** two secrets (`madam-invite-code`,
+`madam-auth-hook-secret`), JWT verification against the JWKS (a dependency
+decision), whether to clear the stored code, and the production dashboard
+settings in `tech-stack.md` §4.

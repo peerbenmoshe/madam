@@ -38,6 +38,8 @@ _Amended after the graph spike (Nov 2026):_ _§8.3 records the spike's answer: R
 
 _Amended in the design step (8 November 2026):_ _§11 moves design from "optional, post-v1" to a step before Slice 3, now done (`design-brief.md`); §8.2 gains the design's tokens and a **self-hosted web font**, reversing "no web fonts"; §13 follows._
 
+_Amended after the invite-code spike (11 November 2026):_ _§4 replaces "Unverified" with the measured answer (the code reaches the "before user created" hook as `user.user_metadata.invite_code`), records how a refusal must be sent, the signature scheme, which sign-up paths fire the hook, that it fails closed, and that the code persists in every token; decides an HTTP hook calling the Go API over a Postgres function; lists the dashboard settings to repeat for production; §13 follows._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -227,8 +229,10 @@ lives in our own database, never in the provider's.
   before the account exists and denies sign-up if it returns an error. The hook can
   be an HTTP endpoint, so it can call our Go API, which checks the shared invite
   code held in server config — exactly `spec-v1.md` §2.
-  *Unverified:* that the user-typed code reaches the hook cleanly (expected via
-  sign-up metadata). To confirm during the build.
+  *Verified in the invite-code spike (11 November 2026):* the typed code
+  reaches the hook as `user.user_metadata.invite_code`, sent as sign-up
+  metadata, and a refusal stops the sign-up. See "As built in the invite-code
+  spike" below.
 - **EU data region** available, which should help the later GDPR check.
 - Email verification and password reset are built in.
 - **Low lock-in:** the auth server is open source and self-hostable later. It is
@@ -237,6 +241,111 @@ lives in our own database, never in the provider's.
 
 Known limits: free-tier email sending is rate-limited, so a real email service will
 likely be needed before public use.
+
+### As built in the invite-code spike (11 November 2026)
+
+Branch `spike/invite-hook`, pushed and never merged. The hook was pointed at
+a Go handler on the laptop through a Cloudflare quick tunnel (no account; the
+URL dies with the process), on **madam-dev only**. Sign-ups were sent with
+`curl` exactly as supabase-js sends them. Its source puts `signUp`'s
+`options.data` in the body as `data`. `signInWithOtp` sends the same `data`,
+plus `create_user` (`shouldCreateUser`, default `true`).
+
+**The answer: yes.** The typed code arrives as
+**`user.user_metadata.invite_code`**, and a refusal from the hook stops the
+sign-up. The request was a real Supabase request, signed and verified against
+the dashboard's secret. No refused attempt left a row in `auth.users`.
+
+**Measured:**
+
+| # | What was tried | What happened |
+|---|---|---|
+| M1 | Sign-up, wrong code | Refused. The client's status depends on how the hook refuses (next table) |
+| M2 | Sign-up, no `data` | The hook saw `"user_metadata": {}`. Refused |
+| M3 | Sign-up, right code | Created. The hook saw the code at `user.user_metadata.invite_code` |
+| M4 | A request to the hook with no signature, or a forged one | 401 from our handler, before the code is looked at |
+| M5 | The created account | The code **persists**: in `auth.users.raw_user_meta_data`, and in **every access token's** `user_metadata` claim. Tokens are signed **`ES256` with a `kid`** (asymmetric keys) |
+| M6 | `/otp` with `create_user: true`, no code | **The hook fires** and refuses. Magic-link sign-in is not a way around the code |
+| M7 | Anonymous sign-up | Refused by the setting (422 `anonymous_provider_disabled`), before the hook |
+| M8 | Dashboard → Users → Add user | **Created without calling the hook.** Admin creation bypasses the code |
+| M9 | The hook's address answers 502 (server down) or 530 (tunnel gone) | **Fails closed:** 500 `Unexpected status code returned from hook: 5xx`, no user. Not measured: a host that answers nothing at all (Supabase documents a timeout as an error) |
+
+**How a refusal must be sent.** Supabase's two pages disagreed. Measured:
+
+| The hook answers | The client sees |
+|---|---|
+| HTTP **200**, `{"error":{"http_code":400,"message":"Invalid invite code."}}` | **400**, `"msg":"Invalid invite code."` |
+| HTTP **400**, the same body | **500**, `"Invalid payload sent to hook"`. Our message is lost |
+
+So the hook always answers **200**. It sends `{}` to allow, or the error
+object to refuse. `error.http_code` and `error.message` become the client's
+status and message. A non-2xx means "the hook failed", never "refused".
+`Content-Type: application/json` is required.
+
+**The signature: Standard Webhooks.**
+- Supabase sends the headers `webhook-id`, `webhook-timestamp` (Unix
+  seconds) and `webhook-signature`. The last is a space-separated list of
+  `v1,<base64>`.
+- The signature is HMAC-SHA256 over `id.timestamp.body`.
+- The dashboard's secret looks like `v1,whsec_<base64>`. The key is the
+  decoded base64 after the prefixes.
+- The spike checked it with the standard library only (`crypto/hmac`,
+  `crypto/subtle`), with a 5-minute timestamp tolerance (the spec names no
+  number).
+- The spec has no official test vector, so the unit test uses one computed
+  by OpenSSL. That way Go's arithmetic is checked against an independent
+  implementation, not against itself.
+
+**Other things measured:**
+- The payload's `user.id` is already the id the account gets.
+- `metadata.ip_address` is the signer-up's IP. Treat it as personal data:
+  don't log it.
+- The handler took microseconds. A whole sign-up took 0.3–0.6 s through the
+  tunnel. A cold Cloud Run instance (about 1 s, §7) fits the hook's 5 s
+  budget. Slice 2 measures that for real.
+
+**Decision: an HTTP hook calling our Go API,** as planned. Rejected:
+
+| Option | Why not |
+|---|---|
+| A Postgres-function hook | No network hop and no signing secret. But the code would live in a table and be rotated by an `UPDATE` on production, outside Git. The function needs grants to `supabase_auth_admin`, a role the local container doesn't have: the same drift `data-model.md` §8.1 avoided. And the check would be PL/pgSQL with no Go tests |
+| The `standardwebhooks` Go library | A dependency for about 40 lines of standard library |
+| A Supabase Edge Function | A third runtime (Deno) |
+
+**What Slice 2 inherits:**
+- **Two new secrets in Secret Manager** (§7), each pinned in the Makefile:
+  - `madam-invite-code` (the shared code, `spec-v1.md` §2);
+  - `madam-auth-hook-secret` (the hook's signing secret).
+
+  `madam-run` gets `secretAccessor` on each one, bound on the secret as for
+  `madam-database-url`. Pe'er adds the values in his own terminal. Rotating
+  the code is a new version plus a pin-move PR.
+- **The hook endpoint** lives in the `/api` subrouter, public, and signature
+  first. It answers 200 for allow and for refuse, and never logs the IP or
+  the code.
+- **The code stays in every token.** `user_metadata` is editable by its own
+  user (`updateUser`), so it is never evidence of anything. Whether to clear
+  it after sign-up is Slice 2's decision.
+- **JWT verification** works against the project's JWKS (ES256, by `kid`),
+  not a shared secret. Which code does that is a dependency decision.
+- **Only the email provider is on, and anonymous sign-ins are off.** Admin
+  creation skips the hook, so the dashboard's "Add user" and "Invite user"
+  are the operator's way around the code. That is by design.
+
+**Dashboard settings** (Authentication is configured in the dashboard, not by
+migration). Recorded so production can be set up the same way:
+
+| Where | Setting | madam-dev during the spike | Production (Slice 2) |
+|---|---|---|---|
+| Authentication → Sign In / Providers | Allow new users to sign up | On | On (the hook is the gate) |
+| ″ | Confirm email | On | On (`spec-v1.md` §2) |
+| ″ | Allow anonymous sign-ins | Off | Off |
+| ″ | Providers | Email only | Email only |
+| Authentication → Hooks | Before User Created, HTTPS | The tunnel URL + `/api/hooks/before-user-created`; generated secret into `.env`. **Deleted after the spike** | The Cloud Run URL + the same path; generated secret into `madam-auth-hook-secret` |
+| Project Settings → API Keys | Publishable key | Read, never the secret key | Read, for the frontend |
+
+While the hook points at a dead address, every sign-up fails (M9). Delete or
+fix it; never leave it dangling.
 
 ### Rejected, and when each would win
 
@@ -1911,7 +2020,10 @@ deciding — also listed in `CLAUDE.md`):
 
 - The first month's billing report: confirm the spend cap measured gross usage and
   the bill stayed at zero (§7).
-- Whether the typed invite code reaches Supabase's "before user created" hook.
+
+*Answered in the invite-code spike:* the typed invite code reaches Supabase's
+"before user created" hook as `user.user_metadata.invite_code` (§4, As built
+in the invite-code spike).
 
 *Answered in Phase 0d:* creating the non-owner application role (§5, Database
 roles; `data-model.md` §9).
