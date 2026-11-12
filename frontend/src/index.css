@@ -51,4 +51,17 @@
     outline: 3px solid var(--color-berry);
     outline-offset: 2px;
   }
+
+  /*
+   * Motion only answers an action, and "reduce motion" turns all of it off
+   * (design-brief.md §8). One rule here, so no component can forget.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
 }
