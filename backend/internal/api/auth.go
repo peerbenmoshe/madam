@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -18,19 +19,30 @@ type Authenticator interface {
 	Authenticate(r *http.Request) (pgtype.UUID, error)
 }
 
+// ErrAuthUnavailable is what an Authenticator returns (wrapped or not) when
+// it couldn't check the request at all, for example because the identity
+// provider's keys can't be fetched. It is an outage, not a refusal, so
+// RequireUser answers 503 instead of 401.
+var ErrAuthUnavailable = errors.New("authentication unavailable")
+
 // userIDKey is the context key for the authenticated user id. An unexported
 // type, so no other package can set or overwrite the value.
 type userIDKey struct{}
 
 // RequireUser is the middleware for every route that touches user data. It
-// answers 401 unless a authenticates the request, and otherwise puts the user
-// id in the request's context, where UserID finds it. Everything downstream
-// asks only "who is this request for?", so swapping the Authenticator in
-// Slice 2 changes nothing else.
+// answers 401 unless a authenticates the request (503 if a couldn't check
+// it), and otherwise puts the user id in the request's context, where UserID
+// finds it. Everything downstream asks only "who is this request for?", so
+// swapping the Authenticator in Slice 2 changes nothing else.
 func RequireUser(a Authenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, err := a.Authenticate(r)
+			if errors.Is(err, ErrAuthUnavailable) {
+				slog.WarnContext(r.Context(), "request could not be authenticated", "err", err)
+				http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+				return
+			}
 			if err != nil || !id.Valid {
 				slog.InfoContext(r.Context(), "request not authenticated", "err", err)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)

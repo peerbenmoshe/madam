@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -39,6 +40,8 @@ func TestRequireUser(t *testing.T) {
 		// An Authenticator bug that returns no id and no error must not let
 		// the request through as nobody.
 		{name: "no id and no error", auth: stubAuthenticator{}, wantStatus: http.StatusUnauthorized},
+		// "We couldn't check" is an outage, not a refusal, even when wrapped.
+		{name: "authentication unavailable", auth: stubAuthenticator{err: fmt.Errorf("verify token: %w", ErrAuthUnavailable)}, wantStatus: http.StatusServiceUnavailable},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
