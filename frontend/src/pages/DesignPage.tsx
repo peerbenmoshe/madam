@@ -8,6 +8,7 @@ import { Question } from "../components/Question.tsx";
 import { SegmentedControl } from "../components/SegmentedControl.tsx";
 import { Switch } from "../components/Switch.tsx";
 import { TextField } from "../components/TextField.tsx";
+import { newPasswordProblem } from "../lib/authText.ts";
 import { formatDate, formatDateLong } from "../lib/date.ts";
 
 // /design: every shared component of docs/design-brief.md §5 in one place,
@@ -92,6 +93,7 @@ export default function DesignPage() {
   const [date, setDate] = useState("2026-11-08");
   const [emptyDate, setEmptyDate] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("short");
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState("Nothing saved yet.");
 
@@ -257,8 +259,10 @@ export default function DesignPage() {
           label="Password"
           type="password"
           autoComplete="off"
-          defaultValue="short"
-          error="Use at least 8 characters."
+          hint="Type 8 characters or more and the error goes away."
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          error={newPasswordProblem(password) ?? undefined}
         />
       </Section>
 

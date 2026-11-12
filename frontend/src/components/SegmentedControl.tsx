@@ -29,7 +29,9 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={label}
-      className="bg-blush inline-flex gap-0.5 rounded-full p-[3px]"
+      // w-fit: the track is as wide as its segments, also inside a grid or
+      // a column, which would otherwise stretch it across the row.
+      className="bg-blush inline-flex w-fit gap-0.5 rounded-full p-[3px]"
     >
       {options.map((option) => (
         <label
