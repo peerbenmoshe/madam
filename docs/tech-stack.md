@@ -343,6 +343,9 @@ migration). Recorded so production can be set up the same way:
 | ″ | Providers | Email only | Email only |
 | Authentication → Hooks | Before User Created, HTTPS | The tunnel URL + `/api/hooks/before-user-created`; generated secret into `.env`. **Deleted after the spike** | The Cloud Run URL + the same path; generated secret into `madam-auth-hook-secret` |
 | Project Settings → API Keys | Publishable key | Read, never the secret key | Read, for the frontend |
+| Authentication → Emails → SMTP Settings | Custom SMTP | Off (the built-in sender, team members only) | **On:** Gmail SMTP, a dedicated account's app password, sender name "Madam" (13 November 2026) |
+| Authentication → Emails → Templates | Confirm signup, Reset password | Supabase's defaults | The subjects and bodies in `deploy/email/` (`README.md` there says how) |
+| Authentication → URL Configuration | Site URL, redirect allow-list | `http://localhost:5173`, plus `/reset-password` | The Cloud Run URL, plus `/reset-password` |
 
 While the hook points at a dead address, every sign-up fails (M9). Delete or
 fix it; never leave it dangling.
