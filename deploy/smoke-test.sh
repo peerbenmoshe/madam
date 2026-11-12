@@ -83,6 +83,27 @@ else
 	fi
 fi
 
+# The page's font, found in its stylesheet: served as a font, cached like the
+# script, and not gzipped (woff2 is already compressed).
+fetch / >/dev/null
+css=$(grep -o '/assets/[^"]*\.css' "$tmp/body" | head -n 1 || true)
+font=
+if [ -n "$css" ]; then
+	fetch "$css" >/dev/null
+	font=$(grep -o '/assets/[^)]*\.woff2' "$tmp/body" | head -n 1 || true)
+fi
+if [ -z "$font" ]; then
+	fail "no /assets/*.woff2 in the page's stylesheet"
+else
+	status=$(fetch "$font" -H 'Accept-Encoding: gzip')
+	if [ "$status" = 200 ] && [ "$(header Content-Type)" = font/woff2 ] &&
+		header Cache-Control | grep -q immutable && [ -z "$(header Content-Encoding)" ]; then
+		pass "$font: font, immutable, not gzipped"
+	else
+		fail "$font: want 200 font/woff2, immutable, no Content-Encoding; got $status, $(header Content-Type), $(header Cache-Control), '$(header Content-Encoding)'"
+	fi
+fi
+
 status=$(fetch /api/health)
 if [ "$status" = 200 ] && [ "$(cat "$tmp/body")" = ok ] && [ "$(header Cache-Control)" = no-store ]; then
 	pass "/api/health: ok, no-store"

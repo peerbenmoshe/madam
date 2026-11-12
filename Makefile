@@ -145,8 +145,11 @@ dev: check-node $(FRONTEND_DEPS)
 	trap 'kill $$server 2>/dev/null' EXIT INT TERM; \
 	cd frontend && npm run dev
 
-test:
+# The Go tests, then the frontend's (node --test: plain functions only, no
+# browser).
+test: check-node $(FRONTEND_DEPS)
 	cd backend && go test -race ./...
+	cd frontend && npm test
 
 # Also runs the tests that need a database, as the application role, like
 # the server. They skip themselves when MADAM_TEST_DATABASE_URL is unset
