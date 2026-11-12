@@ -144,11 +144,15 @@ jobs:
       # the cache and security headers (deploy/smoke-test.sh). --network
       # host: the container reaches the database at 127.0.0.1, like the
       # tests. The loop waits until the server answers, never a fixed time.
+      # SUPABASE_URL must be set for the server to start. This address never
+      # resolves (.invalid is reserved), and nothing asks it: the project's
+      # keys are fetched only for a request that carries a token.
       - name: Smoke test image
         working-directory: .
         run: |
           docker run -d --name smoke --network host \
-            -e DATABASE_URL="$MADAM_TEST_DATABASE_URL" madam-server:ci
+            -e DATABASE_URL="$MADAM_TEST_DATABASE_URL" \
+            -e SUPABASE_URL=https://supabase.invalid madam-server:ci
           for _ in $(seq 1 50); do
             curl -s -o /dev/null http://127.0.0.1:8080/api/health && break
             sleep 0.2

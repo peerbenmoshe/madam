@@ -51,6 +51,12 @@ else
   $(error DB must be "local" or "dev", got "$(DB)")
 endif
 
+# Which Supabase project's Auth the server accepts tokens from. Locally that
+# is always madam-dev, with either database: the local container has no Auth
+# (docs/tech-stack.md §4). Not a secret, but it lives in .env beside the
+# project's other addresses. Production's is a flag in `deploy`.
+SUPABASE_URL := $(MADAM_DEV_SUPABASE_URL)
+
 # goose and sqlc are pinned in tools/go.mod and run with `go tool`. `-C`
 # (which must be go's first flag) runs go inside tools/, hence absolute paths.
 GOOSE := go -C $(CURDIR)/tools tool goose -dir $(CURDIR)/backend/migrations
@@ -81,6 +87,10 @@ RUN_SERVICE_ACCOUNT := madam-run@$(GCP_PROJECT).iam.gserviceaccount.com
 # `=`, not `:=`: git runs only when a target uses TAG.
 TAG = $(shell git rev-parse --short HEAD)
 
+# madam-prod's address (Project Settings -> Data API -> Project URL). Public:
+# the page talks to it, and the CSP names it.
+PROD_SUPABASE_URL := https://balzmfsjoxmlxfpmxmzq.supabase.co
+
 # Secret Manager secrets holding production connection URLs. The app's is
 # pinned to a version, so changing it is a commit (docs/tech-stack.md §7).
 DATABASE_URL_SECRET := madam-database-url:3
@@ -97,6 +107,12 @@ define require_latest_main
 	  echo "$@: only the latest commit on main (HEAD $$(git rev-parse --short HEAD), main $$(git rev-parse --short FETCH_HEAD))" >&2; exit 1; }
 endef
 
+# The first line of the targets that run the server locally. $@ is the
+# target's name.
+define require_supabase_url
+	@test -n "$$SUPABASE_URL" || { echo "$@: add MADAM_DEV_SUPABASE_URL to .env (see .env.example)" >&2; exit 1; }
+endef
+
 .PHONY: dev test test-integration lint build frontend check-node db-up db-down \
   db-reset image docker-run deploy sqlc migrate-up migrate-status migrate-new \
   migrate-prod psql psql-app
@@ -110,6 +126,7 @@ ifeq ($(DB),local)
 dev: db-up
 endif
 dev: check-node $(FRONTEND_DEPS)
+	$(require_supabase_url)
 	cd backend && go build -o ../bin/server ./cmd/server
 	@./bin/server & server=$$!; \
 	trap 'kill $$server 2>/dev/null' EXIT INT TERM; \
@@ -160,14 +177,17 @@ image:
 
 # With DB=local the container joins the Compose network and reaches Postgres
 # by its service name. With DB=dev, `-e DATABASE_URL` copies the value from
-# the environment, so it never appears on the command line.
+# the environment, so it never appears on the command line. `-e SUPABASE_URL`
+# copies that one the same way.
 ifeq ($(DB),local)
 docker-run: image db-up
-	docker run --rm -p 8080:8080 --network madam_default \
+	$(require_supabase_url)
+	docker run --rm -p 8080:8080 --network madam_default -e SUPABASE_URL \
 	  -e DATABASE_URL="postgres://madam_app:madam_app@postgres:5432/madam?sslmode=disable" madam-server:dev
 else
 docker-run: image
-	docker run --rm -p 8080:8080 -e DATABASE_URL madam-server:dev
+	$(require_supabase_url)
+	docker run --rm -p 8080:8080 -e DATABASE_URL -e SUPABASE_URL madam-server:dev
 endif
 
 # Builds, pushes and deploys the latest commit on main. CI runs this on every
@@ -187,6 +207,7 @@ deploy:
 	  --image=$(IMAGE):$(TAG) \
 	  --service-account=$(RUN_SERVICE_ACCOUNT) \
 	  --set-secrets=DATABASE_URL=$(DATABASE_URL_SECRET) \
+	  --set-env-vars=SUPABASE_URL=$(PROD_SUPABASE_URL) \
 	  --min-instances=0 --max-instances=2 \
 	  --cpu=1 --memory=512Mi --concurrency=80 --timeout=30s \
 	  --no-cpu-boost

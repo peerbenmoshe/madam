@@ -22,6 +22,21 @@ func (q *Queries) CreateUser(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const ensureUser = `-- name: EnsureUser :exec
+INSERT INTO users (id) VALUES ($1)
+ON CONFLICT (id) DO NOTHING
+`
+
+// EnsureUser adds the request's own users row unless it already exists, so
+// it is safe to run on every GET /api/me (docs/tech-stack.md §4): the first
+// authenticated request creates the row, and later ones change nothing. Run
+// it through Store.InUserTx: the policy's WITH CHECK refuses any id but the
+// request's.
+func (q *Queries) EnsureUser(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, ensureUser, id)
+	return err
+}
+
 const getUser = `-- name: GetUser :one
 SELECT id, temperature_unit, onboarded_at, created_at
 FROM users

@@ -97,7 +97,11 @@ database has two URLs, one per role: `DATABASE_URL`, the application role
 (goose, `psql`). For madam-dev they are `MADAM_DEV_DATABASE_URL` and
 `MADAM_DEV_MIGRATE_URL` in `.env`: full session-pooler URLs ending in
 `?sslmode=verify-full`, with the users `madam_app.<ref>` and `postgres.<ref>`.
-The app only reads `DATABASE_URL`, which the Makefile sets from `DB`. No `DB` value points at production. The one way to reach it is
+The app only reads `DATABASE_URL`, which the Makefile sets from `DB`. The
+server also needs `SUPABASE_URL`, the project whose tokens it accepts: locally
+always madam-dev's (`MADAM_DEV_SUPABASE_URL` in `.env`, with `DB=local` too,
+because the local container has no Auth), and production's is a flag in
+`make deploy`. No `DB` value points at production. The one way to reach it is
 `make migrate-prod`, a separate target that asks you to type `madam-prod`.
 Names are in `.env.example`.
 
