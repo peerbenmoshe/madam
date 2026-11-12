@@ -10,7 +10,8 @@ process.env.TZ = "Pacific/Honolulu";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { formatDate, formatDateLong } = await import("./date.ts");
+const { dateRangeProblem, formatDate, formatDateLong } =
+  await import("./date.ts");
 
 test("the test really runs behind UTC", () => {
   assert.equal(new Date(Date.UTC(2026, 10, 8)).getDate(), 7);
@@ -74,4 +75,47 @@ test("anything that isn't a real YYYY-MM-DD date throws", () => {
       `formatDateLong("${value}")`,
     );
   }
+});
+
+test("dateRangeProblem allows the limits themselves and everything between", () => {
+  const min = "2026-01-01";
+  const max = "2026-11-12";
+  for (const iso of ["2026-01-01", "2026-06-15", "2026-11-12"]) {
+    assert.equal(dateRangeProblem(iso, min, max), null, iso);
+  }
+  // No limits, or one: nothing beyond it is checked.
+  assert.equal(dateRangeProblem("2099-01-01"), null);
+  assert.equal(dateRangeProblem("1999-01-01", undefined, max), null);
+  assert.equal(dateRangeProblem("2099-01-01", min), null);
+});
+
+test("dateRangeProblem refuses a date outside the limits, and says the rule", () => {
+  const min = "2026-01-01";
+  const max = "2026-11-12";
+  const both = "Pick a date from 01/01/2026 to 12/11/2026.";
+  // One day past either end.
+  assert.equal(dateRangeProblem("2026-11-13", min, max), both);
+  assert.equal(dateRangeProblem("2025-12-31", min, max), both);
+  // "No future dates" is a max alone. A later month with a smaller day
+  // number: the whole date is compared, not the day.
+  assert.equal(
+    dateRangeProblem("2026-12-02", undefined, max),
+    "Pick a date up to 12/11/2026.",
+  );
+  assert.equal(
+    dateRangeProblem("2027-01-01", undefined, max),
+    "Pick a date up to 12/11/2026.",
+  );
+  assert.equal(
+    dateRangeProblem("2025-12-31", min),
+    "Pick 01/01/2026 or a later date.",
+  );
+});
+
+test("dateRangeProblem throws on something that isn't a date", () => {
+  assert.throws(() => dateRangeProblem("tomorrow", "2026-01-01"), RangeError);
+  assert.throws(
+    () => dateRangeProblem("", undefined, "2026-11-12"),
+    RangeError,
+  );
 });

@@ -329,8 +329,19 @@ cycle. It can't be undone.").
 - **Date boxes.** A phone's native date picker shows dates in the phone's
   own format, and the page can't change that. So the box shows its own
   dd/mm/yyyy text, with the real `<input type="date">` stretched over it at
-  opacity 0. A tap opens the native picker, and `min`/`max` still block bad
-  dates. On a computer, call `showPicker()` on click.
+  opacity 0. A tap opens the native picker. On a computer, call
+  `showPicker()` on click.
+
+  **`min` and `max` don't block bad dates on a phone.** This note first said
+  they did. *Measured on `/design` (12 November 2026):* a computer's picker
+  greys out the dates beyond them, but the pickers on an Android phone and
+  an iPhone let any date be picked. So the box checks each pick itself
+  (`dateRangeProblem` in `frontend/src/lib/date.ts`): a date outside the
+  limits is **refused**, the box keeps the date it had, and a line under it
+  says the rule ("Pick a date up to 12/11/2026."). Chosen by Pe'er over
+  snapping to the nearest allowed date, which would show a date she didn't
+  pick. Slice 4's "no future dates" and AC-11 (Slice 6) rely on this, and
+  the server still refuses a bad date whatever the page does.
 - **The rows under the graph with Recharts.** *Unverified:* the mock draws
   its own SVG. In Recharts they could be a custom X-axis tick with four
   lines, or an HTML grid below the chart that uses the plot's exact left
