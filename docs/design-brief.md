@@ -116,8 +116,25 @@ Fallback: the system font stack.
 | Secondary button | 48px, radius 14, ink outline on `surface` | "Close", "Log out", the "no" side of a question |
 | Switch | 50×30, `accent` with ink outline when on | "Cycle starts on this day", "Show raw readings" |
 | Date box | Looks like a field and shows the date as dd/mm/yyyy; the native date picker sits invisibly on top of it (§9) | Every date input |
+| Text field | 48px, radius 12, `rule` border, with its label above in bold. Focus is a `berry` border with a `blush` ring. An error shows under it in `danger`, bold. *Added in the design foundation (12 November 2026), from the mock's inputs: the table had no text input* | Email, password, invite code |
 | Bottom sheet | Radius 26 at the top, a handle, over a dimmed backdrop | The day popup |
 | Toast | Ink pill, 2.2 s | "Entry saved", "Entry deleted" |
+
+*As built in the design foundation* (`frontend/src/components/`):
+- **Choices are native inputs.** The segmented control and the option
+  buttons are radio buttons, the chips are checkboxes and the switch is a
+  checkbox with `role="switch"`, each hidden inside the label that is drawn.
+  The browser supplies the keyboard behaviour (one tab stop, arrow keys) and
+  the screen-reader semantics. The mock's `aria-pressed` buttons would have
+  needed script for both.
+- **Small controls keep their look and get a 44px tap area** (§8). A segment
+  is 36px tall and a chip 40px, as in the mock; an invisible pseudo-element
+  extends what a finger can hit. The switch (30px) is extended the same way,
+  and its label flips it too.
+- **Buttons have two sizes:** 54px for a primary button alone, 48px for a
+  secondary button and for a primary button beside one (the question).
+- **`/design`** shows every component with made-up values, for checking on a
+  phone. It is not linked from the app and goes in the v1 review pass.
 
 Questions that need an answer (save without a temperature, unusual
 temperature, "Did bleeding stop?", delete) **replace the Save button in

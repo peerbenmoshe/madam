@@ -590,7 +590,9 @@ and account deletion (our data cascades, then the Supabase identity is deleted).
 The repository has been public since day one (`tech-stack.md` §12), so this is a
 final sweep, not the moment it goes public.
 
-Scan the Git history for secrets. Confirm every `.sql` query filters by `user_id`.
+Scan the Git history for secrets. Remove the `/design` component gallery
+(`frontend/src/pages/DesignPage.tsx`, added in the design foundation for
+checking components on a phone). Confirm every `.sql` query filters by `user_id`.
 Confirm every table has an RLS policy and `FORCE` set. Write the portfolio README
 with screenshots and the live URL. Add the `LICENSE` (MIT). Then tag `v1.0.0`.
 

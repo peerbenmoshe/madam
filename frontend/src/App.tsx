@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import DesignPage from "./pages/DesignPage.tsx";
 
 // What the page knows about the server.
 type Health =
@@ -27,7 +28,15 @@ async function fetchHealth(): Promise<Health> {
   }
 }
 
+// Which page to show. There is no router yet: the server answers every
+// path that isn't a file with this app, and the path decides here.
 export default function App() {
+  // "/design" and "/design/" are the component gallery.
+  const path = window.location.pathname.replace(/\/+$/, "");
+  return path === "/design" ? <DesignPage /> : <HealthPage />;
+}
+
+function HealthPage() {
   const [health, setHealth] = useState<Health>({ state: "checking" });
 
   useEffect(() => {
