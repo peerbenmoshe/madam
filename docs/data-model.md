@@ -680,8 +680,12 @@ parameter: the id travels as a typed value (`$1::uuid`), never as SQL text.
 then `SetUserID` as the first statement, then the handler's queries; commit on
 success, rollback on error or panic. The identity comes from the
 `Authenticator` interface (`internal/api/auth.go`) through `RequireUser`
-middleware. Until Slice 2 only a test stub implements it, in a `_test.go`
-file, so no build of the server can fake an identity.
+middleware. Until Slice 2 only a test stub implemented it, in a `_test.go`
+file, so no build of the server could fake an identity. *Since Slice 2* the
+server's is `JWTVerifier` (`internal/api/jwt.go`), which takes the id from a
+verified Supabase token and nothing else; the stub is still only in tests.
+The `users` row is created by the first authenticated `GET /api/me`
+(`tech-stack.md` §4).
 
 **The proof** is `TestIsolation` (`internal/db/isolation_test.go`), run as
 `madam_app` locally, in CI and on madam-dev. It refuses to run as a role that

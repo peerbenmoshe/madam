@@ -388,6 +388,93 @@ madam-prod, pointing at Cloud Run (sign-ups fail closed until the handler is
 live, M9) → both secrets added by Pe'er → the handler's PR. Before the
 frontend's PR: Gmail SMTP, Site URL and the redirect list.
 
+### As built in Slice 2: the backend (12 November 2026, PRs #29–#31)
+
+The Go half of Slice 2 is live. The browser half (the screens, `/api/config`,
+the CSP change, email) is not built yet, so nobody can sign in through the
+app: everything below was measured with `curl` and tests.
+
+**The verifier** (`internal/api/jwt.go`, `jwks.go`), as decided above.
+- `github.com/golang-jwt/jwt/v5` **v5.3.1**. Its own `go.mod` has no
+  `require` lines (checked), so it adds one module.
+- **Measured on both projects:** `/auth/v1/.well-known/jwks.json` holds one
+  `ES256` / `P-256` key with a `kid` and `use: sig`, served with
+  `cache-control: public, max-age=600`. The 10 minutes the cache was built
+  around is now measured, not only documented.
+- With no keys at all (Supabase unreachable since the instance started), a
+  request with a token gets **503**, not 401. Measured on the built image
+  with an address that doesn't resolve.
+- The project is `SUPABASE_URL`: a plain flag in `make deploy` for
+  production, and `MADAM_DEV_SUPABASE_URL` in `.env` locally, with either
+  database. The server refuses to start without a well-formed one.
+
+**`GET /api/me`** (`internal/api/me.go`) is the first route behind
+`RequireUser`. It runs `EnsureUser` (`INSERT … ON CONFLICT (id) DO NOTHING`)
+and `GetUser` in one `InUserTx`, and answers `id`, `temperature_unit` and
+`onboarded_at`. `ON CONFLICT DO NOTHING` works as `madam_app` under the
+forced policy (the test calls it twice). No migration.
+
+**AC-16 part one** is `TestIsolationThroughTheAPI` (`me_test.go`): the real
+router, the real verifier (with a test key) and a real database as
+`madam_app`. The API has no parameter that names a user, so the test puts
+B's id everywhere a request has room for one (query string, headers, a
+cookie, the path, a rewritten or self-signed token, `user_metadata`) and
+checks that the answer is still A's or a refusal, and that B's row is
+untouched.
+
+**The hook** (`internal/api/hook.go`), as decided above, plus:
+- The code is compared as two SHA-256 hashes in constant time. A direct
+  constant-time compare returns at once when the lengths differ, which would
+  show the code's length.
+- The server refuses an invite code that starts or ends with a space or a
+  newline. The comparison is exact, so such a code could never be typed, and
+  every sign-up would be refused with nothing to show why.
+- **Go's base64 decoder skips newlines.** A signing secret stored with a
+  trailing newline decodes to the same key, so it is harmless there.
+- Locally and in CI the two values are throwaway ones from the Makefile and
+  `ci.yml`. `.env` can override them (`INVITE_CODE`, `AUTH_HOOK_SECRET`).
+
+**Measured on production** (madam-prod's hook pointing at Cloud Run, sent
+with `curl` and the publishable key as supabase-js would):
+
+| Attempt | The client saw | Time, end to end |
+|---|---|---|
+| Sign-up, wrong code | 400 `Invalid invite code.` | 2.35 s on a **cold** instance (0.32 s of it inside Cloud Run) |
+| Sign-up, no code | the same | 0.80 s |
+| `/otp` with `create_user: true`, no code | the same | 0.59 s |
+| Anonymous sign-up | 422 `anonymous_provider_disabled`, before the hook | 0.65 s |
+
+- The body is `{"code":400,"error_code":"unknown","msg":"Invalid invite
+  code."}`. **`error_code` is `unknown`**, so the page must recognise the
+  refusal by its status and message.
+- A cold start fits the hook's 5 s budget with room to spare. The handler
+  took 21 µs to 1.7 ms.
+- Each refusal logged `allowed=false`, a webhook id and a duration, and
+  nothing else. Our message coming back also proves the signing secret: a
+  wrong one would have been a 401 from us and a 500 from Supabase.
+
+**Secrets:** `madam-invite-code:1` and `madam-auth-hook-secret:1`, Belgium
+only, `madam-run` the only reader of each. Active versions: **4 of the free
+6**. `make deploy` now passes three secrets and one plain variable.
+
+**How the tests were checked.** For each check in the verifier, the route
+and the hook, the check was removed and a test had to fail (34 deliberate
+breakages over the three PRs). Four went unnoticed at first, and each miss
+said something:
+- Removing the algorithm allow-list changed no outcome, because the library
+  refuses `none` and HS256 for an ECDSA key by itself. The allow-list's own
+  effect is refusing *before any key is fetched*, and that is what the test
+  now asserts.
+- A token with no `kid` was refused anyway (it is never in the key set); the
+  same assertion covers it.
+- The oversized key set had no keys in it, so it failed for that reason.
+- Without the explicit size check, an oversized key set is still refused:
+  the capped read cuts the JSON short. That one stays undetectable.
+
+**Not measured yet:** a sign-up with the right code on production; a real
+Supabase token sent to a running server; a hook host that answers nothing at
+all (M9's open case).
+
 ### Rejected, and when each would win
 
 | Option | Type | Its sweet spot |
@@ -877,7 +964,8 @@ Checked against Google's terms and pricing pages in October 2026.
 - **Secret Manager** (enabled in 0c): $0.06 per active version per location per
   month, and $0.03 per 10,000 accesses. The free tier covers **6 active
   versions and 10,000 accesses** a month per billing account. **Disabled
-  versions count as active; destroyed ones don't.** We use 2 versions, and
+  versions count as active; destroyed ones don't.** We use 4 versions since
+  Slice 2 (§4; 2 before it), and
   Cloud Run reads the secret once per instance start, so this stays $0. Covered
   by the alert, not by the Cloud Run spend cap.
 - **The contract.** Under the Google Cloud Terms of Service (§2.6), Google may
