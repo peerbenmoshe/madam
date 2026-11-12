@@ -69,7 +69,7 @@ export function HomePage({ session }: { session: Session }) {
   return (
     <Screen
       title="You're logged in"
-      sub={<span className="break-all">{session.user.email}</span>}
+      sub={<span className="wrap-anywhere">{session.user.email}</span>}
     >
       <div className="grid gap-6">
         {account.state === "checking" && (

@@ -259,7 +259,7 @@ export default function DesignPage() {
           label="Password"
           type="password"
           autoComplete="off"
-          hint="Type 8 characters or more and the error goes away."
+          hint="Type 8 characters with a letter and a digit, and the error goes away."
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           error={newPasswordProblem(password) ?? undefined}

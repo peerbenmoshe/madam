@@ -26,6 +26,10 @@ const MAX_PASSWORD_BYTES = 72;
 const INVITE_REFUSAL = "Invalid invite code.";
 
 export const TRY_AGAIN = "Something went wrong. Try again.";
+// Supabase refused a password the page had let through: its settings are
+// stricter than the page knows. Say the whole rule.
+const WEAK_PASSWORD =
+  "Choose a stronger password: at least 8 characters, with a letter and a digit.";
 export const OFFLINE =
   "Can't reach the server. Check your connection and try again.";
 const TOO_MANY = "Too many attempts. Wait a few minutes and try again.";
@@ -43,10 +47,21 @@ export function emailProblem(email: string): string | null {
   return null;
 }
 
+// The rule in one line, shown under the field before anything is typed.
+export const PASSWORD_RULE = `At least ${MIN_PASSWORD_LENGTH} characters, with a letter and a digit.`;
+
 // For a password being chosen (sign-up, reset), not one being typed to log in.
+//
+// A letter here is a to z, in either case: that is what Supabase's "letters
+// and digits" requirement counts (from its server's settings; the page is
+// then never laxer than Supabase, whatever Supabase accepts). The rule is
+// mild on purpose: it stops "12345678", not a determined bad password.
 export function newPasswordProblem(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+  }
+  if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+    return "Include at least one letter (a–z) and one digit.";
   }
   if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) {
     return "That password is too long. Use a shorter one.";
@@ -91,7 +106,7 @@ export function signUpProblem(failure: AuthFailure): SignUpProblem {
     failure.code === "weak_password" ||
     failure.name === "AuthWeakPasswordError"
   ) {
-    return { field: "password", message: "Choose a longer password." };
+    return { field: "password", message: WEAK_PASSWORD };
   }
   if (
     failure.code === "validation_failed" ||
@@ -148,7 +163,7 @@ export function setPasswordProblem(failure: AuthFailure): string {
     failure.code === "weak_password" ||
     failure.name === "AuthWeakPasswordError"
   ) {
-    return "Choose a longer password.";
+    return WEAK_PASSWORD;
   }
   if (
     failure.name === "AuthSessionMissingError" ||
@@ -186,8 +201,8 @@ export function alreadyRegistered(
   );
 }
 
-export const ALREADY_REGISTERED =
-  "This email already has an account. Log in instead.";
+// The sign-up screen follows it with a "Log in instead" link.
+export const ALREADY_REGISTERED = "This email already has an account.";
 
 // How long "Send it again" stays switched off after an email was sent.
 // Supabase has its own limit per address; this one saves the round trip and

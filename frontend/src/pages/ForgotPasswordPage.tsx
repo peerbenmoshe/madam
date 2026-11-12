@@ -2,10 +2,22 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Button, LinkButton } from "../components/Button.tsx";
 import { FormError, Screen } from "../components/Screen.tsx";
+import { SendAgain } from "../components/SendAgain.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { authClient } from "../lib/auth.ts";
 import { OFFLINE, emailProblem, sendEmailProblem } from "../lib/authText.ts";
 import { navigate } from "../lib/router.ts";
+
+// Asks Supabase to email a reset link. Resolves to the failure, or to null.
+async function requestLink(address: string) {
+  const auth = await authClient();
+  const { error } = await auth.resetPasswordForEmail(address, {
+    // Where the emailed link brings her back to. It must be on the
+    // project's redirect allow-list (docs/tech-stack.md §4).
+    redirectTo: `${window.location.origin}/reset-password`,
+  });
+  return error;
+}
 
 // Ask for a password-reset link. The answer is the same whether or not the
 // address has an account (Supabase's is too: measured), so this form can't
@@ -28,13 +40,8 @@ export function ForgotPasswordPage() {
 
     setBusy(true);
     try {
-      const auth = await authClient();
       const address = email.trim();
-      const { error } = await auth.resetPasswordForEmail(address, {
-        // Where the emailed link brings her back to. It must be on the
-        // project's redirect allow-list (docs/tech-stack.md §4).
-        redirectTo: `${window.location.origin}/reset-password`,
-      });
+      const error = await requestLink(address);
       if (error) {
         setProblem(sendEmailProblem(error));
         return;
@@ -52,18 +59,19 @@ export function ForgotPasswordPage() {
       <Screen title="Check your email">
         <div className="grid gap-6">
           <p>
-            If there's an account for <b className="break-all">{sentTo}</b>, a
-            link to choose a new password is on its way. It works on any device.
+            If there's an account for <b className="wrap-anywhere">{sentTo}</b>,
+            a link to choose a new password is on its way. It works on any
+            device.
           </p>
           <p className="text-muted text-sm">
             It can take a minute to arrive. If it isn't in your inbox, look in
             spam, and check the address above.
           </p>
-          <div>
+          <SendAgain send={() => requestLink(sentTo)}>
             <LinkButton onClick={() => navigate("/")}>
               Back to log in
             </LinkButton>
-          </div>
+          </SendAgain>
         </div>
       </Screen>
     );
