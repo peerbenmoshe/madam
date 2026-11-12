@@ -450,6 +450,14 @@ data). Part two already passed in 0d.
 No migration is needed. Production email needs custom SMTP before PR 6:
 Supabase's built-in sender only reaches team members.
 
+**PRs 1–4 are done (12 November 2026, #28–#31).** The verifier,
+`GET /api/me` and the hook are live, and **AC-16 part one passes**
+(`TestIsolationThroughTheAPI`). On production, a sign-up with a wrong code
+is refused with our message, 2.35 s on a cold instance. What was built and
+measured is in `tech-stack.md` §4 (As built in Slice 2: the backend). Left:
+the design foundation, the frontend, and the final record with the
+`build-log.md` entry.
+
 *The screens* (not in the mock, `design-brief.md` §10), one column, built
 from the foundation's components:
 - **Log in:** email, password, "Log in"; links to "Create account" and

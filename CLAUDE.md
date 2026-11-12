@@ -140,8 +140,9 @@ hand-edit generated code.
   it's a solo project. `main` is protected and always deployable. Commit messages
   say what changed ("Add adjusted-temperature calculation"), not "stuff".
 - **Secrets:** never in Git. `.env` locally; in production, **Secret Manager**
-  (`madam-database-url` for the app, `madam-migrate-url` for migrations), with
-  the app's version pinned in the Makefile. Values are added by Pe'er in his
+  (`madam-database-url`, `madam-invite-code` and `madam-auth-hook-secret` for
+  the app, `madam-migrate-url` for migrations), with the app's versions
+  pinned in the Makefile. Values are added by Pe'er in his
   own terminal (`docs/tech-stack.md` §7), never through Claude.
   `.claude/settings.json` denies reading `.env` files (that includes any command
   that names `.env`); don't try to work around it. The production database URL
@@ -309,6 +310,18 @@ hand-edit generated code.
   invite-code spike). The typed code also stays in `user_metadata` and in
   every access token. Its own user can edit `user_metadata`, so never treat
   it as evidence of anything.
+- **The server needs four values to start:** `DATABASE_URL`, `SUPABASE_URL`,
+  `INVITE_CODE` and `AUTH_HOOK_SECRET`. Locally the Makefile supplies the
+  last two as throwaway values. A new one must also reach `make deploy`,
+  `make docker-run` and CI's smoke-test step, or the image won't start there.
+- **A token the server can't check is a 503, not a 401.** That happens only
+  when Supabase's keys were never fetched (`ErrAuthUnavailable`). If
+  everything answers 503 right after a start, look at the `jwks:` log lines.
+- **Never read `user_metadata` in Go.** The verifier leaves it out of its
+  claims on purpose: its own user can edit it.
+- **`docker run --network host` doesn't reach WSL under Docker Desktop.** It
+  is the Docker VM's network. CI's Linux runner can use it; locally use the
+  Compose network and `-p`, as `make docker-run` does.
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
