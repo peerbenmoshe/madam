@@ -234,7 +234,8 @@ export default function DesignPage() {
         <DateBox label="From" value={emptyDate} onChange={setEmptyDate} />
         <p className="text-muted text-sm">
           The first holds {date === "" ? "no date" : formatDate(date)}, and
-          allows 01/01/2026 to 12/11/2026 only.
+          allows 01/01/2026 to 12/11/2026 only. A phone's picker offers later
+          dates anyway: picking one is refused, with the reason.
         </p>
       </Section>
 

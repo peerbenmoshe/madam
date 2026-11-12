@@ -63,3 +63,32 @@ export function formatDateLong(iso: string): string {
   const { weekday } = parse(iso);
   return `${WEEKDAYS[weekday]} ${formatDate(iso)}`;
 }
+
+// dateRangeProblem says what is wrong with picking the date iso when only
+// dates from min to max are allowed (either may be left out), in words for
+// the person, or returns null when the date is allowed.
+//
+// It exists because a phone's native date picker doesn't enforce an
+// input's min and max (measured on Android and iPhone, 12 November 2026);
+// only a computer's does. So the date box checks every pick itself.
+export function dateRangeProblem(
+  iso: string,
+  min?: string,
+  max?: string,
+): string | null {
+  // "YYYY-MM-DD" strings sort like the dates they name, so plain string
+  // comparison is date comparison. parse() makes sure they are such strings.
+  parse(iso);
+  const tooEarly = min !== undefined && iso < min;
+  const tooLate = max !== undefined && iso > max;
+  if (!tooEarly && !tooLate) {
+    return null;
+  }
+  if (min !== undefined && max !== undefined) {
+    return `Pick a date from ${formatDate(min)} to ${formatDate(max)}.`;
+  }
+  if (max !== undefined) {
+    return `Pick a date up to ${formatDate(max)}.`;
+  }
+  return `Pick ${formatDate(min as string)} or a later date.`;
+}

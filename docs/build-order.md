@@ -488,6 +488,15 @@ the shared parts of `design-brief.md` that every screen uses:
 *Done when:* the shell page uses the new tokens and font, the CSP still
 reports no violation, and the components render on Pe'er's phone.
 
+**✅ Done (12 November 2026, PRs #33, #34 and the date-box fix after them).**
+The tokens, the font (an npm package, one 34 KB variable file) and the
+components are live, with a gallery at `/design` that Pe'er checked on an
+Android phone, an iPhone and a computer: no CSP violation, one font file
+fetched, every control behaving. One surprise came out of that check: **a
+phone's date picker ignores `min` and `max`**, so the date box enforces them
+itself (`design-brief.md` §9). The decisions are in `design-brief.md` §5, §9
+and §10. Frontend tests now exist (`npm test`, Node's built-in runner).
+
 ### Slice 3 — Onboarding
 
 Current cycle start or "I don't know", fixed measurement time written as the
