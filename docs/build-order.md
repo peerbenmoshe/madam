@@ -51,6 +51,10 @@ _Amended in Slice 1 (8 November 2026): Slice 1 is done. Slice 3 gains a
 migration for the stored onboarding answer, `users.cycle_start_unknown`
 (below)._
 
+_Amended in the Slice 2 plan (12 November 2026): Slice 2 is planned as
+several PRs, and the design foundation moves ahead of its frontend PR
+(below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -432,7 +436,35 @@ data). Part two already passed in 0d.
 - **The code persists** in `user_metadata` and in every token. Decide whether
   to clear it. Never trust `user_metadata`: its own user can edit it.
 
-### Design foundation *(before Slice 3)*
+*Planned (12 November 2026).* The decisions are in `tech-stack.md` §4
+(Decided in the Slice 2 plan). One concern per PR, in this order:
+1. these documents;
+2. the JWT verifier (adds `golang-jwt/jwt/v5`), not wired in yet;
+3. `GET /api/me`, which creates the `users` row, the wiring in `main.go`,
+   and the AC-16 test;
+4. the hook handler, after Pe'er has added the two secrets;
+5. the design foundation (below);
+6. the frontend: `@supabase/auth-js`, `/api/config`, the CSP, the screens;
+7. the record: measurements, `build-log.md`, `CLAUDE.md`.
+
+No migration is needed. Production email needs custom SMTP before PR 6:
+Supabase's built-in sender only reaches team members.
+
+*The screens* (not in the mock, `design-brief.md` §10), one column, built
+from the foundation's components:
+- **Log in:** email, password, "Log in"; links to "Create account" and
+  "Forgot password?".
+- **Create account:** email, password, invite code, "Create account"; then
+  "Check your email".
+- **Forgot password:** email, "Send reset link"; the same answer whether or
+  not the address exists.
+- **Set new password** (`/reset-password`): new password, "Save password".
+- **Signed in:** a placeholder with "Log out", until Slice 3.
+
+### Design foundation *(before Slice 2's frontend PR)*
+
+*Moved in the Slice 2 plan:* it was "before Slice 3". Slice 2 has screens of
+its own, and building them first would mean styling them twice.
 
 A small PR, so Slice 3 is about onboarding and not about restyling. It builds
 the shared parts of `design-brief.md` that every screen uses:
