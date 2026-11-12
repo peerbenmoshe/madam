@@ -347,6 +347,47 @@ migration). Recorded so production can be set up the same way:
 While the hook points at a dead address, every sign-up fails (M9). Delete or
 fix it; never leave it dangling.
 
+### Decided in the Slice 2 plan (12 November 2026)
+
+Decisions only; nothing here is built yet. "As built" follows when it is.
+Facts marked *docs* come from Supabase's documentation and are not yet
+measured by us.
+
+| Question | Choice | Why | Rejected |
+|---|---|---|---|
+| Verifying tokens in Go | `github.com/golang-jwt/jwt/v5` for parsing and claims, plus our own JWKS cache (about 60 lines) | Token parsing and the algorithm allow-list are where homemade bugs live. The library has no dependencies of its own (*to verify when added*) | Standard library only (we'd write the parser); `lestrrat-go/jwx` or `MicahParks/keyfunc` (several transitive dependencies for the fetching) |
+| The keys | Fetched on the first authenticated request, kept in memory, refreshed after 10 minutes; an unknown `kid` causes one refetch, at most once a minute; a failed refresh keeps the cached keys | The server starts without Supabase, as the database pool does. *Docs:* the JWKS is at `<project-url>/auth/v1/.well-known/jwks.json`, cached 10 minutes at Supabase's edge | Fetching at startup |
+| What a token must pass | `alg` exactly `ES256`; a known `kid`; `iss` = `<project-url>/auth/v1`; `aud` = `authenticated`; `exp` present, 30 s leeway; `sub` a UUID; `role` = `authenticated`; not anonymous. `user_metadata` is never read | A fixed algorithm closes `alg: none` and HS256-with-the-public-key | Trusting the token's own `alg` |
+| Keys unavailable | 503, not 401 | "We can't check" is not "you're not allowed" | |
+| The hook in production | The spike's handler, with: a refusal always HTTP 200; logs carry `allowed`, `webhook-id` and the duration, never the code, email, payload or IP; the route always mounted; both secrets **required at startup**, with throwaway local defaults in the Makefile | One code path. A missing secret stops the revision from starting, and the old one keeps serving | Mounting the route only when the secrets are set (a missing secret would look like a 404) |
+| Our `users` row | Created by the first authenticated `GET /api/me`: `INSERT … ON CONFLICT (id) DO NOTHING`, then the read, in one `InUserTx` | Idempotent; the policy's `WITH CHECK` already allows only the caller's id. **No migration in Slice 2** | In the hook (it runs before the account exists and before the email is confirmed); at onboarding (every handler would need a "no row yet" case) |
+| The code left in `user_metadata` | The page clears it once: `updateUser({data: {invite_code: null}})`, best effort | The code then lives only in Secret Manager | Accepting it (a leaked token would leak the shared code); clearing it server-side (needs an admin key) |
+| The browser's client | `@supabase/auth-js`, the auth part of supabase-js. Exact version and gzipped size recorded when installed | Session storage, refresh, tabs and recovery links are solved there | Hand-written `fetch`; the Go server proxying Auth (cookies and CSRF, and every sign-up from Cloud Run's IP); the full `@supabase/supabase-js` |
+| Email-link flow | Implicit (*to verify* that it is auth-js's default) | *Docs:* a PKCE link works only in the browser that started it; she may sign up on one device and open the email on another | PKCE |
+| The page's configuration | `GET /api/config` returns the project URL and the publishable key from environment variables | One image for every environment | `VITE_*` at build time: every image would carry production's values |
+| CSP | `connect-src` gains the project's origin, built from `SUPABASE_URL` at startup | The browser calls Supabase Auth itself | |
+| Sessions | `localStorage`, auth-js's default | She stays logged in between mornings. The CSP (no inline script, `'self'` only) is the XSS guard | Memory only (a log-in every morning) |
+| Production email | **Gmail SMTP** as custom SMTP on madam-prod: a dedicated account with an app password, kept only in Supabase's dashboard | *Docs:* the built-in sender delivers **only to the project's team members, 2 emails an hour**; with custom SMTP the limit starts at 30 an hour | A transactional provider (needs a domain we don't have yet); admin-made accounts with no email (breaks `spec-v1.md` §2) |
+| Development email | madam-dev keeps the built-in sender, with Pe'er's own address | He is a team member; 2 an hour is enough for testing | |
+| Account deletion (Slice 9) | A Supabase **secret key** in Secret Manager, added in Slice 9, used by one handler for `DELETE /auth/v1/admin/users/{id}`. Our row first (it cascades), then the identity | It can be revoked by itself, and the Data API is off. If the second step fails, she has an empty account and can retry; the other order could leave health data with no way to log in | A `SECURITY DEFINER` function on `auth.users` (the local container has no `auth` schema, §8.1 of `data-model.md`); deleting by hand in the dashboard; an Edge Function |
+
+**Redirects.** Both local and `DB=dev` use madam-dev's Auth, because the
+local container has none. madam-dev's hook stays deleted, so development
+sign-up isn't gated by the code.
+
+| Project | Site URL | Redirect allow-list |
+|---|---|---|
+| madam-dev | `http://localhost:5173` | `http://localhost:5173/reset-password` |
+| madam-prod | `https://madam-966460417479.europe-west1.run.app` | the same, with `/reset-password` |
+
+**Secrets** (§7): `madam-invite-code:1` and `madam-auth-hook-secret:1` bring
+the active versions from 2 to **4 of the free 6**; Slice 9's key makes 5.
+
+**Production order:** the dashboard settings above → the hook created in
+madam-prod, pointing at Cloud Run (sign-ups fail closed until the handler is
+live, M9) → both secrets added by Pe'er → the handler's PR. Before the
+frontend's PR: Gmail SMTP, Site URL and the redirect list.
+
 ### Rejected, and when each would win
 
 | Option | Type | Its sweet spot |
