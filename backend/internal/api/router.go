@@ -13,10 +13,10 @@ import (
 // the API; every other GET or HEAD goes to frontend, the embedded app
 // (internal/web).
 //
-// db answers the health check, users is the way to user data, and auth says
-// which user a request is for. In the server, db and users are the same
-// *db.Store.
-func NewRouter(db Pinger, users UserStore, auth Authenticator, frontend http.Handler) http.Handler {
+// db answers the health check, users is the way to user data, auth says
+// which user a request is for, and signUpHook answers Supabase Auth's "before
+// user created" hook. In the server, db and users are the same *db.Store.
+func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook, frontend http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -38,6 +38,11 @@ func NewRouter(db Pinger, users UserStore, auth Authenticator, frontend http.Han
 		// Not the conventional /healthz: Cloud Run reserves some paths ending
 		// in "z" and never forwards them to the container.
 		r.Get("/health", handleHealth(db, healthTimeout))
+
+		// Called by Supabase Auth, not by a browser, so it can't be behind
+		// RequireUser: the handler checks Supabase's signature itself, before
+		// anything else (hook.go). It touches no user data.
+		r.Post("/hooks/before-user-created", signUpHook.ServeHTTP)
 
 		// Every route that touches user data goes in this group, behind
 		// RequireUser: without a valid token nothing in it runs.

@@ -55,6 +55,23 @@ func run() error {
 		return fmt.Errorf("SUPABASE_URL: %w", err)
 	}
 
+	// Supabase calls this hook before it creates an account; the sign-up
+	// goes ahead only with the invite code (docs/spec-v1.md §2). Both values
+	// come from Secret Manager on Cloud Run and from the Makefile's
+	// throwaway defaults locally. Without them there would be no gate, so
+	// the server doesn't start.
+	hookSecret, inviteCode := os.Getenv("AUTH_HOOK_SECRET"), os.Getenv("INVITE_CODE")
+	if hookSecret == "" {
+		return errors.New("AUTH_HOOK_SECRET is not set")
+	}
+	if inviteCode == "" {
+		return errors.New("INVITE_CODE is not set")
+	}
+	signUpHook, err := api.NewBeforeUserCreatedHook(hookSecret, inviteCode)
+	if err != nil {
+		return fmt.Errorf("sign-up hook (AUTH_HOOK_SECRET, INVITE_CODE): %w", err)
+	}
+
 	// The frontend is embedded at compile time (internal/web). A binary built
 	// before `make frontend` still serves the API, and answers pages with 503.
 	assets := web.Assets()
@@ -65,7 +82,7 @@ func run() error {
 	store := db.NewStore(pool)
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(store, store, verifier, web.Handler(assets)),
+		Handler:           api.NewRouter(store, store, verifier, signUpHook, web.Handler(assets)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

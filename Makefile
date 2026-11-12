@@ -57,6 +57,15 @@ endif
 # project's other addresses. Production's is a flag in `deploy`.
 SUPABASE_URL := $(MADAM_DEV_SUPABASE_URL)
 
+# The sign-up hook's two values (docs/tech-stack.md §4). The server doesn't
+# start without them, so local runs get throwaway ones, like the local
+# database passwords: nothing signs requests with this key, and no Supabase
+# project is told this code. `?=` lets .env override them, for the day
+# madam-dev's hook points at a tunnel to the laptop again. Production's come
+# from Secret Manager, in `deploy`. The key is base64 for "local-hook-secret".
+INVITE_CODE ?= local-invite-code
+AUTH_HOOK_SECRET ?= v1,whsec_bG9jYWwtaG9vay1zZWNyZXQ=
+
 # goose and sqlc are pinned in tools/go.mod and run with `go tool`. `-C`
 # (which must be go's first flag) runs go inside tools/, hence absolute paths.
 GOOSE := go -C $(CURDIR)/tools tool goose -dir $(CURDIR)/backend/migrations
@@ -95,6 +104,10 @@ PROD_SUPABASE_URL := https://balzmfsjoxmlxfpmxmzq.supabase.co
 # pinned to a version, so changing it is a commit (docs/tech-stack.md §7).
 DATABASE_URL_SECRET := madam-database-url:3
 MIGRATE_URL_SECRET := madam-migrate-url
+# The shared invite code and the sign-up hook's signing secret, pinned the
+# same way. A new code is a new version, then a PR that moves the pin.
+INVITE_CODE_SECRET := madam-invite-code:1
+AUTH_HOOK_SECRET_SECRET := madam-auth-hook-secret:1
 
 # The first lines of `deploy` and `migrate-prod`: refuse uncommitted or
 # untracked files, and anything but the latest commit on main, so production
@@ -177,17 +190,19 @@ image:
 
 # With DB=local the container joins the Compose network and reaches Postgres
 # by its service name. With DB=dev, `-e DATABASE_URL` copies the value from
-# the environment, so it never appears on the command line. `-e SUPABASE_URL`
-# copies that one the same way.
+# the environment, so it never appears on the command line. The other `-e`
+# names are copied the same way.
 ifeq ($(DB),local)
 docker-run: image db-up
 	$(require_supabase_url)
-	docker run --rm -p 8080:8080 --network madam_default -e SUPABASE_URL \
+	docker run --rm -p 8080:8080 --network madam_default \
+	  -e SUPABASE_URL -e INVITE_CODE -e AUTH_HOOK_SECRET \
 	  -e DATABASE_URL="postgres://madam_app:madam_app@postgres:5432/madam?sslmode=disable" madam-server:dev
 else
 docker-run: image
 	$(require_supabase_url)
-	docker run --rm -p 8080:8080 -e DATABASE_URL -e SUPABASE_URL madam-server:dev
+	docker run --rm -p 8080:8080 -e DATABASE_URL \
+	  -e SUPABASE_URL -e INVITE_CODE -e AUTH_HOOK_SECRET madam-server:dev
 endif
 
 # Builds, pushes and deploys the latest commit on main. CI runs this on every
@@ -206,7 +221,7 @@ deploy:
 	gcloud run deploy madam --project=$(GCP_PROJECT) --region=$(GCP_REGION) \
 	  --image=$(IMAGE):$(TAG) \
 	  --service-account=$(RUN_SERVICE_ACCOUNT) \
-	  --set-secrets=DATABASE_URL=$(DATABASE_URL_SECRET) \
+	  --set-secrets=DATABASE_URL=$(DATABASE_URL_SECRET),INVITE_CODE=$(INVITE_CODE_SECRET),AUTH_HOOK_SECRET=$(AUTH_HOOK_SECRET_SECRET) \
 	  --set-env-vars=SUPABASE_URL=$(PROD_SUPABASE_URL) \
 	  --min-instances=0 --max-instances=2 \
 	  --cpu=1 --memory=512Mi --concurrency=80 --timeout=30s \
