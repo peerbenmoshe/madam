@@ -89,8 +89,16 @@ else
 	fail "/api/health: want 200 ok with no-store; got $status '$(head -c 80 "$tmp/body")', $(header Cache-Control)"
 fi
 
+# User data is behind a token: without one, 401, and never cached.
+status=$(fetch /api/me)
+if [ "$status" = 401 ] && ! is_page && [ "$(header Cache-Control)" = no-store ]; then
+	pass "/api/me without a token: 401, no-store"
+else
+	fail "/api/me without a token: want 401 with no-store; got $status, $(header Cache-Control)"
+fi
+
 # Nothing under /api/ may reach the page.
-for path in /api /api/ /api/nope /api/health/extra; do
+for path in /api /api/ /api/nope /api/health/extra /api/me/extra; do
 	expect_404 "$path"
 done
 

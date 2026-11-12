@@ -11,3 +11,12 @@ INSERT INTO users (id) VALUES (sqlc.arg(id));
 SELECT id, temperature_unit, onboarded_at, created_at
 FROM users
 WHERE id = sqlc.arg(id);
+
+-- name: EnsureUser :exec
+-- EnsureUser adds the request's own users row unless it already exists, so
+-- it is safe to run on every GET /api/me (docs/tech-stack.md §4): the first
+-- authenticated request creates the row, and later ones change nothing. Run
+-- it through Store.InUserTx: the policy's WITH CHECK refuses any id but the
+-- request's.
+INSERT INTO users (id) VALUES (sqlc.arg(id))
+ON CONFLICT (id) DO NOTHING;

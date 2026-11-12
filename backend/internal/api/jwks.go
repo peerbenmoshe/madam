@@ -83,7 +83,8 @@ func (s *keySet) key(ctx context.Context, kid string) (*ecdsa.PublicKey, error) 
 		s.triedAt = now
 		keys, err := s.fetch(ctx)
 		if err != nil {
-			slog.WarnContext(ctx, "jwks: fetch failed; keeping the keys already held", "err", err, "held", len(s.keys))
+			// Keys already held, if any, stay in use.
+			slog.WarnContext(ctx, "jwks: fetch failed", "err", err, "keys_held", len(s.keys))
 		} else {
 			s.keys, s.fetchedAt = keys, now
 			key, found = keys[kid]

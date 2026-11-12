@@ -42,6 +42,19 @@ func run() error {
 	// Runs after the server has shut down, so in-flight requests keep the pool.
 	defer pool.Close()
 
+	// Which Supabase project's tokens we accept. Not a secret: the page
+	// talks to the same address. Its public keys are fetched on the first
+	// authenticated request, not here, so a Supabase outage can't stop the
+	// server from starting (docs/tech-stack.md §4).
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	if supabaseURL == "" {
+		return errors.New("SUPABASE_URL is not set")
+	}
+	verifier, err := api.NewJWTVerifier(supabaseURL, &http.Client{Timeout: 5 * time.Second})
+	if err != nil {
+		return fmt.Errorf("SUPABASE_URL: %w", err)
+	}
+
 	// The frontend is embedded at compile time (internal/web). A binary built
 	// before `make frontend` still serves the API, and answers pages with 503.
 	assets := web.Assets()
@@ -49,9 +62,10 @@ func run() error {
 		slog.Warn("frontend not built: pages answer 503 until `make frontend` runs; /api/ works")
 	}
 
+	store := db.NewStore(pool)
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(db.NewStore(pool), web.Handler(assets)),
+		Handler:           api.NewRouter(store, store, verifier, web.Handler(assets)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
