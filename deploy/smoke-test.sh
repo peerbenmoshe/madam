@@ -111,6 +111,22 @@ else
 	fail "/api/health: want 200 ok with no-store; got $status '$(head -c 80 "$tmp/body")', $(header Cache-Control)"
 fi
 
+# What the page is told about Supabase: public, JSON, and the project it
+# names is the one the browser is allowed to talk to (the CSP's connect-src).
+status=$(fetch /api/config)
+project=$(grep -o '"supabase_url":"https://[^"]*"' "$tmp/body" | cut -d'"' -f4 || true)
+if [ "$status" = 200 ] && [ -n "$project" ] && grep -q '"supabase_publishable_key":"sb_publishable_' "$tmp/body" &&
+	[ "$(header Content-Type)" = application/json ]; then
+	pass "/api/config: the Supabase project and its publishable key"
+else
+	fail "/api/config: want 200 JSON with supabase_url and a publishable key; got $status '$(head -c 80 "$tmp/body")'"
+fi
+if [ -n "$project" ] && header Content-Security-Policy | grep -q "connect-src 'self' $project;"; then
+	pass "CSP: connect-src allows $project and nothing else"
+else
+	fail "CSP: want connect-src 'self' $project; got '$(header Content-Security-Policy)'"
+fi
+
 # User data is behind a token: without one, 401, and never cached.
 status=$(fetch /api/me)
 if [ "$status" = 401 ] && ! is_page && [ "$(header Cache-Control)" = no-store ]; then

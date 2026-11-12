@@ -55,6 +55,19 @@ func run() error {
 		return fmt.Errorf("SUPABASE_URL: %w", err)
 	}
 
+	// What the page is told so it can talk to Supabase Auth: the same
+	// address, and the project's publishable key. That key is public and is
+	// served to every visitor at /api/config, so anything that isn't a
+	// publishable key (a secret key pasted by mistake) stops the server here.
+	publishableKey := os.Getenv("SUPABASE_PUBLISHABLE_KEY")
+	if publishableKey == "" {
+		return errors.New("SUPABASE_PUBLISHABLE_KEY is not set")
+	}
+	publicConfig, err := api.NewPublicConfig(supabaseURL, publishableKey)
+	if err != nil {
+		return fmt.Errorf("SUPABASE_PUBLISHABLE_KEY: %w", err)
+	}
+
 	// Supabase calls this hook before it creates an account; the sign-up
 	// goes ahead only with the invite code (docs/spec-v1.md §2). Both values
 	// come from Secret Manager on Cloud Run and from the Makefile's
@@ -82,7 +95,7 @@ func run() error {
 	store := db.NewStore(pool)
 	srv := &http.Server{
 		Addr:              net.JoinHostPort("", port),
-		Handler:           api.NewRouter(store, store, verifier, signUpHook, web.Handler(assets)),
+		Handler:           api.NewRouter(store, store, verifier, signUpHook, publicConfig, web.Handler(assets)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,

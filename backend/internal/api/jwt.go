@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -40,13 +39,9 @@ type supabaseClaims struct {
 // ("https://<ref>.supabase.co") and the HTTP client used to fetch its public
 // keys. No request is made here: the keys are fetched on first use.
 func NewJWTVerifier(supabaseURL string, client *http.Client) (*JWTVerifier, error) {
-	u, err := url.Parse(supabaseURL)
+	origin, err := supabaseOrigin(supabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("supabase url: %w", err)
-	}
-	if u.Scheme != "https" || u.Host == "" || u.User != nil ||
-		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf(`supabase url must look like "https://<ref>.supabase.co", got %q`, supabaseURL)
+		return nil, err
 	}
 	if client == nil {
 		return nil, errors.New("jwt verifier: no http client")
@@ -54,7 +49,7 @@ func NewJWTVerifier(supabaseURL string, client *http.Client) (*JWTVerifier, erro
 
 	// Supabase Auth lives under /auth/v1, and that address is the token's
 	// iss claim.
-	issuer := "https://" + u.Host + "/auth/v1"
+	issuer := origin + "/auth/v1"
 	keys := &keySet{
 		url:    issuer + "/.well-known/jwks.json",
 		client: client,

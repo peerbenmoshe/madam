@@ -128,7 +128,7 @@ func TestIsolationThroughTheAPI(t *testing.T) {
 	store := testStore(t)
 	key, pub := newKey(t, testKid)
 	tv := newTestVerifier(t, pub)
-	router := NewRouter(store, store, tv.JWTVerifier, noHook, fakeFrontend)
+	router := NewRouter(store, store, tv.JWTVerifier, noHook, testConfig, fakeFrontend)
 
 	a, b := newUser(t), newUser(t)
 	tokenA, tokenB := tokenFor(t, key, a), tokenFor(t, key, b)
@@ -262,7 +262,7 @@ func (failingStore) InUserTx(context.Context, pgtype.UUID, func(*db.Queries) err
 }
 
 func TestMeHidesDatabaseErrors(t *testing.T) {
-	router := NewRouter(fakeDB{}, failingStore{}, stubAuthenticator{id: stubUserID}, noHook, fakeFrontend)
+	router := NewRouter(fakeDB{}, failingStore{}, stubAuthenticator{id: stubUserID}, noHook, testConfig, fakeFrontend)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me", nil))
 

@@ -56,6 +56,9 @@ endif
 # (docs/tech-stack.md §4). Not a secret, but it lives in .env beside the
 # project's other addresses. Production's is a flag in `deploy`.
 SUPABASE_URL := $(MADAM_DEV_SUPABASE_URL)
+# That project's publishable key, which the server hands to the page
+# (GET /api/config). Public by design, like the URL.
+SUPABASE_PUBLISHABLE_KEY := $(MADAM_DEV_PUBLISHABLE_KEY)
 
 # The sign-up hook's two values (docs/tech-stack.md §4). The server doesn't
 # start without them, so local runs get throwaway ones, like the local
@@ -99,6 +102,10 @@ TAG = $(shell git rev-parse --short HEAD)
 # madam-prod's address (Project Settings -> Data API -> Project URL). Public:
 # the page talks to it, and the CSP names it.
 PROD_SUPABASE_URL := https://balzmfsjoxmlxfpmxmzq.supabase.co
+# madam-prod's publishable key (Project Settings -> API Keys). Public too:
+# the server sends it to every visitor. Never the secret key, which the
+# server refuses to start with.
+PROD_SUPABASE_PUBLISHABLE_KEY := sb_publishable_Q58xNNUCYX6OQflhmLvCSw_4kIzTt89
 
 # Secret Manager secrets holding production connection URLs. The app's is
 # pinned to a version, so changing it is a commit (docs/tech-stack.md §7).
@@ -124,6 +131,7 @@ endef
 # target's name.
 define require_supabase_url
 	@test -n "$$SUPABASE_URL" || { echo "$@: add MADAM_DEV_SUPABASE_URL to .env (see .env.example)" >&2; exit 1; }
+	@test -n "$$SUPABASE_PUBLISHABLE_KEY" || { echo "$@: add MADAM_DEV_PUBLISHABLE_KEY to .env (see .env.example)" >&2; exit 1; }
 endef
 
 .PHONY: dev test test-integration lint build frontend check-node db-up db-down \
@@ -199,13 +207,13 @@ ifeq ($(DB),local)
 docker-run: image db-up
 	$(require_supabase_url)
 	docker run --rm -p 8080:8080 --network madam_default \
-	  -e SUPABASE_URL -e INVITE_CODE -e AUTH_HOOK_SECRET \
+	  -e SUPABASE_URL -e SUPABASE_PUBLISHABLE_KEY -e INVITE_CODE -e AUTH_HOOK_SECRET \
 	  -e DATABASE_URL="postgres://madam_app:madam_app@postgres:5432/madam?sslmode=disable" madam-server:dev
 else
 docker-run: image
 	$(require_supabase_url)
 	docker run --rm -p 8080:8080 -e DATABASE_URL \
-	  -e SUPABASE_URL -e INVITE_CODE -e AUTH_HOOK_SECRET madam-server:dev
+	  -e SUPABASE_URL -e SUPABASE_PUBLISHABLE_KEY -e INVITE_CODE -e AUTH_HOOK_SECRET madam-server:dev
 endif
 
 # Builds, pushes and deploys the latest commit on main. CI runs this on every
@@ -225,7 +233,7 @@ deploy:
 	  --image=$(IMAGE):$(TAG) \
 	  --service-account=$(RUN_SERVICE_ACCOUNT) \
 	  --set-secrets=DATABASE_URL=$(DATABASE_URL_SECRET),INVITE_CODE=$(INVITE_CODE_SECRET),AUTH_HOOK_SECRET=$(AUTH_HOOK_SECRET_SECRET) \
-	  --set-env-vars=SUPABASE_URL=$(PROD_SUPABASE_URL) \
+	  --set-env-vars=SUPABASE_URL=$(PROD_SUPABASE_URL),SUPABASE_PUBLISHABLE_KEY=$(PROD_SUPABASE_PUBLISHABLE_KEY) \
 	  --min-instances=0 --max-instances=2 \
 	  --cpu=1 --memory=512Mi --concurrency=80 --timeout=30s \
 	  --no-cpu-boost

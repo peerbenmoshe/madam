@@ -294,7 +294,7 @@ func TestHookLogsNoPersonalData(t *testing.T) {
 // answers only signed POSTs.
 func TestHookRoute(t *testing.T) {
 	h := newTestHook(t)
-	router := NewRouter(fakeDB{}, nil, noAuth, h, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, h, testConfig, fakeFrontend)
 	const path = "/api/hooks/before-user-created"
 
 	do := func(req *http.Request) *httptest.ResponseRecorder {
