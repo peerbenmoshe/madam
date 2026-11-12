@@ -92,6 +92,11 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      # Node's built-in runner, on the plain functions in src/lib.
+      - name: Frontend test
+        working-directory: frontend
+        run: npm test
+
       # tsc, then vite build, then the copy into backend/internal/web/assets,
       # so the Go steps below build, test and lint with the real frontend
       # embedded.

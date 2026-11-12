@@ -49,12 +49,10 @@ export default function App() {
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-8 px-6 py-10">
-      <h1 className="text-4xl font-semibold tracking-tight">Madam</h1>
+      <h1 className="text-4xl font-extrabold tracking-tight">Madam</h1>
 
       <section className="flex flex-col gap-3" aria-live="polite">
-        <h2 className="text-muted text-sm font-medium tracking-wide uppercase">
-          Server
-        </h2>
+        <h2 className="text-muted text-sm font-medium">Server</h2>
         <Status health={health} />
       </section>
 

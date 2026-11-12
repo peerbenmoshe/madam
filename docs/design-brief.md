@@ -327,15 +327,27 @@ cycle. It can't be undone.").
   with the page while vertical scrolling still works.
 - **Notes are text,** never markup. React escapes them by default; never
   use `dangerouslySetInnerHTML` for them.
-- **The font files:** *open* (§10).
+- **The font files:** an npm package, imported in `main.tsx` (§10).
 
 ## 10. Open
 
-- **Where the font files come from:** an npm package (probably Fontsource,
-  *unverified*; a dependency to approve) or the `.woff2` files committed
-  with their licence. *To verify when added:* the licence (expected SIL Open Font
-  Licence), the files' size, and that the Latin subset covers "°".
-  Decided in the design foundation step (`build-order.md`).
+- ~~**Where the font files come from.**~~ **Decided in the design foundation
+  (12 November 2026):** the npm package
+  `@fontsource-variable/atkinson-hyperlegible-next` 5.3.0, pinned exactly.
+  It is SIL Open Font Licence 1.1, has no dependencies, and holds only CSS
+  and font files. One **variable** file covers every weight from 200 to 800
+  (the design uses 400, 500, 700 and 800). Measured:
+  - the Latin file is **34.0 KB**, and its declared range covers "°", "‹ ›",
+    "…" and "−";
+  - a Latin-extended file (19.1 KB) ships too, but a browser fetches it only
+    for a character in its range;
+  - the server sends both as `font/woff2`, immutable and not gzipped, and the
+    CSP needed no change.
+
+  Only the upright style is imported; there is no italic. In CSS the family
+  is "Atkinson Hyperlegible Next Variable". Rejected: committing the `.woff2`
+  (a binary in Git whose origin is only a note; the lockfile's checksum is
+  better evidence).
 - **The rows under the graph in Recharts** (§9). Slice 6.
 - **On a computer,** the spec puts the legend permanently in the top-right
   corner. The mock is phone-only, so the wide layout is still undrawn.
