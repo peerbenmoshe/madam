@@ -4,7 +4,11 @@ import { test } from "node:test";
 
 const {
   MIN_PASSWORD_LENGTH,
+  RESEND_WAIT_SECONDS,
   TRY_AGAIN,
+  alreadyRegistered,
+  resendWaitText,
+  secondsUntil,
   emailProblem,
   inviteCodeProblem,
   logInProblem,
@@ -221,4 +225,39 @@ test("no message ever repeats Supabase's own words", () => {
       assert.ok(!message.includes("hook"), message);
     }
   }
+});
+
+test("alreadyRegistered recognises Supabase's made-up success", () => {
+  // What Supabase sends for an address that already has a confirmed account.
+  assert.equal(
+    alreadyRegistered({ id: "x", email: "a@b.co", identities: [] }),
+    true,
+  );
+  // A real new account has one identity: her email.
+  assert.equal(
+    alreadyRegistered({ id: "x", identities: [{ provider: "email" }] }),
+    false,
+  );
+  // Anything unclear is not treated as "already registered": the default
+  // must be the ordinary "check your email".
+  assert.equal(alreadyRegistered({ id: "x" }), false);
+  assert.equal(alreadyRegistered({ id: "x", identities: null }), false);
+  assert.equal(alreadyRegistered(null), false);
+  assert.equal(alreadyRegistered(undefined), false);
+});
+
+test("the wait before sending again counts down in whole seconds", () => {
+  assert.equal(RESEND_WAIT_SECONDS, 60);
+  const sentAt = 1_000_000;
+  const availableAt = sentAt + RESEND_WAIT_SECONDS * 1000;
+  assert.equal(secondsUntil(sentAt, availableAt), 60);
+  assert.equal(secondsUntil(sentAt + 1, availableAt), 60);
+  assert.equal(secondsUntil(sentAt + 1000, availableAt), 59);
+  assert.equal(secondsUntil(availableAt - 1, availableAt), 1);
+  assert.equal(secondsUntil(availableAt, availableAt), 0);
+  // Never negative, however long ago it was.
+  assert.equal(secondsUntil(availableAt + 5000, availableAt), 0);
+
+  assert.equal(resendWaitText(45), "You can send it again in 45 seconds.");
+  assert.equal(resendWaitText(1), "You can send it again in 1 second.");
 });

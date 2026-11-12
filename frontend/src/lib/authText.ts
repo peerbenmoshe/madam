@@ -164,3 +164,42 @@ export function setPasswordProblem(failure: AuthFailure): string {
   }
   return TRY_AGAIN;
 }
+
+// alreadyRegistered recognises Supabase's answer to a sign-up for an address
+// that already has a confirmed account. It doesn't refuse: it answers
+// "success" with a made-up user that has no identities, creates nothing and
+// sends no email, so that the form can't be used to find out who has an
+// account. A real new user always has one identity (her email).
+//
+// Madam shows it anyway: "this email already has an account" (Pe'er, 13
+// November 2026), because the silent version left a real person waiting
+// for an email that never comes. The cost is accepted and written down in
+// docs/tech-stack.md §4: anyone can learn from the sign-up form whether an
+// address has an account.
+export function alreadyRegistered(
+  user: { identities?: unknown[] | null } | null | undefined,
+): boolean {
+  return (
+    user != null &&
+    Array.isArray(user.identities) &&
+    user.identities.length === 0
+  );
+}
+
+export const ALREADY_REGISTERED =
+  "This email already has an account. Log in instead.";
+
+// How long "Send it again" stays switched off after an email was sent.
+// Supabase has its own limit per address; this one saves the round trip and
+// tells her how long is left.
+export const RESEND_WAIT_SECONDS = 60;
+
+// Whole seconds from now until a moment, never below zero. Both are
+// milliseconds, as Date.now() gives them.
+export function secondsUntil(nowMs: number, momentMs: number): number {
+  return Math.max(0, Math.ceil((momentMs - nowMs) / 1000));
+}
+
+export function resendWaitText(seconds: number): string {
+  return `You can send it again in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`;
+}

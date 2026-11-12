@@ -1,15 +1,20 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, LinkButton } from "../components/Button.tsx";
 import { FormError, Notice, Screen } from "../components/Screen.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { authClient } from "../lib/auth.ts";
 import {
+  ALREADY_REGISTERED,
   MIN_PASSWORD_LENGTH,
   OFFLINE,
+  RESEND_WAIT_SECONDS,
+  alreadyRegistered,
   emailProblem,
   inviteCodeProblem,
   newPasswordProblem,
+  resendWaitText,
+  secondsUntil,
   sendEmailProblem,
   signUpProblem,
 } from "../lib/authText.ts";
@@ -53,7 +58,7 @@ export function SignUpPage() {
     try {
       const auth = await authClient();
       const address = email.trim();
-      const { error } = await auth.signUp({
+      const { data, error } = await auth.signUp({
         email: address,
         password,
         // Travels to the hook as user_metadata.invite_code. The page clears
@@ -67,6 +72,11 @@ export function SignUpPage() {
         } else {
           setErrors({ [field]: message });
         }
+        return;
+      }
+      if (alreadyRegistered(data.user)) {
+        // Nothing was created and no email was sent (authText.ts).
+        setErrors({ email: ALREADY_REGISTERED });
         return;
       }
       setSentTo(address);
@@ -134,13 +144,30 @@ export function SignUpPage() {
   );
 }
 
-// After a sign-up was accepted. The same screen whether or not the address
-// already had an account: Supabase answers both the same way, so nobody can
-// use this form to find out who has one.
+// After a sign-up was accepted: the confirmation email is on its way.
+// "Send it again" is switched off for a minute after each email, the first
+// included, with the time left shown.
 function CheckYourEmail({ address }: { address: string }) {
   const [note, setNote] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // When sending again becomes possible, and the clock that counts down to
+  // it. Both in milliseconds.
+  const [availableAt, setAvailableAt] = useState(
+    () => Date.now() + RESEND_WAIT_SECONDS * 1000,
+  );
+  const [now, setNow] = useState(() => Date.now());
+  const wait = secondsUntil(now, availableAt);
+  const waiting = wait > 0;
+
+  // Tick once a second, only while there is something to count down.
+  useEffect(() => {
+    if (!waiting) {
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [waiting]);
 
   async function sendAgain() {
     setBusy(true);
@@ -153,6 +180,8 @@ function CheckYourEmail({ address }: { address: string }) {
         setProblem(sendEmailProblem(error));
       } else {
         setNote("Sent again.");
+        setAvailableAt(Date.now() + RESEND_WAIT_SECONDS * 1000);
+        setNow(Date.now());
       }
     } catch {
       setProblem(OFFLINE);
@@ -169,14 +198,26 @@ function CheckYourEmail({ address }: { address: string }) {
           confirm your address and finish creating your account. It works on any
           device.
         </p>
+        <p className="text-muted text-sm">
+          It can take a minute to arrive. If it isn't in your inbox, look in
+          spam.
+        </p>
         {note && <Notice>{note}</Notice>}
         {problem && <FormError>{problem}</FormError>}
         <div className="flex flex-wrap justify-between gap-x-6">
-          <LinkButton disabled={busy} onClick={() => void sendAgain()}>
+          <LinkButton
+            disabled={busy || waiting}
+            onClick={() => void sendAgain()}
+          >
             Send it again
           </LinkButton>
           <LinkButton onClick={() => navigate("/")}>Back to log in</LinkButton>
         </div>
+        {waiting && (
+          <p className="text-muted text-sm tabular-nums">
+            {resendWaitText(wait)}
+          </p>
+        )}
       </div>
     </Screen>
   );

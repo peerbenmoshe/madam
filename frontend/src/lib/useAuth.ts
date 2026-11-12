@@ -26,6 +26,12 @@ export function useAuth(): {
   const [state, setState] = useState<AuthState>({ status: "loading" });
   // Not state: changing it alone shouldn't re-render, and the event
   // handler below must read the current value, not the one it started with.
+  //
+  // Only how *this tab* was opened decides it. The client also announces
+  // PASSWORD_RECOVERY to every other open tab of the app, and those must
+  // not show the new-password screen: they would never hear that she
+  // finished, and would stay on it. (Seen on a phone: the reset link
+  // opened in the mail app's tab, and the Chrome tab behind it got stuck.)
   const recovering = useRef(arrivedByRecoveryLink);
 
   useEffect(() => {
@@ -48,12 +54,9 @@ export function useAuth(): {
           recovering.current = false;
         }
 
-        const { data } = auth.onAuthStateChange((event, session) => {
+        const { data } = auth.onAuthStateChange((_event, session) => {
           if (!active) {
             return;
-          }
-          if (event === "PASSWORD_RECOVERY") {
-            recovering.current = true;
           }
           if (session === null) {
             recovering.current = false;

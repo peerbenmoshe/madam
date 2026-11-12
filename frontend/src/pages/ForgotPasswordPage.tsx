@@ -55,6 +55,10 @@ export function ForgotPasswordPage() {
             If there's an account for <b className="break-all">{sentTo}</b>, a
             link to choose a new password is on its way. It works on any device.
           </p>
+          <p className="text-muted text-sm">
+            It can take a minute to arrive. If it isn't in your inbox, look in
+            spam, and check the address above.
+          </p>
           <div>
             <LinkButton onClick={() => navigate("/")}>
               Back to log in

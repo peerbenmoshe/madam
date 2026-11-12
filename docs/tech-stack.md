@@ -476,6 +476,45 @@ said something:
 Supabase token sent to a running server; a hook host that answers nothing at
 all (M9's open case).
 
+### After the first real use (13 November 2026)
+
+Pe'er signed up, confirmed, logged in, reset his password and logged out on
+production, on a phone and a computer. The log agrees: `GET /api/me`
+answered 200 seven times, so **the server has now verified real Supabase
+tokens**, and the hook allowed exactly one sign-up. What that test changed:
+
+- **Sign-up now says when an address already has an account** ("This email
+  already has an account. Log in instead."). This reverses the plan's "the
+  same answer either way" for sign-up only. Supabase itself hides it: for an
+  address with a confirmed account it answers "success" with a made-up user
+  that has **no identities**, creates nothing and sends no email. The page
+  recognises that answer (`alreadyRegistered` in
+  `frontend/src/lib/authText.ts`). Chosen by Pe'er because the silent
+  version left a real person waiting for an email that never comes.
+  **Accepted cost:** anyone can learn from the sign-up form whether an
+  address has an account, and the log suggests the invite code isn't needed
+  for that (the second sign-up never reached our hook; one observation).
+  For an app about fertility that is a real disclosure; revisit it before
+  sign-up opens beyond the invite code (`spec-v1.md` §15).
+- **Password reset still gives one answer for every address.** Supabase
+  answers 200 either way (measured), so the page can't know. Telling would
+  need a server endpoint with an admin key whose only job is to answer
+  "does this address exist": rejected.
+- **A reset link opened in another tab stranded the first tab** on "Choose a
+  new password". The link opened in the mail app's own tab, which shares
+  storage with Chrome. The client announces `PASSWORD_RECOVERY` to every
+  open tab, and the page treated the announcement as "this tab is
+  recovering". Now only how *this* tab was opened decides
+  (`arrivedByRecoveryLink`). Reproduced on production with two tabs, then
+  seen fixed.
+- **"Send it again" waits 60 seconds** after each email, the first included,
+  and shows the time left. Supabase has its own limit per address.
+- **The confirmation email landed in spam.** It is sent through Gmail's own
+  servers, so the likely causes are a new sender and a short message with
+  one link to `supabase.co` (*not measured*). Both "check your email"
+  screens now say to look in spam. The real fix is a domain of our own with
+  a transactional sender (rejected for now, above).
+
 ### Rejected, and when each would win
 
 | Option | Type | Its sweet spot |
