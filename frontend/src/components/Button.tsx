@@ -51,7 +51,7 @@ export function LinkButton({
   return (
     <button
       type={type}
-      className={`text-berry cursor-pointer py-2.5 font-bold underline decoration-[1.5px] underline-offset-[3px] ${className}`}
+      className={`text-berry cursor-pointer py-2.5 font-bold underline decoration-[1.5px] underline-offset-[3px] disabled:cursor-default disabled:opacity-50 ${className}`}
       {...rest}
     />
   );
