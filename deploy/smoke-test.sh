@@ -1,8 +1,9 @@
 #!/bin/sh
 # Checks that a running server routes, caches and protects as designed
 # (docs/tech-stack.md §8.4): the page and its deep links, the API, and that
-# nothing under /api/ ever falls through to the page. Read-only: GET requests
-# only. CI runs it against the image; run it against production by hand.
+# nothing under /api/ ever falls through to the page. It changes nothing: GET
+# requests, and one unsigned POST that the sign-up hook must refuse. CI runs
+# it against the image; run it against production by hand.
 #
 #   sh deploy/smoke-test.sh http://127.0.0.1:8080
 #   sh deploy/smoke-test.sh https://madam-966460417479.europe-west1.run.app
@@ -95,6 +96,23 @@ if [ "$status" = 401 ] && ! is_page && [ "$(header Cache-Control)" = no-store ];
 	pass "/api/me without a token: 401, no-store"
 else
 	fail "/api/me without a token: want 401 with no-store; got $status, $(header Cache-Control)"
+fi
+
+# The sign-up hook answers only requests signed by Supabase. Without a
+# signature it's 401, whatever the body says; a GET is 405.
+hook=/api/hooks/before-user-created
+status=$(fetch "$hook" -X POST -H 'Content-Type: application/json' \
+	--data '{"user":{"user_metadata":{"invite_code":"smoke-test"}}}')
+if [ "$status" = 401 ] && ! is_page && [ "$(header Cache-Control)" = no-store ]; then
+	pass "$hook unsigned: 401, no-store"
+else
+	fail "$hook unsigned: want 401 with no-store; got $status '$(head -c 80 "$tmp/body")'"
+fi
+status=$(fetch "$hook")
+if [ "$status" = 405 ] && ! is_page; then
+	pass "$hook GET: 405"
+else
+	fail "$hook GET: want 405; got $status"
 fi
 
 # Nothing under /api/ may reach the page.

@@ -146,13 +146,17 @@ jobs:
       # tests. The loop waits until the server answers, never a fixed time.
       # SUPABASE_URL must be set for the server to start. This address never
       # resolves (.invalid is reserved), and nothing asks it: the project's
-      # keys are fetched only for a request that carries a token.
+      # keys are fetched only for a request that carries a token. The hook's
+      # two values are throwaway too (the key is base64 for
+      # "ci-hook-secret"); the smoke test only sends it an unsigned request.
       - name: Smoke test image
         working-directory: .
         run: |
           docker run -d --name smoke --network host \
             -e DATABASE_URL="$MADAM_TEST_DATABASE_URL" \
-            -e SUPABASE_URL=https://supabase.invalid madam-server:ci
+            -e SUPABASE_URL=https://supabase.invalid \
+            -e INVITE_CODE=ci-invite-code \
+            -e AUTH_HOOK_SECRET=v1,whsec_Y2ktaG9vay1zZWNyZXQ= madam-server:ci
           for _ in $(seq 1 50); do
             curl -s -o /dev/null http://127.0.0.1:8080/api/health && break
             sleep 0.2

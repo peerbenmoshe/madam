@@ -19,6 +19,9 @@ var fakeFrontend = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request)
 // user store is nil: no request gets past RequireUser to use it.
 var noAuth = stubAuthenticator{err: errors.New("no token")}
 
+// noHook stands in for the sign-up hook in routers whose tests don't call it.
+var noHook = http.NotFoundHandler()
+
 // No path under /api/ may ever reach the frontend.
 func TestAPIPathsNeverReachFrontend(t *testing.T) {
 	tests := []struct {
@@ -41,7 +44,7 @@ func TestAPIPathsNeverReachFrontend(t *testing.T) {
 		{http.MethodPost, "/api/me", http.StatusMethodNotAllowed},
 	}
 
-	router := NewRouter(fakeDB{}, nil, noAuth, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, noHook, fakeFrontend)
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -77,7 +80,7 @@ func TestOtherPathsReachFrontend(t *testing.T) {
 		{http.MethodDelete, "/day/2026-11-06", http.StatusMethodNotAllowed, false},
 	}
 
-	router := NewRouter(fakeDB{}, nil, noAuth, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, noHook, fakeFrontend)
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -96,7 +99,7 @@ func TestOtherPathsReachFrontend(t *testing.T) {
 }
 
 func TestSecurityHeadersEverywhere(t *testing.T) {
-	router := NewRouter(fakeDB{}, nil, noAuth, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, noHook, fakeFrontend)
 	for _, path := range []string{"/", "/api/health", "/api/nope"} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
