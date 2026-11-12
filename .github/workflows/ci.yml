@@ -160,6 +160,7 @@ jobs:
           docker run -d --name smoke --network host \
             -e DATABASE_URL="$MADAM_TEST_DATABASE_URL" \
             -e SUPABASE_URL=https://supabase.invalid \
+            -e SUPABASE_PUBLISHABLE_KEY=sb_publishable_ci \
             -e INVITE_CODE=ci-invite-code \
             -e AUTH_HOOK_SECRET=v1,whsec_Y2ktaG9vay1zZWNyZXQ= madam-server:ci
           for _ in $(seq 1 50); do

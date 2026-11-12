@@ -101,7 +101,8 @@ The app only reads `DATABASE_URL`, which the Makefile sets from `DB`. The
 server also needs `SUPABASE_URL`, the project whose tokens it accepts: locally
 always madam-dev's (`MADAM_DEV_SUPABASE_URL` in `.env`, with `DB=local` too,
 because the local container has no Auth), and production's is a flag in
-`make deploy`. No `DB` value points at production. The one way to reach it is
+`make deploy`. The same goes for that project's publishable key
+(`MADAM_DEV_PUBLISHABLE_KEY`). No `DB` value points at production. The one way to reach it is
 `make migrate-prod`, a separate target that asks you to type `madam-prod`.
 Names are in `.env.example`.
 
@@ -310,9 +311,11 @@ hand-edit generated code.
   invite-code spike). The typed code also stays in `user_metadata` and in
   every access token. Its own user can edit `user_metadata`, so never treat
   it as evidence of anything.
-- **The server needs four values to start:** `DATABASE_URL`, `SUPABASE_URL`,
-  `INVITE_CODE` and `AUTH_HOOK_SECRET`. Locally the Makefile supplies the
-  last two as throwaway values. A new one must also reach `make deploy`,
+- **The server needs five values to start:** `DATABASE_URL`, `SUPABASE_URL`,
+  `SUPABASE_PUBLISHABLE_KEY`, `INVITE_CODE` and `AUTH_HOOK_SECRET`. Locally
+  the Makefile supplies the last two as throwaway values. The publishable key
+  is served to every visitor (`/api/config`), so the server refuses anything
+  that doesn't start with `sb_publishable_`: never a secret key. A new one must also reach `make deploy`,
   `make docker-run` and CI's smoke-test step, or the image won't start there.
 - **A token the server can't check is a 503, not a 401.** That happens only
   when Supabase's keys were never fetched (`ErrAuthUnavailable`). If

@@ -19,6 +19,15 @@ var fakeFrontend = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request)
 // user store is nil: no request gets past RequireUser to use it.
 var noAuth = stubAuthenticator{err: errors.New("no token")}
 
+// testConfig is the public configuration of the tests' made-up project.
+var testConfig = func() PublicConfig {
+	cfg, err := NewPublicConfig(testSupabaseURL, "sb_publishable_test-key_1")
+	if err != nil {
+		panic(err)
+	}
+	return cfg
+}()
+
 // noHook stands in for the sign-up hook in routers whose tests don't call it.
 var noHook = http.NotFoundHandler()
 
@@ -38,13 +47,16 @@ func TestAPIPathsNeverReachFrontend(t *testing.T) {
 		{http.MethodPost, "/api/nope", http.StatusNotFound},
 		{http.MethodPost, "/api/health", http.StatusMethodNotAllowed},
 		{http.MethodGet, "/api/health", http.StatusOK},
+		{http.MethodGet, "/api/config", http.StatusOK},
+		{http.MethodPost, "/api/config", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/api/config/extra", http.StatusNotFound},
 		// Behind RequireUser: without a valid token, 401 and nothing else.
 		{http.MethodGet, "/api/me", http.StatusUnauthorized},
 		{http.MethodGet, "/api/me/extra", http.StatusNotFound},
 		{http.MethodPost, "/api/me", http.StatusMethodNotAllowed},
 	}
 
-	router := NewRouter(fakeDB{}, nil, noAuth, noHook, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, noHook, testConfig, fakeFrontend)
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -80,7 +92,7 @@ func TestOtherPathsReachFrontend(t *testing.T) {
 		{http.MethodDelete, "/day/2026-11-06", http.StatusMethodNotAllowed, false},
 	}
 
-	router := NewRouter(fakeDB{}, nil, noAuth, noHook, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, noHook, testConfig, fakeFrontend)
 	for _, tc := range tests {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -99,13 +111,13 @@ func TestOtherPathsReachFrontend(t *testing.T) {
 }
 
 func TestSecurityHeadersEverywhere(t *testing.T) {
-	router := NewRouter(fakeDB{}, nil, noAuth, noHook, fakeFrontend)
+	router := NewRouter(fakeDB{}, nil, noAuth, noHook, testConfig, fakeFrontend)
 	for _, path := range []string{"/", "/api/health", "/api/nope"} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 
 		for header, want := range map[string]string{
-			"Content-Security-Policy":    contentSecurityPolicy,
+			"Content-Security-Policy":    contentSecurityPolicy(testSupabaseURL),
 			"X-Content-Type-Options":     "nosniff",
 			"Referrer-Policy":            "no-referrer",
 			"Cross-Origin-Opener-Policy": "same-origin",

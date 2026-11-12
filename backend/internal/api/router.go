@@ -14,14 +14,15 @@ import (
 // (internal/web).
 //
 // db answers the health check, users is the way to user data, auth says
-// which user a request is for, and signUpHook answers Supabase Auth's "before
-// user created" hook. In the server, db and users are the same *db.Store.
-func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook, frontend http.Handler) http.Handler {
+// which user a request is for, signUpHook answers Supabase Auth's "before
+// user created" hook, and cfg is what the page is told about Supabase. In
+// the server, db and users are the same *db.Store.
+func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.Handler, cfg PublicConfig, frontend http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
-	r.Use(securityHeaders)
+	r.Use(securityHeaders(cfg.supabaseOrigin))
 
 	r.Route("/api", func(r chi.Router) {
 		r.Use(noStore)
@@ -38,6 +39,9 @@ func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook, front
 		// Not the conventional /healthz: Cloud Run reserves some paths ending
 		// in "z" and never forwards them to the container.
 		r.Get("/health", handleHealth(db, healthTimeout))
+
+		// Public: the page asks before anyone is signed in.
+		r.Get("/config", handleConfig(cfg))
 
 		// Called by Supabase Auth, not by a browser, so it can't be behind
 		// RequireUser: the handler checks Supabase's signature itself, before
