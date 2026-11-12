@@ -458,8 +458,8 @@ only, `madam-run` the only reader of each. Active versions: **4 of the free
 6**. `make deploy` now passes three secrets and one plain variable.
 
 **How the tests were checked.** For each check in the verifier, the route
-and the hook, the check was removed and a test had to fail (34 deliberate
-breakages over the three PRs). Four went unnoticed at first, and each miss
+and the hook, the check was removed and a test had to fail (35 deliberate
+breakages over the three PRs). Three went unnoticed at first, and each miss
 said something:
 - Removing the algorithm allow-list changed no outcome, because the library
   refuses `none` and HS256 for an ECDSA key by itself. The allow-list's own
@@ -468,8 +468,9 @@ said something:
 - A token with no `kid` was refused anyway (it is never in the key set); the
   same assertion covers it.
 - The oversized key set had no keys in it, so it failed for that reason.
-- Without the explicit size check, an oversized key set is still refused:
-  the capped read cuts the JSON short. That one stays undetectable.
+  With a valid key inside, removing the explicit size check still changes
+  nothing: the capped read cuts the JSON short, so it is refused either way.
+  That one stays undetectable; the cap itself holds.
 
 **Not measured yet:** a sign-up with the right code on production; a real
 Supabase token sent to a running server; a hook host that answers nothing at
