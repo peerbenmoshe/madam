@@ -1,21 +1,18 @@
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Button, LinkButton } from "../components/Button.tsx";
-import { FormError, Notice, Screen } from "../components/Screen.tsx";
+import { FormError, Screen } from "../components/Screen.tsx";
+import { SendAgain } from "../components/SendAgain.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { authClient } from "../lib/auth.ts";
 import {
   ALREADY_REGISTERED,
-  MIN_PASSWORD_LENGTH,
   OFFLINE,
-  RESEND_WAIT_SECONDS,
+  PASSWORD_RULE,
   alreadyRegistered,
   emailProblem,
   inviteCodeProblem,
   newPasswordProblem,
-  resendWaitText,
-  secondsUntil,
-  sendEmailProblem,
   signUpProblem,
 } from "../lib/authText.ts";
 import { navigate } from "../lib/router.ts";
@@ -26,7 +23,8 @@ import { navigate } from "../lib/router.ts";
 // Then the address must be confirmed from the email Supabase sends.
 
 type FieldErrors = {
-  email?: string;
+  // A node, not only text: "already has an account" carries a link.
+  email?: ReactNode;
   password?: string;
   invite?: string;
 };
@@ -75,8 +73,19 @@ export function SignUpPage() {
         return;
       }
       if (alreadyRegistered(data.user)) {
-        // Nothing was created and no email was sent (authText.ts).
-        setErrors({ email: ALREADY_REGISTERED });
+        // Nothing was created and no email was sent (authText.ts). The way
+        // out is a link she chooses, not a jump: a mistyped address that
+        // happens to be someone else's shouldn't throw her off the form.
+        setErrors({
+          email: (
+            <>
+              {ALREADY_REGISTERED}{" "}
+              <LinkButton inline onClick={() => navigate("/")}>
+                Log in instead
+              </LinkButton>
+            </>
+          ),
+        });
         return;
       }
       setSentTo(address);
@@ -114,7 +123,7 @@ export function SignUpPage() {
           type="password"
           name="new-password"
           autoComplete="new-password"
-          hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+          hint={PASSWORD_RULE}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           error={errors.password}
@@ -145,79 +154,28 @@ export function SignUpPage() {
 }
 
 // After a sign-up was accepted: the confirmation email is on its way.
-// "Send it again" is switched off for a minute after each email, the first
-// included, with the time left shown.
 function CheckYourEmail({ address }: { address: string }) {
-  const [note, setNote] = useState<string | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // When sending again becomes possible, and the clock that counts down to
-  // it. Both in milliseconds.
-  const [availableAt, setAvailableAt] = useState(
-    () => Date.now() + RESEND_WAIT_SECONDS * 1000,
-  );
-  const [now, setNow] = useState(() => Date.now());
-  const wait = secondsUntil(now, availableAt);
-  const waiting = wait > 0;
-
-  // Tick once a second, only while there is something to count down.
-  useEffect(() => {
-    if (!waiting) {
-      return;
-    }
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [waiting]);
-
   async function sendAgain() {
-    setBusy(true);
-    setNote(null);
-    setProblem(null);
-    try {
-      const auth = await authClient();
-      const { error } = await auth.resend({ type: "signup", email: address });
-      if (error) {
-        setProblem(sendEmailProblem(error));
-      } else {
-        setNote("Sent again.");
-        setAvailableAt(Date.now() + RESEND_WAIT_SECONDS * 1000);
-        setNow(Date.now());
-      }
-    } catch {
-      setProblem(OFFLINE);
-    } finally {
-      setBusy(false);
-    }
+    const auth = await authClient();
+    const { error } = await auth.resend({ type: "signup", email: address });
+    return error;
   }
 
   return (
     <Screen title="Check your email">
       <div className="grid gap-6">
         <p>
-          We sent a link to <b className="break-all">{address}</b>. Open it to
-          confirm your address and finish creating your account. It works on any
-          device.
+          We sent a link to <b className="wrap-anywhere">{address}</b>. Open it
+          to confirm your address and finish creating your account. It works on
+          any device.
         </p>
         <p className="text-muted text-sm">
           It can take a minute to arrive. If it isn't in your inbox, look in
           spam.
         </p>
-        {note && <Notice>{note}</Notice>}
-        {problem && <FormError>{problem}</FormError>}
-        <div className="flex flex-wrap justify-between gap-x-6">
-          <LinkButton
-            disabled={busy || waiting}
-            onClick={() => void sendAgain()}
-          >
-            Send it again
-          </LinkButton>
+        <SendAgain send={sendAgain}>
           <LinkButton onClick={() => navigate("/")}>Back to log in</LinkButton>
-        </div>
-        {waiting && (
-          <p className="text-muted text-sm tabular-nums">
-            {resendWaitText(wait)}
-          </p>
-        )}
+        </SendAgain>
       </div>
     </Screen>
   );

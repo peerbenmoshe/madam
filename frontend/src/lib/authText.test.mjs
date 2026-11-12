@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const {
+  ALREADY_REGISTERED,
   MIN_PASSWORD_LENGTH,
+  PASSWORD_RULE,
   RESEND_WAIT_SECONDS,
   TRY_AGAIN,
   alreadyRegistered,
@@ -74,6 +76,8 @@ const HOOK_DOWN = {
   code: "unexpected_failure",
   message: "Unexpected status code returned from hook: 503",
 };
+const WEAK_TEXT =
+  "Choose a stronger password: at least 8 characters, with a letter and a digit.";
 const SAME = {
   name: "AuthApiError",
   status: 422,
@@ -103,23 +107,43 @@ test("emailProblem catches the obvious slips only", () => {
   }
 });
 
-test("newPasswordProblem asks for 8 characters and refuses what bcrypt would cut", () => {
+test("newPasswordProblem: 8 characters, a letter and a digit, and nothing bcrypt would cut", () => {
+  const COMPOSITION = "Include at least one letter (a–z) and one digit.";
   assert.equal(MIN_PASSWORD_LENGTH, 8);
-  assert.equal(newPasswordProblem("1234567"), "Use at least 8 characters.");
-  assert.equal(newPasswordProblem(""), "Use at least 8 characters.");
-  assert.equal(newPasswordProblem("12345678"), null);
-  // Spaces count, and nothing is trimmed: a password is exactly what was typed.
-  assert.equal(newPasswordProblem("  1234  "), null);
-  assert.equal(newPasswordProblem("a".repeat(72)), null);
   assert.equal(
-    newPasswordProblem("a".repeat(73)),
+    PASSWORD_RULE,
+    "At least 8 characters, with a letter and a digit.",
+  );
+
+  // Length is checked first, so a short password hears about length.
+  assert.equal(newPasswordProblem(""), "Use at least 8 characters.");
+  assert.equal(newPasswordProblem("abc1234"), "Use at least 8 characters.");
+  assert.equal(newPasswordProblem("abcd1234"), null);
+
+  // Long enough, but only one kind of character.
+  assert.equal(newPasswordProblem("12345678"), COMPOSITION);
+  assert.equal(newPasswordProblem("abcdefgh"), COMPOSITION);
+  assert.equal(newPasswordProblem("!!!!!!!!"), COMPOSITION);
+  // Either case of letter counts, and one of each is enough.
+  assert.equal(newPasswordProblem("ABCDEFG1"), null);
+  assert.equal(newPasswordProblem("1234567z"), null);
+  // A letter means a to z, as Supabase counts it: Hebrew letters and
+  // digits alone don't pass, and adding one a-z letter does.
+  assert.equal(newPasswordProblem("שלוםעולם12"), COMPOSITION);
+  assert.equal(newPasswordProblem("שלוםעולם1a"), null);
+  // Spaces count, and nothing is trimmed: a password is exactly what was typed.
+  assert.equal(newPasswordProblem("  a1    "), null);
+
+  // 72 is bytes, not characters.
+  assert.equal(newPasswordProblem("a1".repeat(36)), null);
+  assert.equal(
+    newPasswordProblem("a1".repeat(36) + "a"),
     "That password is too long. Use a shorter one.",
   );
-  // 72 is bytes, not characters. 25 Hebrew letters are 50 bytes; 25 euro
-  // signs are 75.
-  assert.equal(newPasswordProblem("ש".repeat(25)), null);
+  // 24 Hebrew letters are 48 bytes; 24 euro signs are 72. Plus "a1".
+  assert.equal(newPasswordProblem("ש".repeat(24) + "a1"), null);
   assert.equal(
-    newPasswordProblem("€".repeat(25)),
+    newPasswordProblem("€".repeat(24) + "a1"),
     "That password is too long. Use a shorter one.",
   );
 });
@@ -137,7 +161,7 @@ test("signUpProblem puts each failure under the right field", () => {
   });
   assert.deepEqual(signUpProblem(WEAK), {
     field: "password",
-    message: "Choose a longer password.",
+    message: WEAK_TEXT,
   });
   assert.deepEqual(signUpProblem(BAD_EMAIL), {
     field: "email",
@@ -194,7 +218,7 @@ test("sendEmailProblem and setPasswordProblem", () => {
   assert.equal(sendEmailProblem(HOOK_DOWN), TRY_AGAIN);
 
   assert.match(setPasswordProblem(SAME), /current password/);
-  assert.equal(setPasswordProblem(WEAK), "Choose a longer password.");
+  assert.equal(setPasswordProblem(WEAK), WEAK_TEXT);
   assert.match(setPasswordProblem(NO_SESSION), /link has expired/);
   assert.match(setPasswordProblem(OFFLINE), /Can't reach the server/);
   assert.equal(setPasswordProblem(HOOK_DOWN), TRY_AGAIN);
@@ -228,6 +252,8 @@ test("no message ever repeats Supabase's own words", () => {
 });
 
 test("alreadyRegistered recognises Supabase's made-up success", () => {
+  // The screen adds a "Log in instead" link after this sentence.
+  assert.equal(ALREADY_REGISTERED, "This email already has an account.");
   // What Supabase sends for an address that already has a confirmed account.
   assert.equal(
     alreadyRegistered({ id: "x", email: "a@b.co", identities: [] }),

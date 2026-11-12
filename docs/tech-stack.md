@@ -517,6 +517,32 @@ tokens**, and the hook allowed exactly one sign-up. What that test changed:
   one link to `supabase.co` (*not measured*). Both "check your email"
   screens now say to look in spam. The real fix is a domain of our own with
   a transactional sender (rejected for now, above).
+- **Follow-ups from the same test** (13 November 2026):
+  - "Log in instead" is a **link inside the message**, not a jump: a
+    mistyped address that happens to be someone else's shouldn't throw her
+    off the form.
+  - The reset screen has **"Send it again" too**, the same piece as on
+    sign-up (`frontend/src/components/SendAgain.tsx`).
+  - **A new password needs a letter and a digit** as well as 8 characters
+    (Pe'er: mild on purpose). The page counts a letter as a to z, which is
+    what Supabase's "letters and digits" setting is believed to count
+    (*from its server's settings, not measured*), so the page is never laxer
+    than Supabase. **Order:** the page's rule is deployed first, then the
+    dashboard setting is switched on (Authentication → Sign In / Providers
+    → Email → password requirements), so the page explains the rule before
+    Supabase enforces it. Minimum length is already 8 there.
+  - The page checks what it can by itself (shape of the email, the
+    password rule, a code present) before it sends anything, so "already
+    has an account" can only appear once the form is otherwise complete.
+    A second observation confirms the invite code isn't consulted for an
+    existing address: any code gives that message.
+- **A mistyped address sends the link to a stranger.** `name+tag@` is a
+  plus-address of `name@`, so the plus goes after the *whole* username. A
+  sign-up test with the plus in the wrong place sent two confirmation
+  emails to someone else's mailbox and left an unconfirmed account, deleted
+  by hand in the dashboard. It is the ordinary mistyped-address case, and
+  what the email's "Didn't create an account?" line is for. The "check
+  your email" screens show the address in bold for the same reason.
 
 ### Rejected, and when each would win
 

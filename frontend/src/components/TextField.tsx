@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 
 // A labelled one-line input: email, password, invite code
 // (docs/design-brief.md §5). The text is 16px, because iOS zooms the page
@@ -14,8 +14,9 @@ type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "id"> & {
   // Help shown under the input, until an error takes its place.
   hint?: string;
   // What is wrong with the value. Shown in the danger colour, announced by
-  // screen readers, and marks the input invalid.
-  error?: string;
+  // screen readers, and marks the input invalid. Usually text; it may hold
+  // a link to the way out.
+  error?: ReactNode;
 };
 
 export function TextField({

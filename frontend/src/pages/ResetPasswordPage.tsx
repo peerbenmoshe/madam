@@ -5,8 +5,8 @@ import { FormError, Screen } from "../components/Screen.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { authClient } from "../lib/auth.ts";
 import {
-  MIN_PASSWORD_LENGTH,
   OFFLINE,
+  PASSWORD_RULE,
   newPasswordProblem,
   setPasswordProblem,
 } from "../lib/authText.ts";
@@ -60,7 +60,7 @@ export function ResetPasswordPage({ onDone }: { onDone: () => void }) {
           type="password"
           name="new-password"
           autoComplete="new-password"
-          hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+          hint={PASSWORD_RULE}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           error={passwordError ?? undefined}

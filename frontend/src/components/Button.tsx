@@ -43,15 +43,20 @@ export function Button({
 }
 
 // A button that reads as a link: "Forgot password?", "Create account".
+//
+// Standing alone it has 10px of padding above and below, for a comfortable
+// tap. `inline` drops that, for a link inside a sentence; it then takes the
+// sentence's own colour and size.
 export function LinkButton({
   type = "button",
+  inline = false,
   className = "",
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}: ButtonHTMLAttributes<HTMLButtonElement> & { inline?: boolean }) {
   return (
     <button
       type={type}
-      className={`text-berry cursor-pointer py-2.5 font-bold underline decoration-[1.5px] underline-offset-[3px] disabled:cursor-default disabled:opacity-50 ${className}`}
+      className={`${inline ? "" : "text-berry py-2.5"} cursor-pointer font-bold underline decoration-[1.5px] underline-offset-[3px] disabled:cursor-default disabled:opacity-50 ${className}`}
       {...rest}
     />
   );
