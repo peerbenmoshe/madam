@@ -22,8 +22,14 @@ async function requestLink(address: string) {
 // Ask for a password-reset link. The answer is the same whether or not the
 // address has an account (Supabase's is too: measured), so this form can't
 // be used to find out who has one.
-export function ForgotPasswordPage() {
-  const [email, setEmail] = useState("");
+type Props = {
+  // The address being typed, shared by the signed-out screens (App.tsx) so
+  // it follows her between them: it arrives filled in from Log in.
+  email: string;
+  onEmailChange: (email: string) => void;
+};
+
+export function ForgotPasswordPage({ email, onEmailChange }: Props) {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,7 +101,7 @@ export function ForgotPasswordPage() {
           autoCapitalize="none"
           spellCheck={false}
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => onEmailChange(event.target.value)}
           error={emailError ?? undefined}
         />
         {problem && <FormError>{problem}</FormError>}

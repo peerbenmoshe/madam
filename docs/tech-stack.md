@@ -525,9 +525,8 @@ tokens**, and the hook allowed exactly one sign-up. What that test changed:
     sign-up (`frontend/src/components/SendAgain.tsx`).
   - **A new password needs a letter and a digit** as well as 8 characters
     (Pe'er: mild on purpose). The page counts a letter as a to z, which is
-    what Supabase's "letters and digits" setting is believed to count
-    (*from its server's settings, not measured*), so the page is never laxer
-    than Supabase. **Order:** the page's rule is deployed first, then the
+    what Supabase's "letters and digits" setting counts (measured since:
+    below), so the page is never laxer than Supabase. **Order:** the page's rule is deployed first, then the
     dashboard setting is switched on (Authentication → Sign In / Providers
     → Email → password requirements), so the page explains the rule before
     Supabase enforces it. Minimum length is already 8 there.
@@ -543,6 +542,29 @@ tokens**, and the hook allowed exactly one sign-up. What that test changed:
   by hand in the dashboard. It is the ordinary mistyped-address case, and
   what the email's "Didn't create an account?" line is for. The "check
   your email" screens show the address in bold for the same reason.
+- **Supabase's password rule, measured** (13 November 2026, with "letters
+  and digits" switched on and the minimum at 8; refused sign-ups sent with
+  `curl`, a wrong invite code so nothing is created). Its refusal names the
+  sets itself: *"at least one character of each:
+  abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ, 0123456789"*. Hebrew
+  letters with digits: refused. The same with one English letter added:
+  accepted. So other alphabets are allowed there but never count.
+- **The page is stricter: a new password may hold only characters an
+  English keyboard types** (Pe'er). On a keyboard that switches between
+  Hebrew and English, choosing a password on the wrong language unnoticed
+  is how people lock themselves out, and choosing it is the one moment that
+  can be caught. Supabase has no such setting, so this rule lives in the
+  page only (`newPasswordProblem`). Cost: no Hebrew passphrases.
+- **Comforts on the sign-in screens**, from Pe'er's second round:
+  - The **email follows her between the signed-out screens** (log in,
+    create account, forgot password) and is forgotten once she is signed
+    in. It is state in one component that exists only while signed out.
+  - **Log in shows the password rule as a greyed reminder**, as a memory
+    aid for which password it was.
+  - **After three wrong passwords in a row**, Log in offers "Reset it by
+    email".
+  - **A wrong log-in typed with non-English characters** adds "Check that
+    your keyboard is set to English."
 
 ### Rejected, and when each would win
 

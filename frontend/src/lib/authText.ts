@@ -29,7 +29,7 @@ export const TRY_AGAIN = "Something went wrong. Try again.";
 // Supabase refused a password the page had let through: its settings are
 // stricter than the page knows. Say the whole rule.
 const WEAK_PASSWORD =
-  "Choose a stronger password: at least 8 characters, with a letter and a digit.";
+  "Choose a stronger password: at least 8 characters, with an English letter and a digit.";
 export const OFFLINE =
   "Can't reach the server. Check your connection and try again.";
 const TOO_MANY = "Too many attempts. Wait a few minutes and try again.";
@@ -48,22 +48,48 @@ export function emailProblem(email: string): string | null {
 }
 
 // The rule in one line, shown under the field before anything is typed.
-export const PASSWORD_RULE = `At least ${MIN_PASSWORD_LENGTH} characters, with a letter and a digit.`;
+export const PASSWORD_RULE = `At least ${MIN_PASSWORD_LENGTH} characters, with an English letter and a digit.`;
+
+// The same rule on the log-in screen, as a memory aid: knowing what a
+// password had to contain helps recall which one it was.
+export const PASSWORD_REMINDER = `Reminder: at least ${MIN_PASSWORD_LENGTH} characters, with an English letter and a digit.`;
+
+// English letters, digits, the usual symbols and the space: the characters
+// every keyboard layout can type (printable ASCII).
+const ENGLISH_KEYBOARD_ONLY = /^[\x20-\x7E]*$/;
+
+// True when a password holds a character an English keyboard doesn't type.
+// On a keyboard that switches between two languages, that almost always
+// means it was on the other one.
+export function typedOnAnotherKeyboard(password: string): boolean {
+  return !ENGLISH_KEYBOARD_ONLY.test(password);
+}
 
 // For a password being chosen (sign-up, reset), not one being typed to log in.
 //
-// A letter here is a to z, in either case: that is what Supabase's "letters
-// and digits" requirement counts (from its server's settings; the page is
-// then never laxer than Supabase, whatever Supabase accepts). The rule is
-// mild on purpose: it stops "12345678", not a determined bad password.
+// Measured against Supabase on 13 November 2026, with its "letters and
+// digits" requirement on: a letter is a to z in either case, a digit is 0
+// to 9, and the minimum is 8. Hebrew letters were allowed but never
+// counted, so "Hebrew letters and digits" was refused and adding one English
+// letter passed. The page is stricter, on purpose (Pe'er): **only**
+// characters an English keyboard types. Choosing a password with the
+// keyboard on the wrong language, unnoticed, is how people lock themselves
+// out, and this is the one moment it can be caught. The rule is mild
+// otherwise: it stops "12345678", not a determined bad password.
 export function newPasswordProblem(password: string): string | null {
+  // First, because it is the likeliest slip and the other messages would
+  // only confuse: "use 8 characters" about a password typed in Hebrew.
+  if (typedOnAnotherKeyboard(password)) {
+    return "Use English letters, digits and symbols only. Is your keyboard set to another language?";
+  }
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
   }
   if (!/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
-    return "Include at least one letter (a–z) and one digit.";
+    return "Include at least one English letter and one digit.";
   }
-  if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) {
+  // Every allowed character is one byte, so characters are bytes here.
+  if (password.length > MAX_PASSWORD_BYTES) {
     return "That password is too long. Use a shorter one.";
   }
   return null;
@@ -126,11 +152,15 @@ export function signUpProblem(failure: AuthFailure): SignUpProblem {
   return { field: "form", message: TRY_AGAIN };
 }
 
-export function logInProblem(failure: AuthFailure): string {
+// password: what was typed, only to notice a keyboard on another language.
+export function logInProblem(failure: AuthFailure, password = ""): string {
   if (failure.code === "invalid_credentials") {
     // The same words whether the address is unknown or the password is
     // wrong, as Supabase answers both the same way.
-    return "Wrong email or password.";
+    const wrong = "Wrong email or password.";
+    return typedOnAnotherKeyboard(password)
+      ? `${wrong} Check that your keyboard is set to English.`
+      : wrong;
   }
   if (failure.code === "email_not_confirmed") {
     return "Confirm your email first: open the link we sent you.";
@@ -142,6 +172,14 @@ export function logInProblem(failure: AuthFailure): string {
     return OFFLINE;
   }
   return TRY_AGAIN;
+}
+
+// After this many wrong passwords in a row, the log-in screen offers the
+// way out: reset it by email.
+export const WRONG_ATTEMPTS_BEFORE_RESET_OFFER = 3;
+
+export function isWrongPassword(failure: AuthFailure): boolean {
+  return failure.code === "invalid_credentials";
 }
 
 // Asking for a reset link, or for the confirmation email again.
