@@ -31,7 +31,8 @@ the document is wrong, change it *first*, in the same PR, with the tests.
 ## Stack
 
 Go 1.27 with chi · Supabase PostgreSQL 17 (Frankfurt) · sqlc + pgx · goose
-migrations · Supabase Auth (JWT) · React 19 + TypeScript 6 + Tailwind 4 +
+migrations · Supabase Auth (ES256 tokens, verified with `golang-jwt`; the
+browser uses `@supabase/auth-js`) · React 19 + TypeScript 6 + Tailwind 4 +
 Vite 8 on Node 26 (Recharts 3.10.1, confirmed by the graph spike, is
 installed in Slice 6), embedded in the
 binary with `go:embed` · Google Cloud Run (`europe-west1`, Belgium) · GitHub
@@ -49,8 +50,13 @@ backend/
     web/             serves the embedded frontend; assets/ is build output
   migrations/        goose migrations, numbered, never edited once merged
 frontend/
-  src/               React app
+  src/
+    components/      the shared pieces of design-brief.md §5
+    pages/           one file per screen
+    lib/             no React: auth, API calls, dates, and every message's words
 deploy/              scripts: check-db-url.sh, smoke-test.sh
+  browser-check/     the sign-in screens driven in a real browser (by hand)
+  email/             the auth email templates; the dashboard holds the live copy
 docs/                the documents above
 ```
 
@@ -79,6 +85,7 @@ make db-down        # stop it (data kept); db-reset also deletes the data
 make image          # build the production image locally (docker-run also runs it)
 make deploy         # fallback: deploy the latest main from the laptop (CI deploys every merge)
 sh deploy/smoke-test.sh <url>   # routing, caching and headers of a running server (CI runs it on the image)
+sh deploy/browser-check/run.sh  # the screens in a real browser at phone width; needs `make docker-run` running
 gh workflow run keepalive.yml --ref main   # run the Supabase keepalive by hand (it runs 4× a day by itself)
 gh run list --workflow keepalive.yml       # its runs; add --event schedule for the scheduled ones only
 ```
@@ -325,6 +332,31 @@ hand-edit generated code.
 - **`docker run --network host` doesn't reach WSL under Docker Desktop.** It
   is the Docker VM's network. CI's Linux runner can use it; locally use the
   Compose network and `-p`, as `make docker-run` does.
+- **There is a browser: use it before asking Pe'er to look.** WSL has none,
+  but Chrome and Node on the Windows side drive one headless
+  (`deploy/browser-check/README.md`). UI was shipped unseen for several PRs
+  on the belief that there wasn't one, and the first screenshot showed a
+  layout bug. Point it at `make docker-run`, not `make dev`: only the image
+  sends the CSP.
+- **The page shares one session between tabs, and the auth client announces
+  events to all of them,** `PASSWORD_RECOVERY` included. Anything that is
+  true of one tab only (it was opened from a reset link) must come from that
+  tab's own address, never from the announcement (`lib/useAuth.ts`).
+- **Supabase hides things on purpose.** A sign-up for an existing address
+  "succeeds" with a user that has no identities, and never calls our hook; a
+  reset for an unknown address is a 200. It checks the password before the
+  hook, and its "letters" are a to z only. All measured (`tech-stack.md` §4).
+- **Every word the sign-in screens show is in `frontend/src/lib/authText.ts`**,
+  with tests. Supabase's own messages are never shown. The browser checks
+  look for these words, so changing one means changing it there too.
+- **A phone's date picker ignores `min` and `max`.** A computer's greys the
+  dates out. `DateBox` enforces its own limits; the server must too.
+- **Auth email comes from the dashboard, not the code:** Gmail SMTP and the
+  templates in `deploy/email/`, pasted in by hand. Supabase's built-in
+  sender only reaches the project's team members.
+- **Two merges close together make the first one's deploy job fail** with
+  "only the latest commit on main". That is the guard working: the second
+  run deploys both (`tech-stack.md` §7).
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
@@ -371,6 +403,17 @@ does not.
 Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.md`
 §5): the pgx/sqlc type mappings, `-infinity` round-tripping, table ownership,
 how Cloud Run connects (session pooler), and the Belgium–Frankfurt latency.
+
+Still open from Slice 2 (`docs/tech-stack.md` §4):
+- The hourly token refresh, watched over a real hour.
+- Whether iOS Safari clears the session after about a week unused.
+- A hook host that answers nothing at all (a timeout, not an error).
+- Whether the confirmation email still lands in spam.
+
+Answered in Slice 2 (`docs/tech-stack.md` §4): tokens verify against the
+project's JWKS (one ES256 key, cached 10 minutes, on both projects); a cold
+sign-up through the hook takes 2.35 s of its 5 s; the server has verified
+real tokens on production; AC-16 part one passes.
 
 Answered in 0d (`docs/data-model.md` §9, `docs/tech-stack.md` §5 and §7): the
 application role `madam_app`, created by migration `00002` without a password

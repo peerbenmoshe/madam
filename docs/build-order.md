@@ -55,6 +55,10 @@ _Amended in the Slice 2 plan (12 November 2026): Slice 2 is planned as
 several PRs, and the design foundation moves ahead of its frontend PR
 (below)._
 
+_Amended in Slice 2 (13 November 2026): Slice 2 and the design foundation
+are done. Slice 4 gains what Slice 2 learned about date pickers, and Slice 9
+what it decided about deleting the identity (both below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -458,6 +462,24 @@ measured is in `tech-stack.md` §4 (As built in Slice 2: the backend). Left:
 the design foundation, the frontend, and the final record with the
 `build-log.md` entry.
 
+**✅ Done (13 November 2026, PRs #28–#43).** A person with the invite code
+can create an account, confirm the address, log in, reset a password and log
+out, and stays logged in between visits. Pe'er did all of it on production,
+on two phones and a computer.
+- **AC-16 part one passes** (`TestIsolationThroughTheAPI`), and production
+  has verified real Supabase tokens (`GET /api/me`, 200).
+- **Two dependencies:** `golang-jwt/jwt/v5` in Go, `@supabase/auth-js` in
+  the page (+26 KB gzipped).
+- **Changed from the plan after real use:** sign-up names an address that
+  already has an account; a new password must be typed on an English
+  keyboard, 8 or more characters, with a letter and a digit.
+- **How the screens are checked:** `deploy/browser-check/`, a real browser
+  at phone width, by hand.
+
+What was built and measured is in `tech-stack.md` §4 (three sections: the
+backend, the frontend, and "After the first real use"); the story, with what
+went wrong, is in `build-log.md`.
+
 *The screens* (not in the mock, `design-brief.md` §10), one column, built
 from the foundation's components:
 - **Log in:** email, password, "Log in"; links to "Create account" and
@@ -516,6 +538,15 @@ validation — no future dates, the 35–39 °C question, the 20–50 °C reject
 no-temperature confirmation, one entry per date.
 
 *Acceptance criteria:* AC-4, AC-13, AC-14, AC-17.
+
+*From Slice 2 and the design foundation:*
+- **A phone's date picker ignores `min` and `max`** (measured on Android and
+  iPhone). The date box enforces its own limits and says why
+  (`design-brief.md` §9), and the server must refuse a future date whatever
+  the page does.
+- **Whose "today"?** The no-future-dates rule needs one answer before this
+  slice starts: the server's UTC date or the user's date in Israel. They
+  differ for two or three hours every night.
 
 *From the design step* (`design-brief.md` §6.3): the field order puts the
 "cycle starts on this day" switch directly under the temperature card. The
@@ -591,6 +622,12 @@ cycle list (`design-brief.md` §6.4).
 
 Units, the measurement-time change flow with its guardrails and history, log out,
 and account deletion (our data cascades, then the Supabase identity is deleted).
+
+*Decided in the Slice 2 plan* (`tech-stack.md` §4): the identity is deleted
+with a Supabase **secret key** kept in Secret Manager, used by one handler.
+It is the fifth active secret version of the six that are free. Our row
+goes first, then the identity. The sign-in screens' own "Log out" exists
+since Slice 2; this slice moves it into Settings.
 
 *Acceptance criteria:* AC-9.
 

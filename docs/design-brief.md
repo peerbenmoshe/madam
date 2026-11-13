@@ -379,9 +379,13 @@ cycle. It can't be undone.").
 - **The rows under the graph in Recharts** (§9). Slice 6.
 - **On a computer,** the spec puts the legend permanently in the top-right
   corner. The mock is phone-only, so the wide layout is still undrawn.
-- **Screens not drawn:** sign-up, onboarding, and the measurement-time
-  change flow. They use the components above. Slices 2, 3 and 9 sketch them
-  in their plans.
+- **Screens not drawn:** onboarding and the measurement-time change flow.
+  They use the components above; Slices 3 and 9 sketch them in their plans.
+  ~~Sign-up~~ was built in Slice 2 without a mock: Log in, Create account,
+  Forgot password, Choose a new password, and "Check your email", each one
+  column with a title, fields, one primary button and links
+  (`frontend/src/pages/`). Pe'er checked them on a phone. Their words are in
+  `frontend/src/lib/authText.ts`.
 - **The first user's readability check** on her phone at 07:00, before
   Slice 6 (`build-order.md` §6). Pe'er approves the design; her check is
   about readability, not taste.
