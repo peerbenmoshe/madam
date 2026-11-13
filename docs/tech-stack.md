@@ -479,6 +479,81 @@ said something:
 Supabase token sent to a running server; a hook host that answers nothing at
 all (M9's open case).
 
+### As built in Slice 2: the frontend (12–13 November 2026, PRs #36–#41)
+
+The browser half. With it, a person who has the invite code can create an
+account, confirm the address, log in, reset a password and log out.
+
+**What talks to what.** The browser calls Supabase Auth itself for every
+identity action and keeps the session. Our own API only ever receives the
+access token, as `Authorization: Bearer`, and takes the user's id from it.
+
+| Piece | File | What it does |
+|---|---|---|
+| Public configuration | `internal/api/config.go` | `GET /api/config` gives the page the project's URL and publishable key, so one build works locally and in production. The server **refuses to start with any key that doesn't begin `sb_publishable_`**: the value is handed to every visitor |
+| CSP | `internal/api/headers.go` | `connect-src 'self' <project>`, built from `SUPABASE_URL`. Only what `fetch` may reach changed; nothing may be loaded from Supabase |
+| The client | `frontend/src/lib/auth.ts` | One `GoTrueClient` from `@supabase/auth-js`, built with the Auth address and the `apikey` header |
+| The session | `lib/useAuth.ts` | Follows logging in and out, here or in another tab, and token refresh. Clears the invite code from the account after the first log-in and refreshes the token, so the code leaves it too |
+| Every message | `lib/authText.ts` | What is wrong with what was typed, and what each failure means, as plain functions with tests. Supabase's own messages are never shown |
+| Routing | `lib/router.ts` | 40 lines: the path in the address bar is the state. No router dependency |
+| Our API | `lib/api.ts` | Calls with the token. The signed-in page calls `GET /api/me` |
+
+**Dependency:** `@supabase/auth-js` **2.119.0**, exact, MIT, with one
+package of its own (`tslib` 2.8.1). **Cost, measured:** the script went from
+234.9 KB to 346.4 KB (73.4 KB to 99.5 KB gzipped), **+26 KB gzipped**,
+nearly all of it this package and features we don't use (OAuth,
+multi-factor, passkeys). After the later changes it is 348.7 KB (100.2 KB).
+Kept for the session handling; a hand-written client would be a few KB.
+
+**Verified in the package, not assumed:**
+- The default flow is `implicit`, which is what the plan wanted: an emailed
+  link carries the session after the `#`, so it works on another device.
+- A reset link raises `PASSWORD_RECOVERY`, and the client removes the tokens
+  from the address bar.
+- `AuthClient` is exported as a value only; the class usable as a type is
+  `GoTrueClient`.
+
+**Measured against Supabase** (with `curl` and the publishable key):
+- A wrong log-in is 400 `invalid_credentials`, the same for an unknown
+  address.
+- A reset for an unknown address is 200 with an empty body.
+- **Supabase checks the password and the email's format before it calls
+  our hook,** so those are reported before a wrong invite code.
+- The session survives closing the browser (`localStorage`, key
+  `madam.auth`). *Not measured:* the hourly token refresh over a real hour,
+  and iOS Safari clearing a site's storage after about a week unused.
+
+**Decisions made while building:**
+
+| Question | Choice | Why |
+|---|---|---|
+| Log out | This device only (`scope: "local"`) | Logging out on the phone shouldn't log out the computer. Checked on production |
+| A new password | Only characters an English keyboard types, at least 8, with a letter and a digit | Below, under "After the first real use" |
+| Over 72 characters | Refused | bcrypt reads 72 bytes and would silently ignore the rest |
+| An expired reset link | Never shows the new-password form, even when an older session in that browser is still good | The link proves nothing |
+| The old health-check page | Removed | Its job ended with Phase 0 |
+
+**How the screens were checked.** For most of the slice the UI was written
+without being seen, on the mistaken belief that this machine has no browser.
+It has: **Chrome on the Windows side**, driven headless over its debugging
+protocol by Windows' Node, at a 390px phone width, against the production
+image (`make docker-run`, so the real CSP) and madam-dev's real Supabase.
+The scripts are in `deploy/browser-check/` (90 checks). The first screenshot
+showed a control stretched across the screen; a later run reproduced a
+two-tab bug on production before the fix. Staged where real requests can't
+do it: Supabase's two answers to a sign-up, a second tab's announcement, and
+a minute passing.
+
+**Email.** Production sends through Gmail SMTP from a dedicated account,
+with templates kept in `deploy/email/`. They are warm and discreet: they say
+"Madam" and never what the app is for.
+
+**Checked by Pe'er on production**, on an Android phone, an iPhone and a
+computer: a wrong code is refused; the right one sends the email; the link
+logs in and "Your account is ready." appears (so `GET /api/me` accepted a
+real token); log-out on one device leaves the other logged in; a reset
+through the mail app's own tab works; a plus-address signs up as a new user.
+
 ### After the first real use (13 November 2026)
 
 Pe'er signed up, confirmed, logged in, reset his password and logged out on
@@ -1806,8 +1881,9 @@ open and should close by itself once the fix reaches `main`, as 0c′'s `cel-go`
 alert did. npm's suggested "fix" is a downgrade to ESLint 9.
 
 **Expected to change, not yet verified:**
-- `connect-src` gains the Supabase URL in Slice 2, if the browser calls
-  Supabase Auth itself.
+- ~~`connect-src` gains the Supabase URL in Slice 2, if the browser calls
+  Supabase Auth itself.~~ **Done in Slice 2:** it does, and `connect-src` is
+  `'self'` plus the project, built from `SUPABASE_URL` (§4).
 - ~~`style-src` may need loosening if the spike finds Recharts writing `style`
   attributes as markup.~~ **Settled by the graph spike:** it doesn't. Recharts
   writes styles through the DOM, as React's `style` prop does, which CSP

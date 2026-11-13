@@ -18,6 +18,11 @@ _Amended in the design step (8 November 2026), approved by Pe'er on a clickable 
 - _The day popup **steps through the days** and shows bleeding, secretion, notes and cycle starts (§9.3)._
 - _The stats show "based on N cycles" **once** (§10)._
 
+_Amended in Slice 2 (13 November 2026), decided by Pe'er after using the sign-in screens on production:_
+- _A **password** is at least 8 characters, typed on an English keyboard, with at least one letter and one digit (§2)._
+- _**Sign-up says when an address already has an account.** Password reset gives one answer for every address (§2, and §15 for when to revisit)._
+- _The user **stays logged in** on a device until she logs out there (§2)._
+
 ## 1. Purpose
 
 A mobile-friendly web app that replaces a paper FAM/BBT chart. v1 covers recording daily data, charting temperatures, and showing cycle-length statistics. It gives **no fertility verdicts** (interpretation level B).
@@ -30,6 +35,9 @@ The rules implemented are the ones from the paper chart the first user already f
 - There is **one shared invite code**. It lives in server configuration so it can be changed if it leaks.
 - Auth uses an established library or provider; no hand-rolled password handling.
 - Sign-up includes email verification, password reset, and log out.
+- A password has at least 8 characters, uses only what an English keyboard types (letters, digits, symbols), and includes at least one letter and one digit. The limit on characters is there because a keyboard left on Hebrew is the usual way to choose a password one can't type again.
+- Sign-up tells the user when the address already has an account, and offers to log in. Asking for a password reset gives the same answer for every address.
+- Logging in lasts: the user stays logged in on a device until she logs out there. Logging out on one device doesn't log out the others.
 - **Account deletion permanently wipes all of the user's data.**
 
 ## 3. Screens
@@ -267,4 +275,5 @@ Most of the original list is closed. Madam implements the first user's own paper
 What remains:
 
 - **Confirm the direction of the correction with the first user** — early adds, late subtracts. Currently an assumption; a sign error would be visibly wrong to someone who has charted by hand for months. Ten seconds to check, so check.
+- **Whether sign-up should reveal that an address has an account,** before opening sign-up publicly. Today it does (§2), which lets anyone learn whether a given address uses the app, and for this kind of app that is itself private. While sign-up needs the invite code the exposure is small. `docs/tech-stack.md` §4 has the reasoning.
 - **Legal and privacy check before opening sign-up publicly.** GDPR (health data is a special category) and Israel's Privacy Protection Law after Amendment 13. This is attached to public sign-up, not to v1: while the app is invite-gated with one user and an EU region, the exposure is minimal.

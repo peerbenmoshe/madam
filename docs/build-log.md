@@ -842,3 +842,112 @@ default, so the flag went.
 `madam-auth-hook-secret`), JWT verification against the JWKS (a dependency
 decision), whether to clear the stored code, and the production dashboard
 settings in `tech-stack.md` §4.
+
+---
+
+## Slice 2 — Auth (12–13 November 2026, PRs #28–#43)
+
+**Goal.** Real identities: Supabase Auth in the browser, a JWT verifier in Go
+replacing the 0d test stub, the invite code enforced at sign-up, email
+confirmation, password reset and log out. Done when AC-16 part one passes:
+no API request from user A reaches user B's data.
+
+**How it was done.** One plan, then small PRs, backend first: the verifier,
+`GET /api/me` with the AC-16 test, and the hook. Then the design foundation,
+moved ahead of the screens so they'd be built once. Then `/api/config` and
+the screens. Then two rounds of fixes from Pe'er using the real thing on his
+phone. Each PR was measured on the built image before it was opened, and
+production was read back after each deploy.
+
+**Decisions** (details in `tech-stack.md` §4, `design-brief.md` §5 and §9–§10):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Verifying tokens | `golang-jwt/jwt/v5`, plus our own 60-line key cache | Parsing and the algorithm allow-list are where homemade bugs live; fetching keys is not |
+| Our `users` row | Created by the first authenticated `GET /api/me` | Idempotent, under the existing policy, no migration |
+| The hook | Always HTTP 200; logs carry no personal data; both secrets required at startup | Measured in the spike; a missing secret must fail loudly |
+| The browser's client | `@supabase/auth-js` | Session, refresh and tabs are solved there. Costs 26 KB gzipped |
+| The page's configuration | `GET /api/config` | One build for every environment |
+| Design foundation | Before the screens | So they are built once |
+| Font | An npm package, one variable file | The lockfile's checksum is better evidence than a committed binary |
+| Production email | Gmail SMTP, a dedicated account | The built-in sender only reaches team members |
+| An existing address at sign-up | Named ("already has an account") | Pe'er, after waiting for an email that never comes. Reverses the plan |
+| A new password | English-keyboard characters only, 8+, a letter and a digit | A keyboard on the wrong language is how people lock themselves out |
+
+**Surprise: there was a browser all along.** For most of the slice I wrote UI
+without seeing it, having looked only for a Linux browser. Chrome on the
+Windows side, driven headless from Windows' Node, works from WSL. The first
+screenshot showed a segmented control stretched across the screen, shipped
+two PRs earlier. A check that only looks at whether a CSS rule exists says
+nothing about how it looks.
+
+**Surprise: a tab that copied another tab's state.** The reset link opened
+in the mail app's own tab, which shares storage with Chrome. The auth client
+announces `PASSWORD_RECOVERY` to every open tab, and the page took the
+announcement to mean "this tab is recovering", so the Chrome tab showed the
+new-password form and never left it. Found by Pe'er on his phone, reproduced
+on production with two headless tabs, fixed by letting only how a tab was
+*opened* decide.
+
+**Surprise: Supabase hides more than expected, and checks in its own
+order.** It answers a sign-up for an existing address with a made-up
+success, creates nothing and never calls our hook. It answers a reset for an
+unknown address with 200. It checks the password before the hook. Its
+"letters" are a to z only: Hebrew letters are allowed and never count.
+
+**Surprise: a phone's date picker ignores `min` and `max`.** A computer's
+greys the dates out. Found on the component gallery, before any screen
+depended on it; the date box now enforces its own limits.
+
+**Surprise: Go's base64 decoder skips newlines.** A test expected a signing
+secret with a trailing newline to be refused. It decodes to the same key.
+
+**Mistakes of mine worth keeping:**
+- I assumed a project URL was production's because I had asked for
+  production's. It was dev's. Nothing was written with it, but the rule is:
+  confirm which environment before using a value.
+- Several numbers in PR descriptions were written from memory and were wrong
+  (counts of checks, a bundle size). Count, then write.
+- `pkill -f` matched its own command line and stopped itself.
+
+**Verified rather than assumed:**
+- **AC-16 part one:** `TestIsolationThroughTheAPI`, through the real router,
+  verifier and database as `madam_app`. B's id is put everywhere a request
+  has room for one, and the answer stays A's.
+- **Every check was seen failing.** About 90 deliberate breakages across the
+  slice, each caught by a test. The few that weren't said something: a check
+  the library already made, a fixture carrying two signals at once.
+- **Production:** a wrong code is refused with our message, 2.35 s on a cold
+  instance; the hook's log holds no personal data; `GET /api/me` answered a
+  real token with 200; both projects publish one ES256 key with a 10-minute
+  cache header.
+- **By Pe'er, on two phones and a computer:** the whole path, twice.
+
+**Lessons:**
+- **Break the code to test the test.** A test that has only ever passed
+  hasn't shown it can fail.
+- **Run a new check where the bug still lives.** The two-tab check failed on
+  production first, which is what made its pass on the fix mean something.
+- **Look at the thing.** Types, lint and a CSS rule's existence are not the
+  screen.
+- **A real user finds what a plan can't.** The stranded tab, the silent
+  "check your email", the wish for the email to follow between screens: none
+  were in the plan, and all came from ten minutes on a phone.
+- **Hiding information has a cost a person pays.** Supabase's made-up
+  success protects against discovery and left a real person waiting. The
+  decision to show it is written down with its cost.
+
+**Not done, and known:**
+- The hourly token refresh has not been watched over a real hour.
+- The first confirmation email landed in spam. A domain of our own with a
+  transactional sender is the fix, deferred.
+- Sign-up reveals whether an address has an account. To revisit before
+  sign-up opens beyond the invite code.
+- A hook host that answers nothing at all is still unmeasured.
+
+**Carried forward:** Slice 3 needs `users.cycle_start_unknown` as its own
+migration PR first, then `make migrate-prod`, then the code. Slice 4 must
+settle whose "today" the no-future-dates rule uses (the server's UTC or the
+user's Israel time); the date box already enforces whatever limit it is
+given. Slice 9's account deletion needs a Supabase secret key in Secret
+Manager (the fifth active version of six free).
