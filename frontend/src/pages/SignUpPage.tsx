@@ -29,8 +29,14 @@ type FieldErrors = {
   invite?: string;
 };
 
-export function SignUpPage() {
-  const [email, setEmail] = useState("");
+type Props = {
+  // The address being typed, shared by the signed-out screens (App.tsx) so
+  // it follows her between them.
+  email: string;
+  onEmailChange: (email: string) => void;
+};
+
+export function SignUpPage({ email, onEmailChange }: Props) {
   const [password, setPassword] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -115,7 +121,7 @@ export function SignUpPage() {
           autoCapitalize="none"
           spellCheck={false}
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => onEmailChange(event.target.value)}
           error={errors.email}
         />
         <TextField

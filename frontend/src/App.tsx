@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "./components/Button.tsx";
 import { Screen } from "./components/Screen.tsx";
 import { navigate, usePath } from "./lib/router.ts";
@@ -75,16 +75,38 @@ function Account({ path }: { path: string }) {
       return <HomePage session={state.session} />;
 
     case "signedOut":
-      switch (path) {
-        case "/signup":
-          return <SignUpPage />;
-        case "/forgot-password":
-          return <ForgotPasswordPage />;
-        case "/reset-password":
-          // Here without a session: the link was no good.
-          return <ResetLinkExpired />;
-        default:
-          return <LogInPage linkFailed={state.linkFailed} />;
-      }
+      return <SignedOut path={path} linkFailed={state.linkFailed} />;
+  }
+}
+
+// The screens for someone who isn't signed in. They share the email
+// address being typed, so it follows her from one to the next: from "this
+// email already has an account" to Log in, from Log in to Forgot password.
+// The state lives here and nowhere else, so it is gone the moment she is
+// signed in and this component leaves the page.
+function SignedOut({
+  path,
+  linkFailed,
+}: {
+  path: string;
+  linkFailed: boolean;
+}) {
+  const [email, setEmail] = useState("");
+  switch (path) {
+    case "/signup":
+      return <SignUpPage email={email} onEmailChange={setEmail} />;
+    case "/forgot-password":
+      return <ForgotPasswordPage email={email} onEmailChange={setEmail} />;
+    case "/reset-password":
+      // Here without a session: the link was no good.
+      return <ResetLinkExpired />;
+    default:
+      return (
+        <LogInPage
+          email={email}
+          onEmailChange={setEmail}
+          linkFailed={linkFailed}
+        />
+      );
   }
 }

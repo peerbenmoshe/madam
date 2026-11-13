@@ -5,7 +5,11 @@ import { test } from "node:test";
 const {
   ALREADY_REGISTERED,
   MIN_PASSWORD_LENGTH,
+  PASSWORD_REMINDER,
   PASSWORD_RULE,
+  WRONG_ATTEMPTS_BEFORE_RESET_OFFER,
+  isWrongPassword,
+  typedOnAnotherKeyboard,
   RESEND_WAIT_SECONDS,
   TRY_AGAIN,
   alreadyRegistered,
@@ -77,7 +81,7 @@ const HOOK_DOWN = {
   message: "Unexpected status code returned from hook: 503",
 };
 const WEAK_TEXT =
-  "Choose a stronger password: at least 8 characters, with a letter and a digit.";
+  "Choose a stronger password: at least 8 characters, with an English letter and a digit.";
 const SAME = {
   name: "AuthApiError",
   status: 422,
@@ -107,15 +111,21 @@ test("emailProblem catches the obvious slips only", () => {
   }
 });
 
-test("newPasswordProblem: 8 characters, a letter and a digit, and nothing bcrypt would cut", () => {
-  const COMPOSITION = "Include at least one letter (a–z) and one digit.";
+test("newPasswordProblem: English keyboard only, 8 characters, a letter and a digit", () => {
+  const KEYBOARD =
+    "Use English letters, digits and symbols only. Is your keyboard set to another language?";
+  const COMPOSITION = "Include at least one English letter and one digit.";
   assert.equal(MIN_PASSWORD_LENGTH, 8);
   assert.equal(
     PASSWORD_RULE,
-    "At least 8 characters, with a letter and a digit.",
+    "At least 8 characters, with an English letter and a digit.",
+  );
+  assert.equal(
+    PASSWORD_REMINDER,
+    "Reminder: at least 8 characters, with an English letter and a digit.",
   );
 
-  // Length is checked first, so a short password hears about length.
+  // Length.
   assert.equal(newPasswordProblem(""), "Use at least 8 characters.");
   assert.equal(newPasswordProblem("abc1234"), "Use at least 8 characters.");
   assert.equal(newPasswordProblem("abcd1234"), null);
@@ -127,25 +137,37 @@ test("newPasswordProblem: 8 characters, a letter and a digit, and nothing bcrypt
   // Either case of letter counts, and one of each is enough.
   assert.equal(newPasswordProblem("ABCDEFG1"), null);
   assert.equal(newPasswordProblem("1234567z"), null);
-  // A letter means a to z, as Supabase counts it: Hebrew letters and
-  // digits alone don't pass, and adding one a-z letter does.
-  assert.equal(newPasswordProblem("שלוםעולם12"), COMPOSITION);
-  assert.equal(newPasswordProblem("שלוםעולם1a"), null);
-  // Spaces count, and nothing is trimmed: a password is exactly what was typed.
+  // Symbols and spaces are welcome, and nothing is trimmed.
+  assert.equal(
+    newPasswordProblem("p@ss w0rd!#$%^&*()-_=+[]{};:'\",.<>/?`~|\\"),
+    null,
+  );
   assert.equal(newPasswordProblem("  a1    "), null);
 
-  // 72 is bytes, not characters.
+  // Any character an English keyboard doesn't type is refused, and that
+  // message comes first: it is the one that explains the others.
+  assert.equal(newPasswordProblem("שלוםעולם12"), KEYBOARD);
+  // Supabase would accept this one (measured); the page doesn't.
+  assert.equal(newPasswordProblem("שלוםעולם1a"), KEYBOARD);
+  assert.equal(newPasswordProblem("ש"), KEYBOARD);
+  assert.equal(newPasswordProblem("pässword1"), KEYBOARD);
+  assert.equal(newPasswordProblem("password1€"), KEYBOARD);
+  assert.equal(newPasswordProblem("password1😀"), KEYBOARD);
+  assert.equal(newPasswordProblem("pass\tword1"), KEYBOARD);
+
+  // bcrypt reads 72 bytes, and here a character is a byte.
   assert.equal(newPasswordProblem("a1".repeat(36)), null);
   assert.equal(
     newPasswordProblem("a1".repeat(36) + "a"),
     "That password is too long. Use a shorter one.",
   );
-  // 24 Hebrew letters are 48 bytes; 24 euro signs are 72. Plus "a1".
-  assert.equal(newPasswordProblem("ש".repeat(24) + "a1"), null);
-  assert.equal(
-    newPasswordProblem("€".repeat(24) + "a1"),
-    "That password is too long. Use a shorter one.",
-  );
+});
+
+test("typedOnAnotherKeyboard", () => {
+  assert.equal(typedOnAnotherKeyboard(""), false);
+  assert.equal(typedOnAnotherKeyboard("Correct horse 9!"), false);
+  assert.equal(typedOnAnotherKeyboard("ךשמעוקג"), true);
+  assert.equal(typedOnAnotherKeyboard("abcש"), true);
 });
 
 test("inviteCodeProblem only requires something", () => {
@@ -186,6 +208,25 @@ test("signUpProblem puts each failure under the right field", () => {
 
 test("logInProblem never says which of the two was wrong", () => {
   assert.equal(logInProblem(BAD_LOGIN), "Wrong email or password.");
+  assert.equal(
+    logInProblem(BAD_LOGIN, "an-ordinary-passw0rd"),
+    "Wrong email or password.",
+  );
+  // Typed with the keyboard on another language: say so.
+  assert.equal(
+    logInProblem(BAD_LOGIN, "ךשמעוקג1"),
+    "Wrong email or password. Check that your keyboard is set to English.",
+  );
+  // Only for a wrong password: an outage isn't the keyboard's fault.
+  assert.equal(logInProblem(HOOK_DOWN, "ךשמעוקג1"), TRY_AGAIN);
+  assert.match(logInProblem(OFFLINE, "ךשמעוקג1"), /Can't reach the server/);
+
+  // What counts toward offering a reset: wrong passwords, nothing else.
+  assert.equal(WRONG_ATTEMPTS_BEFORE_RESET_OFFER, 3);
+  assert.equal(isWrongPassword(BAD_LOGIN), true);
+  for (const other of [OFFLINE, RATE, HOOK_DOWN, UNCONFIRMED]) {
+    assert.equal(isWrongPassword(other), false);
+  }
   assert.match(logInProblem(UNCONFIRMED), /Confirm your email first/);
   assert.match(logInProblem(RATE), /Too many attempts/);
   assert.match(logInProblem(OFFLINE), /Can't reach the server/);

@@ -4,7 +4,14 @@ import { Button, LinkButton } from "../components/Button.tsx";
 import { FormError, Notice, Screen } from "../components/Screen.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { authClient } from "../lib/auth.ts";
-import { OFFLINE, emailProblem, logInProblem } from "../lib/authText.ts";
+import {
+  OFFLINE,
+  PASSWORD_REMINDER,
+  WRONG_ATTEMPTS_BEFORE_RESET_OFFER,
+  emailProblem,
+  isWrongPassword,
+  logInProblem,
+} from "../lib/authText.ts";
 import { navigate } from "../lib/router.ts";
 
 // Log in. On success nothing here changes the screen: the session arrives
@@ -12,13 +19,22 @@ import { navigate } from "../lib/router.ts";
 
 // linkFailed: the page was opened from an emailed link that had expired or
 // had already been used.
-export function LogInPage({ linkFailed }: { linkFailed: boolean }) {
-  const [email, setEmail] = useState("");
+type Props = {
+  // The address being typed, shared by the signed-out screens (App.tsx) so
+  // it follows her between them.
+  email: string;
+  onEmailChange: (email: string) => void;
+  linkFailed: boolean;
+};
+
+export function LogInPage({ email, onEmailChange, linkFailed }: Props) {
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Wrong passwords in a row, to know when to offer a reset.
+  const [wrongAttempts, setWrongAttempts] = useState(0);
 
   async function logIn(event: FormEvent) {
     event.preventDefault();
@@ -39,7 +55,10 @@ export function LogInPage({ linkFailed }: { linkFailed: boolean }) {
         password,
       });
       if (error) {
-        setProblem(logInProblem(error));
+        setProblem(logInProblem(error, password));
+        if (isWrongPassword(error)) {
+          setWrongAttempts((count) => count + 1);
+        }
       }
     } catch {
       setProblem(OFFLINE);
@@ -69,7 +88,7 @@ export function LogInPage({ linkFailed }: { linkFailed: boolean }) {
           autoCapitalize="none"
           spellCheck={false}
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => onEmailChange(event.target.value)}
           error={emailError ?? undefined}
         />
         <TextField
@@ -77,11 +96,20 @@ export function LogInPage({ linkFailed }: { linkFailed: boolean }) {
           type="password"
           name="password"
           autoComplete="current-password"
+          hint={PASSWORD_REMINDER}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           error={passwordError ?? undefined}
         />
         {problem && <FormError>{problem}</FormError>}
+        {wrongAttempts >= WRONG_ATTEMPTS_BEFORE_RESET_OFFER && (
+          <Notice>
+            Forgot your password?{" "}
+            <LinkButton inline onClick={() => navigate("/forgot-password")}>
+              Reset it by email
+            </LinkButton>
+          </Notice>
+        )}
         <Button type="submit" disabled={busy}>
           Log in
         </Button>
