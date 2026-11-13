@@ -24,3 +24,6 @@ coverage/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Screenshots from the browser checks (deploy/browser-check/run.sh).
+deploy/browser-check/screenshots/
