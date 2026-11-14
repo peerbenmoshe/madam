@@ -27,13 +27,17 @@ func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.H
 	r.Route("/api", func(r chi.Router) {
 		r.Use(noStore)
 
-		// An unknown API path is a plain 404, never the app's page: a client
-		// expecting JSON must not get "200 text/html", and a mistyped route
-		// must not look like success. chi gives a mounted router its parent's
-		// NotFound handler when it has none of its own, so this one is set
-		// explicitly, whatever the parent ever does.
-		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "not found", http.StatusNotFound)
+		// An unknown API path is a 404 in the API's error shape, never the
+		// app's page: a client expecting JSON must not get "200 text/html",
+		// and a mistyped route must not look like success. chi gives a
+		// mounted router its parent's NotFound handler when it has none of
+		// its own, so this one is set explicitly, whatever the parent ever
+		// does.
+		//
+		// A wrong method on a real path stays chi's own 405: it sets the
+		// Allow header, which a handler of ours would have to work out.
+		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+			writeError(r.Context(), w, http.StatusNotFound, apiError{Code: codeNotFound, Message: "no such API path"})
 		})
 
 		// Not the conventional /healthz: Cloud Run reserves some paths ending
