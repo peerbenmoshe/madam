@@ -4,8 +4,9 @@ _Status: approved by Pe'er on 8 November 2026, after four rounds on a
 clickable mock. Written in the design step that replaced "design post-v1"
 (`tech-stack.md` §11)._
 
-_Amended in the Slice 3 plan (14 November 2026): §5 and §9 gain the time
-box, and §10 the onboarding screen, which the mock doesn't have._
+_Amended in Slice 3 (14 November 2026): §5 and §9 gain the time box, and
+§10 the onboarding screen, which the mock doesn't have. Both are built;
+the time box is checked on Android and not yet on an iPhone._
 
 This file is the **source of truth for how Madam looks and how its screens
 behave to the touch**. `spec-v1.md` says what the app does, and
@@ -119,7 +120,7 @@ Fallback: the system font stack.
 | Secondary button | 48px, radius 14, ink outline on `surface` | "Close", "Log out", the "no" side of a question |
 | Switch | 50×30, `accent` with ink outline when on | "Cycle starts on this day", "Show raw readings" |
 | Date box | Looks like a field and shows the date as dd/mm/yyyy; the native date picker sits invisibly on top of it (§9) | Every date input |
-| Time box | The date box's twin: it shows the time as 24-hour "07:05" ("hh:mm" in `muted` while empty), with the native time picker invisibly on top (§9). *Planned in Slice 3 (14 November 2026)* | Every time input: the fixed measurement time, and a reading's time in Slice 4 |
+| Time box | The date box's twin: it shows the time as 24-hour "07:05" ("hh:mm" in `muted` while empty), with the native time picker invisibly on top (§9). *Built in Slice 3 (`components/TimeBox.tsx`)* | Every time input: the fixed measurement time, and a reading's time in Slice 4 |
 | Text field | 48px, radius 12, `rule` border, with its label above in bold. Focus is a `berry` border with a `blush` ring. An error shows under it in `danger`, bold. *Added in the design foundation (12 November 2026), from the mock's inputs: the table had no text input* | Email, password, invite code |
 | Bottom sheet | Radius 26 at the top, a handle, over a dimmed backdrop | The day popup |
 | Toast | Ink pill, 2.2 s | "Entry saved", "Entry deleted" |
@@ -346,14 +347,15 @@ cycle. It can't be undone.").
   snapping to the nearest allowed date, which would show a date she didn't
   pick. Slice 4's "no future dates" and AC-11 (Slice 6) rely on this, and
   the server still refuses a bad date whatever the page does.
-- **Time boxes** (planned in Slice 3). A phone set to a 12-hour clock shows
+- **Time boxes** (built in Slice 3). A phone set to a 12-hour clock shows
   "7:05 AM" in a native time input, and §7 says 24-hour. So the time box
   does what the date box does: its own "07:05" text, with the real
   `<input type="time">` invisible on top. Its value is always `HH:MM`,
-  whatever the phone shows. *Unverified:* the picker that opens may still
-  offer AM and PM on such a phone, as the date picker shows the phone's own
-  date format; Pe'er checks it on both phones on `/design` before the
-  onboarding screen depends on it. Rejected: two lists, hours and minutes
+  whatever the phone shows. *Checked by Pe'er on an Android phone
+  (14 November 2026), on `/design`:* the picker that opens is the phone's
+  own, 24-hour on his, and the box read "18:45". *Not checked yet:* an
+  iPhone, and a phone set to a 12-hour clock, where the picker may offer AM
+  and PM (the box's own text is 24-hour either way). Rejected: two lists, hours and minutes
   (a 60-item list); typed text (a phone's number pad has no colon).
 - **The rows under the graph with Recharts.** *Unverified:* the mock draws
   its own SVG. In Recharts they could be a custom X-axis tick with four
@@ -392,8 +394,8 @@ cycle. It can't be undone.").
 - **The rows under the graph in Recharts** (§9). Slice 6.
 - **On a computer,** the spec puts the legend permanently in the top-right
   corner. The mock is phone-only, so the wide layout is still undrawn.
-- **Onboarding, sketched in the Slice 3 plan** (14 November 2026; not in the
-  mock). One column, like the sign-in screens, with one primary button:
+- **Onboarding, sketched in the Slice 3 plan and built as sketched**
+  (14 November 2026; not in the mock; `pages/OnboardingPage.tsx`). One column, like the sign-in screens, with one primary button:
 
   ```
    Madam
@@ -430,8 +432,14 @@ cycle. It can't be undone.").
     (`spec-v1.md` §4).
   - What is missing is said under the control it belongs to, in `danger`,
     when she taps the button; the button is never greyed out.
-  - The words are a draft until Pe'er has read them on the screen. They live
-    in `frontend/src/lib/onboardingText.ts`.
+  - The words live in `frontend/src/lib/onboardingText.ts`. Pe'er used the
+    screen on production and changed none.
+  - Two things the sketch didn't show: a refusal from the server appears
+    under the control it is about, in the page's own words, and goes when
+    she changes anything; and when her account can't be read at all she
+    gets "Try again" and "Log out", never a blank screen.
+  - Screenshots of every state: `deploy/browser-check/screenshots/`
+    (`p-onboarding*.png`).
 - **Screen not drawn:** the measurement-time change flow. It uses the
   components above; Slice 9 sketches it in its plan.
   ~~Sign-up~~ was built in Slice 2 without a mock: Log in, Create account,

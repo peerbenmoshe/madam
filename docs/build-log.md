@@ -951,3 +951,135 @@ settle whose "today" the no-future-dates rule uses (the server's UTC or the
 user's Israel time); the date box already enforces whatever limit it is
 given. Slice 9's account deletion needs a Supabase secret key in Secret
 Manager (the fifth active version of six free).
+
+---
+
+## Slice 3 — Onboarding (14 November 2026, PRs #44–#51)
+
+**Goal.** Ask a signed-in person two things, once: when her current cycle
+started, or that she doesn't know, and the time she usually takes her
+temperature. Store them so every later slice has a cycle to count from and
+a time to adjust against. Done when the setup half of AC-12 passes and
+AC-16 holds for everything new.
+
+**How it was done.** One plan, then eight PRs in one day: the documents;
+the migration with its isolation tests; the date rule in `fam`; the API's
+error shape; the time box; the endpoint; the screen; this record. Pe'er
+merged each within minutes, migrated production between the migration and
+the endpoint, and checked the time box and then the whole screen on his
+phone. It was the first slice to write through our API, so it also decided
+things for every later one.
+
+**Decisions** (details in `tech-stack.md` §3, §6, §8, `data-model.md` §4,
+`fam-rules.md` §9, `design-brief.md` §10):
+
+| Decision | Choice | Why |
+|---|---|---|
+| Whose "today" | The device's date on the page; on the server, only a date that hasn't begun anywhere on Earth is refused | Never refuses a real today, with no time zone stored. The server's UTC date would refuse hers for two or three hours every night |
+| A floor for dates | 1 January 2000 | Catches a mangled year. Cycles still have no maximum length |
+| API errors | One JSON shape: a `code` the page reads, an optional `field`, a `message` never shown | The page couldn't tell one refusal from another |
+| Dates and times on the wire | `YYYY-MM-DD` and `HH:MM`, one spelling each, hand-parsed | Go's own parser accepts `7:05` |
+| "I don't know" | An explicit, required flag | A dropped field must not become a permanent answer |
+| A second submit | 409, nothing written | Overwriting would change every past adjusted value |
+| The gate | `UPDATE … WHERE onboarded_at IS NULL`, and its row count | The row lock makes two taps at once safe, with no "check, then write" |
+| sqlc's types | Kept as `pgtype.*`, converted in one file | Only `pgtype.Date` can hold `-infinity` |
+| The migration | One file, in its own PR, never reading what production lacks | goose applies it whole; every merge deploys |
+| Grants | Exactly what each table's design allows | "Never edited" became something Postgres refuses |
+| Onboarding's address | None: at `/`, the account decides | It can't be skipped by typing one |
+| The time input | Our own 24-hour text over the native picker; no default time | A 12-hour phone draws "7:05 AM"; an untouched default would be saved as hers |
+| The browser checks | Staged for every state, plus one real pass | Staging reaches errors on demand; only a real log-in shows page and server agree |
+
+**Surprise: a new column changed a Go type.** `GetUser` named four columns
+of a table that then had five, so sqlc returned a `GetUserRow` where it had
+returned `db.User`. Reading the docs before coding found it, and found the
+trap beside it: adding the column to the query in the migration's PR would
+have broken `GET /api/me` on production between that merge and
+`make migrate-prod`.
+
+**Surprise: some safety is invisible to behaviour.** With `FORCE` removed,
+or a policy left without `WITH CHECK`, every behavioural test still passed:
+the app's role isn't the owner, and Postgres falls back to `USING`. Only a
+test that reads the catalog saw them. And a policy `USING (true)` passed
+the catalog test and failed only on behaviour. Neither kind is enough.
+
+**Surprise: a cascade doesn't need the caller's permission.** The app's role
+may not delete from `measurement_time_periods`, and deleting its `users` row
+removes its rows there anyway. The foreign key acts as the table's owner.
+
+**Surprise: a test that can run once.** Onboarding is unrepeatable by
+design, so the real browser pass would have passed once per account. It
+deletes the account's rows from the local database first, and it was the
+second run, after real rows were deleted, that showed it works.
+
+**Surprise: none from the phone.** The Android picker is the phone's own,
+24-hour, and the box read "18:45". The first real onboarding on production
+went through as the staged checks said it would.
+
+**Mistakes of mine worth keeping:**
+- **A mutation that doesn't compile proves nothing.** Twice I removed
+  a check, the build broke on an unused variable, and "nothing failed"
+  would have read as "undetected". The script now says "build failed", and
+  the check is disabled in a form that compiles.
+- **"30 refusals", written from memory. It was 31.** The same mistake as in
+  Slice 2. Count, then write.
+- **I said PR #47 would need a rebase after #45.** Both touched `me.go` a
+  few lines apart; git merged them cleanly. A prediction about a merge is
+  worth less than trying it.
+- **A chain of `&&` followed by `;` kept going after a failure.** `git add`
+  stopped on a gitignored folder, and the next command tried to open a PR
+  from an unpushed branch. GitHub refused; nothing was published. Don't mix
+  the two in a chain that publishes something.
+- **My manual steps didn't say when to merge.** Pe'er had to ask whether to
+  merge the draft first. The order belongs in the steps.
+- I ran the browser checks a second time only to read an exit code: a few
+  more deliberate wrong log-ins at madam-dev for nothing.
+
+**Verified rather than assumed:**
+- **AC-12, the setup half:** after "I don't know", the stored facts give a
+  cycle day of "?" and "Not enough data yet" in `internal/fam`.
+- **AC-16:** part two for both new tables, as the application role, locally,
+  in CI and on madam-dev; part one for the endpoint, with B's id put in the
+  body, the query, headers, a cookie and the path.
+- **Every check was seen failing:** 65 deliberate breakages (16 of the
+  database, 9 of the conversions, 18 of `fam`, 1 of the error shape, 20 of
+  the endpoint, and 1 of the page that had to fail in the browser too).
+- **Both in-between states of production:** the migration's code on the old
+  schema, and the old code on the new one, each run before the merge.
+- **Eight submits at once, six rounds:** exactly one succeeds each time.
+- **On madam-dev:** Supabase's API roles hold nothing on the new tables.
+- **In a browser,** against the built image: 150 checks in four scripts,
+  among them the exact JSON the page sends and the half hour after midnight
+  in Israel, and one real account onboarding through the real server.
+- **By Pe'er:** the time box on an Android phone; onboarding on production.
+
+**Lessons:**
+- **Read before planning.** Both findings that shaped the slice (two tables
+  that didn't exist, and "today" arriving a slice early) came from the
+  hand-off prompt, and the generated-type trap from reading the code first.
+- **Measure the in-between.** With deploy-on-merge, a schema change has two
+  states nobody designs for. Running both took a minute.
+- **Make the checklist a test.** A new table must now be listed with its
+  exact grants or the build fails. A checklist in a document is a hope.
+- **Stage what can't be asked for, and do one thing for real.** A 409, a
+  lost connection and 00:30 in Israel can't be requested from a real
+  server. Whether the page and the server agree can't be staged.
+- **Unrepeatable things need a reset before they need a test.**
+
+**Not done, and known:**
+- The time box hasn't been seen on an iPhone, or on a phone set to a
+  12-hour clock.
+- A request that goes around our page can save tomorrow's date for part of
+  the day. Accepted, and written down with its hours (`fam-rules.md` §9.1).
+- Onboarding can't be redone. A mistaken start is fixed from Slice 5 (the
+  cycle-start switch), a mistaken time from Slice 9 (Settings).
+- A wrong method gets the router's own 405, with no JSON body.
+- From Slice 2, still open: iOS Safari after a week unused; a hook host
+  that answers nothing; whether the confirmation email reaches other
+  people's inboxes.
+
+**Carried forward:** Slice 4 needs the `entries` table as its own migration
+PR first, then `make migrate-prod`, then the code, and the table's two lines
+in the tests' lists. It reuses the date rule, the body reader, the error
+shape, the time box and the real test account, and must decide what an
+entry endpoint answers for an account that hasn't onboarded. A day screen
+left open overnight has to work out today again. `CLAUDE.md` is due a trim.

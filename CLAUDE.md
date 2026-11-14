@@ -55,7 +55,7 @@ frontend/
     pages/           one file per screen
     lib/             no React: auth, API calls, dates, and every message's words
 deploy/              scripts: check-db-url.sh, smoke-test.sh
-  browser-check/     the sign-in screens driven in a real browser (by hand)
+  browser-check/     the screens driven in a real browser (by hand)
   email/             the auth email templates; the dashboard holds the live copy
 docs/                the documents above
 ```
@@ -85,7 +85,8 @@ make db-down        # stop it (data kept); db-reset also deletes the data
 make image          # build the production image locally (docker-run also runs it)
 make deploy         # fallback: deploy the latest main from the laptop (CI deploys every merge)
 sh deploy/smoke-test.sh <url>   # routing, caching and headers of a running server (CI runs it on the image)
-sh deploy/browser-check/run.sh  # the screens in a real browser at phone width; needs `make docker-run` running
+make browser-check  # the screens in a real browser at phone width, plus one real onboarding; needs `make docker-run` running
+sh deploy/browser-check/run.sh "" onboarding.mjs  # one script only, without the real pass
 gh workflow run keepalive.yml --ref main   # run the Supabase keepalive by hand (it runs 4× a day by itself)
 gh run list --workflow keepalive.yml       # its runs; add --event schedule for the scheduled ones only
 ```
@@ -163,7 +164,9 @@ hand-edit generated code.
   `WITH CHECK`? Does it `GRANT` `madam_app` exactly the statements it needs
   (never `TRUNCATE`, which ignores RLS)? There are no default privileges for
   `madam_app`, so a missing grant fails as "permission denied". Is every query
-  filtered by `user_id`?
+  filtered by `user_id`? Is it in both lists in
+  `internal/db/user_tables_test.go` (`userTables`, and `tableGrants` with its
+  exact privileges)? `TestSchemaChecklist` fails until it is.
 - **Deploying:** every merge to `main` deploys itself. The `deploy` job in
   `ci.yml` runs `make deploy` once `ci` passes, as `madam-deployer` through
   Workload Identity Federation (`docs/tech-stack.md` §7, 0c′). No keys exist;
@@ -210,10 +213,10 @@ hand-edit generated code.
   temperatures, late/early status, all statistics. Never store them.
 - **`fam.Date` is not `time.Time`.** It is a count of days with no clock and
   no time zone, so cycle-day arithmetic is subtraction and `==` is safe.
-  Convert at the boundary: `fam.DateOf(pgDate.Time)` in, `d.Time()` (midnight
-  UTC) out. The `-infinity` row of `measurement_time_periods` never becomes a
-  `Date`. Recognise it by `InfinityModifier` and pass its time as
-  `NewSchedule`'s `initial` (Slice 1).
+  Convert at the boundary, in `internal/db/convert.go` and nowhere else:
+  `db.DateFromPg`, `db.DateToPg`, `db.MinutesFromPg`, `db.MinutesToPg`. The
+  `-infinity` row of `measurement_time_periods` never becomes a `Date`:
+  `db.ScheduleFromRows` turns it into `NewSchedule`'s `initial` (Slice 3).
 - **`?` versus blank depends on a stored answer, not on the dates.** Entries before the first cycle start show `?` only if onboarding
   said "I don't know" (`users.cycle_start_unknown`, from Slice 3). Otherwise
   they show blank. `onboarded_at` can't tell the two apart (`fam-rules.md`
@@ -346,9 +349,11 @@ hand-edit generated code.
   "succeeds" with a user that has no identities, and never calls our hook; a
   reset for an unknown address is a 200. It checks the password before the
   hook, and its "letters" are a to z only. All measured (`tech-stack.md` §4).
-- **Every word the sign-in screens show is in `frontend/src/lib/authText.ts`**,
-  with tests. Supabase's own messages are never shown. The browser checks
-  look for these words, so changing one means changing it there too.
+- **Every word a screen shows is in a text module with tests:**
+  `frontend/src/lib/authText.ts` for the sign-in screens,
+  `onboardingText.ts` for onboarding. Supabase's messages and our own API's
+  `message` are never shown. The browser checks look for these words, so
+  changing one means changing it there too.
 - **A phone's date picker ignores `min` and `max`.** A computer's greys the
   dates out. `DateBox` enforces its own limits; the server must too.
 - **Auth email comes from the dashboard, not the code:** Gmail SMTP and the
@@ -357,6 +362,29 @@ hand-edit generated code.
 - **Two merges close together make the first one's deploy job fail** with
   "only the latest commit on main". That is the guard working: the second
   run deploys both (`tech-stack.md` §7).
+- **A table gaining a column changes generated Go types.** A query that
+  names only some of a table's columns gets its own `…Row` type from sqlc
+  (`GetUser` became `GetUserRow` for one PR in Slice 3). And a migration's
+  PR must never *read* the new column: its merge deploys before
+  `make migrate-prod`, on a database that doesn't have it yet.
+- **Every error under `/api` is JSON in one shape:**
+  `{"error": {"code", "field", "message"}}` (`internal/api/errors.go`,
+  `docs/tech-stack.md` §3). Use `writeError`, never `http.Error`, and
+  `readJSON` for a body. The page reads `code`; `message` is for developers
+  and must never carry a cause or anything a user typed. The exceptions are
+  the sign-up hook, `/api/health`, and the router's own 405.
+- **"Today" has two halves, and neither is the server's UTC date.** The page
+  uses the device's date (`todayISO`, never `toISOString()`); the server
+  refuses only a date that hasn't begun anywhere on Earth
+  (`fam.CheckDate`, with the clock passed in). For two or three hours every
+  night in Israel those differ from UTC (`docs/fam-rules.md` §9.1).
+- **Onboarding happens once per account.** The gate is one `UPDATE … WHERE
+  onboarded_at IS NULL`; a second submit is a 409 and writes nothing. So
+  anything that tests it for real must delete the account's rows first, as
+  `make browser-check` does, in the local database only.
+- **Screenshots are gitignored, and the kept ones are `git add -f`.** Never
+  add `r-*.png`: the real pass's screenshots show the test account's
+  address, and the repository is public.
 - **Never run against production data.** Local development uses its own Supabase
   project and a local Postgres container.
 
@@ -404,14 +432,23 @@ Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.
 §5): the pgx/sqlc type mappings, `-infinity` round-tripping, table ownership,
 how Cloud Run connects (session pooler), and the Belgium–Frankfurt latency.
 
+Still open from Slice 3:
+- The time box on an iPhone, and on any phone set to a 12-hour clock
+  (`docs/design-brief.md` §9). Checked on Android only.
+
 Still open from Slice 2 (`docs/tech-stack.md` §4):
 - Whether iOS Safari clears the session after about a week unused.
 - A hook host that answers nothing at all (a timeout, not an error).
-- The hourly token refresh, as the server sees it. Pe'er was still logged
-  in after 100 minutes (one observation); a `GET /api/me` answering 200
-  that late would close it, and Slice 3's screens make that call.
 - Spam, for anyone but Pe'er: his second email reached the inbox after he
   marked the sender "not spam".
+
+Answered in Slice 3 (`docs/tech-stack.md` §3, §4, §6, §8): the token
+refresh (still logged in after a day, and the server accepted a write in
+that session; by inference, not by watching one); sqlc's types stay
+`pgtype.*`; Supabase's API roles get nothing on tables created after
+`00002`; a cascade works without the caller's `DELETE`; the Android time
+picker is the phone's own and the box reads 24-hour; the setup half of
+AC-12 passes, and AC-16 for both new tables and the endpoint.
 
 Answered in Slice 2 (`docs/tech-stack.md` §4): tokens verify against the
 project's JWKS (one ES256 key, cached 10 minutes, on both projects); a cold

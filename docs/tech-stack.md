@@ -42,6 +42,8 @@ _Amended after the invite-code spike (11 November 2026):_ _§4 replaces "Unverif
 
 _Amended in the Slice 3 plan (14 November 2026):_ _§3 decides the API's conventions for every later slice (the JSON error shape, statuses, date and time formats), whose "today" a date is checked against, and the onboarding endpoint; §4 records two observations made since Slice 2; §6 decides how sqlc's types meet `fam`'s and what migration `00003` holds; §8.4 decides the onboarding screen's routing and how it is checked in a browser._
 
+_Amended after Slice 3 (14 November 2026):_ _§3, §6 and §8 each gain "As built in Slice 3": what was built, what was measured, and the one thing the building changed (a 405 keeps the router's own answer); §4 records that the token-refresh question is answered._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -320,6 +322,61 @@ in UTC while she is in Israel.
   derived by Go (§1.3).
 - Rejected shapes: `PATCH /api/me` (onboarding isn't a field edit; it writes
   three tables, once); `PUT` (it is deliberately not repeatable).
+
+### As built in Slice 3 (14 November 2026, PRs #46, #47 and #49)
+
+Everything above was built as decided. What the building added:
+
+| Piece | File | What it does |
+|---|---|---|
+| The error shape | `internal/api/errors.go` | `apiError`, `writeError`, `writeInternalError`, and every `code` as a constant |
+| Reading a body | `internal/api/request.go` | `readJSON`: `application/json` only (415), capped (413), unknown fields and a second JSON value refused (400). For every later endpoint that takes a body |
+| The endpoint | `internal/api/onboarding.go` | `handleOnboarding` holds the transaction. `checkOnboarding` holds the rules, as a function of the request and the clock, with no database in it |
+| The clock | `internal/api/router.go` | `NewRouter` calls `newRouter(…, time.Now)`; tests pass a fixed instant. `fam` never reads a clock |
+| Dates and times | `internal/fam/today.go`, `parse.go` | `LatestToday`, `EarliestDate`, `CheckDate`, `ParseDate`, `ParseMinutes`, `Minutes.String` (`fam-rules.md` §9.1, §9.2) |
+
+**Three things keep their own answer,** one more than planned:
+- the sign-up hook and `/api/health`, as decided;
+- **a wrong method on a real path: 405, from the router.** chi's own answer
+  sets the `Allow` header, which a handler of ours would have to work out,
+  and no page can cause one. Its body is empty;
+- a panic is still chi's `Recoverer`: an empty 500. No handler is meant to
+  panic.
+
+**Details settled while building:**
+- **`cycle_start_unknown` missing or `null` is a 400,** with the field named:
+  a broken request, not a wrong answer. Every other refusal about a field is
+  a 422.
+- **`"cycle_start_date": null` with "I don't know" is accepted,** the same
+  as leaving the field out. Any other value there is `unexpected_field`.
+- **The rules are checked before the gate.** So an onboarded account that
+  sends a future date gets the 422, not the 409. Measured with a real token.
+- **No message repeats what was sent,** and `fam`'s parse errors don't
+  either, so a date a person typed can't reach a log through an error. What
+  was wrong with a body is logged as a kind ("not valid JSON"), never as
+  the decoder's own text, which can quote it.
+- **A request's fields are pointers** (`*bool`, `*string`): the only way Go's
+  JSON decoder tells "not sent" from `false` or `""`.
+- **The parsers are hand-written.** `time.Parse("15:04", "7:05")` succeeds,
+  so the standard library can't enforce one spelling.
+
+**Tests.** 30 new vectors in `fam-rules.md` §12.9 and §12.10, written before
+the code. For the endpoint: 31 refusals, each with its status, code and
+field, against a store that fails the test if the database is reached; what
+each answer stores, then read back into `fam` (the setup half of AC-12);
+a second submit with the same and with different answers; **eight submits
+at once, six rounds, exactly one 200 each**, with and without an existing
+`users` row, under the race detector; and AC-16 part one
+(`TestOnboardingIsolation`).
+
+**Measured with a real token** (the browser checks' real pass, §8, against
+the built image): a first submit 200; a second 409 `already_onboarded`; a
+date three days ahead 422 `date_in_future` about `cycle_start_date`; an
+unknown field 400. The row in the database held what was typed.
+
+**On production** (14 November 2026): Pe'er onboarded his own account on an
+Android phone, with a date. Both "missing" messages appeared for an empty
+form, the answers were stored, and a reload stayed past onboarding.
 
 ---
 
@@ -773,6 +830,13 @@ one observation.
 
 Still open: iOS Safari clearing a site's storage after about a week unused,
 and a hook host that answers nothing at all.
+
+**Added at the end of Slice 3 (14 November 2026).** He opened the app on
+production after it had been closed for about a day, and was still logged
+in. Later that day, in that session, he onboarded: a `POST` our server
+accepted. An access token lasts an hour, so the server has accepted tokens
+refreshed many times over. That answers the token-refresh question, by
+inference from two observations and not by watching a refresh happen.
 
 ### Rejected, and when each would win
 
@@ -1267,6 +1331,59 @@ and `FORCE`, its policy and its grants.
   no longer match it, so sqlc should return a `GetUserRow` where it returned
   `db.User` (*expected from how sqlc picks a return type; to confirm with
   `make sqlc`*). The endpoint's PR adds the column to the query.
+
+### As built in Slice 3 (14 November 2026, PRs #45 and #49)
+
+Built as decided, and **the expectation about sqlc held:** with the fifth
+column on `users`, `GetUser` returned a `GetUserRow`. PR #49 added the
+column to the query and it returned `db.User` again. Remember it for every
+later column: **a table gaining a column changes the Go type of every query
+that names only some of its columns.**
+
+**The two in-between states were run, not argued:**
+
+| State | When production is in it | Result |
+|---|---|---|
+| The migration's code on schema version 2 | From that PR's merge until `make migrate-prod` | The API's tests pass |
+| The older code on schema version 3 | Never, if the order holds; checked anyway | Every test passes |
+| A prepared statement that names its columns, across `ADD COLUMN` | The running server's open connections, at the moment of `migrate-prod` | It still answers. `SELECT *` fails with "cached plan must not change result type" |
+
+**`convert.go`** as in the table above. `MinutesToPg` checks nothing, as
+decided, and that is safe because the database refuses an out-of-range time
+(the `CHECK`, and Postgres's own range for `TIME`): it can't be stored as
+some other time.
+
+**Tests** (`internal/db`), as `madam_app`:
+- `TestIsolationOfUserTables`: I3, `WITH CHECK` and the no-wrapper cases for
+  each table in the `userTables` list. **A new table adds one element.**
+- `TestDeletingAUserDeletesHerRows`: the cascade, asked of the database.
+- `TestFirstMeasurementTime`: `-infinity` round-trips and gives M4 and M5;
+  the `CHECK` refuses 24:00, seconds and microseconds; a second `-infinity`
+  row is a unique violation.
+- **`TestSchemaChecklist` reads the catalog** and fails for any table in
+  `public` that isn't listed in `tableGrants` with its exact privileges, or
+  that lacks forced RLS, one policy `FOR ALL TO madam_app` with `USING` and
+  `WITH CHECK`, or a cascade from `users`. The new-table checklist no longer
+  rests on remembering it. Its SQL is in the test file: it reads the
+  catalog and asks about `TRUNCATE`, which the app has no query for.
+- **Seen failing:** 16 breakages of the local database and 9 of
+  `convert.go`, each caught.
+
+**Measured:**
+- **A cascade doesn't need the caller's `DELETE`.** `madam_app` may not
+  delete from `measurement_time_periods`, and deleting its own `users` row
+  still removes its rows there: Postgres runs a foreign key's action as the
+  table's owner. Locally and on madam-dev.
+- **On madam-dev, Supabase's API roles hold nothing on the new tables.**
+  After `00003`, only `postgres` and `madam_app` hold any privilege on a
+  table in `public`. So `00002`'s change to the default privileges works for
+  tables created later, which had only been seen for existing ones.
+- **SQLSTATE `42501` is two different refusals:** a row-level-security
+  violation and a missing privilege. A test that expects one must be sure
+  the other can't be the cause.
+
+**In production:** `00003` was applied with `make migrate-prod` on
+14 November 2026, between the merges of #45 and #49.
 
 ---
 
@@ -2114,6 +2231,61 @@ and the rows are in the local container. The run first deletes that one
 user's rows there, as the owner. The account's email, password and id are in
 `.env`, added by Pe'er; a Makefile target hands them to the script
 (*how they reach Windows' Node is to verify*).
+
+### As built in Slice 3 (14 November 2026, PRs #48 and #50)
+
+Built as decided.
+
+| Piece | File | What it does |
+|---|---|---|
+| The words and rules | `lib/onboardingText.ts` | Every string, `onboardingProblems` (what is missing), `onboardingBody` (the exact JSON), `onboardingFailure` (what each of the server's codes means for her). No React |
+| The screen | `pages/OnboardingPage.tsx` | Lays those out and sends the answer |
+| Which screen | `App.tsx`, `SignedIn` | Reads `GET /api/me` once: onboarding, or the app. Keyed by the user's id |
+| The placeholder | `pages/HomePage.tsx` | Only draws. Also where she lands when her account can't be read, with "Try again" and "Log out" |
+| Our API | `lib/api.ts`, `lib/apiError.ts` | A `POST`. `ApiError` carries `code` and `field`; the server's `message` is dropped, so it can't reach the screen |
+| Today | `lib/date.ts` | `todayISO()`, from the device's local year, month and day; `EARLIEST_DATE` |
+| Times | `lib/time.ts`, `components/TimeBox.tsx` | `design-brief.md` §5 and §9 |
+| Log out | `lib/useLogOut.ts` | Shared by both signed-in screens |
+
+- **The page's rule for a time is the server's.** `isTimeOfDay` runs the
+  same rows as `fam.ParseMinutes` (`fam-rules.md` §12.10). That is a rule
+  about spelling, checked twice so she is told next to the field; it is not
+  domain logic (§1.3).
+- **The date's lower limit is checked on submit,** as planned. In the staged
+  check the box accepts year 0002 and the form then refuses it with both
+  limits. What a `min` on the box would have done to real typing on a
+  computer was not tried.
+- **Cost:** the script is 355.05 kB (101.98 kB gzipped), from 348.7 kB
+  (100.2 kB) at the end of Slice 2. No dependency was added.
+- **Frontend tests:** 44, from 18.
+
+**The browser checks** (`deploy/browser-check/`), four scripts, **150
+checks**, all against the built image:
+
+| Script | Checks | Staged? |
+|---|---|---|
+| `auth-screens.mjs` | 65 | In part. Six are new, for the time box |
+| `auth-first-use.mjs` | 31 | In part |
+| `onboarding.mjs` | 42 | Entirely: the session, both endpoints' answers, the clock and time zone |
+| `onboarding-real.mjs` | 12 | Not at all |
+
+- **How answers are staged:** Chrome's debugging protocol pauses a request
+  the page makes (`Fetch.requestPaused`) and the script fulfils it. That is
+  also how the exact JSON the page sends is read.
+- **How the clock is staged:** `Emulation.setTimezoneOverride`, and a
+  replaced `Date` injected before the page's own scripts. At 00:30 on the
+  14th in Israel, the page's limit is the 14th although the UTC date is the
+  13th.
+- **Seen failing:** with `todayISO` changed to the UTC date, the unit test
+  failed and so did three checks in the browser.
+- **The real pass** runs through `make browser-check`, which first deletes
+  the test account's rows from the **local** database. It passed twice in a
+  row, so the reset works. `WSLENV` carries the password to Windows' Node
+  (*verified with a dummy value holding a space and an `&`*); it is typed
+  into the page and never printed.
+- **The real pass's screenshot is never committed:** it shows the test
+  account's address, and the repository is public. The screenshots folder is
+  gitignored; the ones kept as evidence are added with `git add -f`.
 
 ---
 
