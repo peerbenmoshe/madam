@@ -19,6 +19,12 @@ _Amended in Slice 1 (8 November 2026): `users` gains a planned column,
 `cycle_start_unknown`, for the onboarding answer (§4.1, §6.2). Slice 3's
 migration adds it._
 
+_Amended in the Slice 3 plan (14 November 2026): migration `00003` will add
+that column and create `cycle_starts` and `measurement_time_periods`. §4.3
+and §4.4 gain each table's grants, §4.4 a `CHECK` on the time, §7 three rows,
+and §10's last open item is decided: sqlc's `pgtype.*` types stay
+(`tech-stack.md` §6)._
+
 ---
 
 ## 1. Principles
@@ -145,7 +151,7 @@ code to know which members of one set are the chart-affecting ones.
 | `id` | `UUID` | no | **PK.** The UUID issued by Supabase Auth. |
 | `temperature_unit` | `temperature_unit` | no | Default `celsius`. |
 | `onboarded_at` | `TIMESTAMPTZ` | yes | `NULL` until onboarding is finished. |
-| `cycle_start_unknown` | `BOOLEAN` | no | Default `false`. `true` when onboarding answered "I don't know". **Planned:** added by Slice 3's migration. |
+| `cycle_start_unknown` | `BOOLEAN` | no | Default `false`. `true` when onboarding answered "I don't know". **Planned:** added by migration `00003` (Slice 3). It means nothing while `onboarded_at` is `NULL`. |
 | `created_at` | `TIMESTAMPTZ` | no | Default `now()`. |
 
 No email, no password, no name — identity is the auth provider's job and
@@ -260,6 +266,16 @@ writes to a different table than the rest of the form. Saving a day can therefor
 be two writes, and they must both succeed or both fail — one transaction. Since
 every request already runs inside a transaction for RLS (§9), this comes free.
 
+**Planned for migration `00003`** (Slice 3 plan, 14 November 2026). Row
+Level Security is `ENABLE`d and `FORCE`d, with one policy `FOR ALL TO
+madam_app` whose `USING` and `WITH CHECK` compare `user_id` to the request's
+user id, by the same expression as `users`' policy (§9). `madam_app` is
+granted **`SELECT`, `INSERT` and `DELETE`**, and no `UPDATE`: the paragraph
+above is the reason, and now the database enforces it. `DELETE` is granted
+now although Slice 5 is the first to use it. Granting it later would be a
+migration holding one `GRANT`, with its own two-PR round to production
+(`tech-stack.md` §6).
+
 ### 4.4 `measurement_time_periods`
 
 | Column | Type | Null | Notes |
@@ -287,6 +303,21 @@ past values.
 The user-facing flow asks for "the last date the previous time applied";
 `valid_from` is that date **+ 1 day**. The conversion happens once, in the
 handler.
+
+**Planned for migration `00003`** (Slice 3 plan, 14 November 2026):
+
+- **A `CHECK` on `measurement_time`: whole minutes, and before 24:00.** A
+  Postgres `TIME` can hold `24:00:00` and microseconds; a fixed time is a
+  minute of the day, 00:00 to 23:59, which is `fam.Minutes`. Principle 2
+  (§1): the database can enforce it, so it does, and reading a row into
+  `fam.Minutes` can then fail only on a row nobody could have written.
+- Row Level Security as on `cycle_starts` (§4.3). `madam_app` is granted
+  **`SELECT` and `INSERT` only**: the spec only ever adds a period (§7 of
+  `spec-v1.md`). If Slice 9's change flow turns out to need a correction,
+  that is a grant to add then.
+- **The `-infinity` row is written once, by onboarding**, in the same
+  transaction that sets `onboarded_at` (`tech-stack.md` §3). The primary key
+  already makes a second one impossible.
 
 ---
 
@@ -392,6 +423,9 @@ migrate and nothing that can fall out of sync.
 | `updated_at` freshness | **Database** — `BEFORE UPDATE` trigger |
 | Deleting a user deletes everything | **Database** — `ON DELETE CASCADE` |
 | No overlapping time periods | **Structure** — inexpressible by design |
+| A fixed time is a whole minute, 00:00–23:59 (§4.4) | **Database** — `CHECK`, with Go refusing first so the message is readable |
+| A cycle start is never edited, a time period never edited or deleted | **Database** — `madam_app` isn't granted the statement (§4.3, §4.4) |
+| No date before 1 January 2000 | **Go** (`tech-stack.md` §3) |
 | Impossible temperature, 20–50 °C (AC-17) | **Go first**, with a database `CHECK` as backstop |
 | Per-user isolation (AC-16) | **Go** — every query filters by `user_id` — **and the database**, via forced RLS (§9) |
 | No future dates (§5.3) | **Go** |
@@ -732,8 +766,13 @@ round-tripped values through Postgres 17 with pgx v5.12.0:
 - **`-infinity` round-trips:** written and read back as
   `pgtype.Date{InfinityModifier: pgtype.NegativeInfinity, Valid: true}`, and
   stored as the literal `-infinity`. The sentinel-date fallback isn't needed.
-- **Not decided yet:** whether to override any of these (pointers instead of
+- ~~**Not decided yet:** whether to override any of these (pointers instead of
   `pgtype.*`, or `time.Time` for `NOT NULL` dates). That's for the first slice
-  whose queries use them (Slice 3).
+  whose queries use them (Slice 3).~~ **Decided in the Slice 3 plan
+  (14 November 2026): no overrides.** `pgtype.Date` is the only one of these
+  that can hold `-infinity`, so it has to stay for `valid_from`, and one
+  representation of a date is better than two. The conversions to and from
+  `fam.Date` and `fam.Minutes` are a handful of functions in
+  `internal/db/convert.go` (`tech-stack.md` §6).
 
 Table ownership and the application role are recorded in §9.

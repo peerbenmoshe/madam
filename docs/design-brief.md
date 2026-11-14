@@ -4,6 +4,9 @@ _Status: approved by Pe'er on 8 November 2026, after four rounds on a
 clickable mock. Written in the design step that replaced "design post-v1"
 (`tech-stack.md` §11)._
 
+_Amended in the Slice 3 plan (14 November 2026): §5 and §9 gain the time
+box, and §10 the onboarding screen, which the mock doesn't have._
+
 This file is the **source of truth for how Madam looks and how its screens
 behave to the touch**. `spec-v1.md` says what the app does, and
 `fam-rules.md` says how each rule computes. Where this file and the mock
@@ -116,6 +119,7 @@ Fallback: the system font stack.
 | Secondary button | 48px, radius 14, ink outline on `surface` | "Close", "Log out", the "no" side of a question |
 | Switch | 50×30, `accent` with ink outline when on | "Cycle starts on this day", "Show raw readings" |
 | Date box | Looks like a field and shows the date as dd/mm/yyyy; the native date picker sits invisibly on top of it (§9) | Every date input |
+| Time box | The date box's twin: it shows the time as 24-hour "07:05" ("hh:mm" in `muted` while empty), with the native time picker invisibly on top (§9). *Planned in Slice 3 (14 November 2026)* | Every time input: the fixed measurement time, and a reading's time in Slice 4 |
 | Text field | 48px, radius 12, `rule` border, with its label above in bold. Focus is a `berry` border with a `blush` ring. An error shows under it in `danger`, bold. *Added in the design foundation (12 November 2026), from the mock's inputs: the table had no text input* | Email, password, invite code |
 | Bottom sheet | Radius 26 at the top, a handle, over a dimmed backdrop | The day popup |
 | Toast | Ink pill, 2.2 s | "Entry saved", "Entry deleted" |
@@ -342,6 +346,15 @@ cycle. It can't be undone.").
   snapping to the nearest allowed date, which would show a date she didn't
   pick. Slice 4's "no future dates" and AC-11 (Slice 6) rely on this, and
   the server still refuses a bad date whatever the page does.
+- **Time boxes** (planned in Slice 3). A phone set to a 12-hour clock shows
+  "7:05 AM" in a native time input, and §7 says 24-hour. So the time box
+  does what the date box does: its own "07:05" text, with the real
+  `<input type="time">` invisible on top. Its value is always `HH:MM`,
+  whatever the phone shows. *Unverified:* the picker that opens may still
+  offer AM and PM on such a phone, as the date picker shows the phone's own
+  date format; Pe'er checks it on both phones on `/design` before the
+  onboarding screen depends on it. Rejected: two lists, hours and minutes
+  (a 60-item list); typed text (a phone's number pad has no colon).
 - **The rows under the graph with Recharts.** *Unverified:* the mock draws
   its own SVG. In Recharts they could be a custom X-axis tick with four
   lines, or an HTML grid below the chart that uses the plot's exact left
@@ -379,8 +392,48 @@ cycle. It can't be undone.").
 - **The rows under the graph in Recharts** (§9). Slice 6.
 - **On a computer,** the spec puts the legend permanently in the top-right
   corner. The mock is phone-only, so the wide layout is still undrawn.
-- **Screens not drawn:** onboarding and the measurement-time change flow.
-  They use the components above; Slices 3 and 9 sketch them in their plans.
+- **Onboarding, sketched in the Slice 3 plan** (14 November 2026; not in the
+  mock). One column, like the sign-in screens, with one primary button:
+
+  ```
+   Madam
+   Set up your chart
+   Two questions, then you can start.
+
+   When did your current cycle start?
+   Day 1 is the first day of your period.
+   [ I know the date ]  [ I don't know ]      option buttons, none chosen
+   ┌────────────────────────────────┐
+   │ Cycle start                    │        date box, shown only after
+   │ dd/mm/yyyy                     │        "I know the date"; up to today
+   └────────────────────────────────┘
+
+   What time do you usually take your temperature?
+   A reading taken earlier or later is adjusted to this time.
+   ┌────────────────────────────────┐
+   │ Measurement time               │        time box, empty
+   │ hh:mm                          │
+   └────────────────────────────────┘
+
+   [         Start charting         ]        primary button
+   Log out                                   link
+  ```
+
+  - **"I don't know" is one of two option buttons, and neither starts
+    chosen,** so the answer is always a deliberate tap. It is a full answer
+    in the spec, not a way out. Choosing it replaces the date box with:
+    "That's fine. Cycle days will show as "?" until you mark the start of
+    your next cycle." Rejected: a switch beside the date box (off would read
+    as "I know", with no date); a small link under the box (easy to miss).
+  - **The time starts empty.** A prefilled 07:00 left untouched would be
+    saved as hers, and it decides every adjusted value from then on
+    (`spec-v1.md` §4).
+  - What is missing is said under the control it belongs to, in `danger`,
+    when she taps the button; the button is never greyed out.
+  - The words are a draft until Pe'er has read them on the screen. They live
+    in `frontend/src/lib/onboardingText.ts`.
+- **Screen not drawn:** the measurement-time change flow. It uses the
+  components above; Slice 9 sketches it in its plan.
   ~~Sign-up~~ was built in Slice 2 without a mock: Log in, Create account,
   Forgot password, Choose a new password, and "Check your email", each one
   column with a title, fields, one primary button and links

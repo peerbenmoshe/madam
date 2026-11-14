@@ -405,10 +405,13 @@ Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.
 how Cloud Run connects (session pooler), and the Belgium–Frankfurt latency.
 
 Still open from Slice 2 (`docs/tech-stack.md` §4):
-- The hourly token refresh, watched over a real hour.
 - Whether iOS Safari clears the session after about a week unused.
 - A hook host that answers nothing at all (a timeout, not an error).
-- Whether the confirmation email still lands in spam.
+- The hourly token refresh, as the server sees it. Pe'er was still logged
+  in after 100 minutes (one observation); a `GET /api/me` answering 200
+  that late would close it, and Slice 3's screens make that call.
+- Spam, for anyone but Pe'er: his second email reached the inbox after he
+  marked the sender "not spam".
 
 Answered in Slice 2 (`docs/tech-stack.md` §4): tokens verify against the
 project's JWKS (one ES256 key, cached 10 minutes, on both projects); a cold

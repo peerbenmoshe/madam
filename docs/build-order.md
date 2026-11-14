@@ -59,6 +59,11 @@ _Amended in Slice 2 (13 November 2026): Slice 2 and the design foundation
 are done. Slice 4 gains what Slice 2 learned about date pickers, and Slice 9
 what it decided about deleting the identity (both below)._
 
+_Amended in the Slice 3 plan (14 November 2026): Slice 3 is planned as eight
+PRs. Its migration also creates `cycle_starts` and
+`measurement_time_periods`, which didn't exist yet, and Slice 4's "whose
+today?" is answered a slice early (both below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -529,7 +534,35 @@ Current cycle start or "I don't know", fixed measurement time written as the
 migration, so it is its own PR first, migrated to production before the code
 that writes it (`tech-stack.md` §6).
 
-*Acceptance criteria:* the setup half of AC-12.
+*Acceptance criteria:* the setup half of AC-12, and AC-16 for every new table
+and endpoint.
+
+*Planned (14 November 2026).* Two things the lines above didn't say:
+- **Only `users` exists.** The migration must create `cycle_starts` and
+  `measurement_time_periods` too, each with the new-table checklist.
+- **"Today or earlier" needs a today,** so Slice 4's question is answered
+  here (below).
+
+The decisions are in `tech-stack.md` (§3: the API's conventions, whose
+"today", the endpoint; §6: types at the boundary, the migration; §8: the
+screen's routing and its browser checks), `data-model.md` (§4.3, §4.4, §10)
+and `design-brief.md` (§5, §10). One concern per PR, merged one at a time,
+in this order:
+1. these documents;
+2. migration `00003`, with the queries for the two tables, the type
+   conversions and the isolation, grants and cascade tests. No handler uses
+   them yet. Then `make migrate-prod`;
+3. `internal/fam`: "today", the floor, and parsing dates and times, with
+   `fam-rules.md` §9 and its new vectors first;
+4. the API's errors as JSON;
+5. `POST /api/onboarding`, only once production has `00003`;
+6. the time box, shown on `/design` and checked on both phones;
+7. the screen, its words, and its browser checks;
+8. the record: what was built and measured, `build-log.md`, `CLAUDE.md`.
+
+No new dependency. The two accounts already in production have
+`onboarded_at` `NULL`, so they see onboarding on their first visit after
+PR 7, and nothing needs doing for them.
 
 ### Slice 4 — Daily entry
 
@@ -544,9 +577,20 @@ no-temperature confirmation, one entry per date.
   iPhone). The date box enforces its own limits and says why
   (`design-brief.md` §9), and the server must refuse a future date whatever
   the page does.
-- **Whose "today"?** The no-future-dates rule needs one answer before this
+- ~~**Whose "today"?** The no-future-dates rule needs one answer before this
   slice starts: the server's UTC date or the user's date in Israel. They
-  differ for two or three hours every night.
+  differ for two or three hours every night.~~ **Answered in the Slice 3
+  plan** (`tech-stack.md` §3): the page uses the device's date, and the
+  server refuses only a date that hasn't begun anywhere on Earth
+  (`fam.LatestToday`), or one before 1 January 2000. This slice reuses both
+  unchanged. One thing is left for it: a day screen left open overnight must
+  work out today again, not keep yesterday's.
+- **The `entries` table doesn't exist yet.** It is its own migration PR
+  first, migrated to production before the code that needs it
+  (`tech-stack.md` §6), with the new-table checklist.
+- **Entries need an onboarded user:** the fixed time comes from the
+  `-infinity` row that onboarding writes. Decide what the entry endpoints
+  answer for an account that hasn't onboarded (a 409, by §3's conventions).
 
 *From the design step* (`design-brief.md` §6.3): the field order puts the
 "cycle starts on this day" switch directly under the temperature card. The

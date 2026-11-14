@@ -40,6 +40,8 @@ _Amended in the design step (8 November 2026):_ _§11 moves design from "optiona
 
 _Amended after the invite-code spike (11 November 2026):_ _§4 replaces "Unverified" with the measured answer (the code reaches the "before user created" hook as `user.user_metadata.invite_code`), records how a refusal must be sent, the signature scheme, which sign-up paths fire the hook, that it fails closed, and that the code persists in every token; decides an HTTP hook calling the Go API over a Postgres function; lists the dashboard settings to repeat for production; §13 follows._
 
+_Amended in the Slice 3 plan (14 November 2026):_ _§3 decides the API's conventions for every later slice (the JSON error shape, statuses, date and time formats), whose "today" a date is checked against, and the onboarding endpoint; §4 records two observations made since Slice 2; §6 decides how sqlc's types meet `fam`'s and what migration `00003` holds; §8.4 decides the onboarding screen's routing and how it is checked in a browser._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -207,6 +209,117 @@ Rejected:
 
 This choice affects roughly 10–15% of the backend code. Domain logic and database
 code are framework-independent.
+
+### Decided in the Slice 3 plan (14 November 2026): the API's conventions
+
+Decisions only; nothing here is built yet. "As built" follows when it is.
+Onboarding is the first endpoint that writes, so these are decided once, for
+every later slice.
+
+**Errors.** Every error from the API has one shape:
+
+```json
+{"error": {"code": "date_in_future", "field": "cycle_start_date", "message": "cycle_start_date is after today"}}
+```
+
+- `code` is stable snake_case, and it is what the page reads.
+- `field` is the JSON field the refusal is about. It is left out when there
+  isn't one.
+- `message` is for a developer reading a log or a `curl` answer. **The page
+  never shows it:** the words a person sees live in the page's text modules,
+  with tests, as they do for Supabase's messages (§4).
+- One error per response. The page checks what it can first, so the server's
+  refusal is a backstop, not the form's validation.
+
+Rejected: plain text, as the API answered until now (the page can't tell one
+refusal from another); RFC 9457 `application/problem+json` (type URIs and
+its own media type, for one small client).
+
+| Status | Meaning | Codes so far |
+|---|---|---|
+| 400 | The request isn't what the endpoint reads: not JSON, an unknown field, a wrong type, a required flag missing | `bad_request` |
+| 401 | No valid token | `unauthorized` |
+| 404 | No such API path | `not_found` |
+| 409 | Well-formed, but the account's state refuses it | `already_onboarded` |
+| 413 | The body is over the endpoint's cap | `too_large` |
+| 415 | A body that isn't `application/json` | `unsupported_media_type` |
+| 422 | Well-formed JSON holding a value the rules refuse | `missing_field`, `unexpected_field`, `invalid_date`, `date_in_future`, `date_too_early`, `invalid_time` |
+| 500 | Our fault; the cause goes to the log only | `internal` |
+| 503 | The token couldn't be checked at all (§4) | `auth_unavailable` |
+
+The API's existing plain-text errors move to this shape. Two things keep
+their own: the sign-up hook, which speaks Supabase's protocol (§4), and
+`/api/health`.
+
+**Formats.**
+
+| Value | On the wire | Notes |
+|---|---|---|
+| A calendar date | `"2026-11-01"` | Exactly `YYYY-MM-DD`. A date the calendar doesn't have (30 February) is `invalid_date` |
+| A time of day | `"07:05"` | 24-hour, exactly five characters. `7:05`, `07:05:00` and `24:00` are `invalid_time` |
+| An instant | `"2026-11-14T09:12:44Z"` | RFC 3339 in UTC, as `onboarded_at` already is |
+| Field names | `snake_case` | |
+
+- **Parsing is `fam`'s** (`ParseDate`, `ParseMinutes`), strict and
+  hand-written, with test vectors. Go's own `time.Parse` accepts `7:05` for
+  the layout `15:04`.
+- **Unknown fields are refused** (`DisallowUnknownFields`). A body that
+  carries `user_id` is a 400, not something quietly ignored.
+- **Each endpoint caps its body** (4 KiB for onboarding).
+
+**Whose "today".** "No future dates" needs a today, and the server's clock is
+in UTC while she is in Israel.
+
+| Option | Wrong around midnight | Other cost |
+|---|---|---|
+| The server's UTC date | In Israel, from 00:00 to 02:00 in winter and to 03:00 in summer, her real today is refused as a future date | None to build |
+| The server in `Asia/Jerusalem` | Right at home. Abroad it isn't: in Tokyo her today is refused for hours, in New York tomorrow is accepted | A country hard-coded into a public-ready app |
+| **The page uses the device's date; the server refuses only a date that hasn't begun anywhere on Earth** | Never refuses a real today. A request that doesn't come from our page can save tomorrow's date from 12:00 (winter) or 13:00 (summer) Israel time until midnight | Her own data only, and it takes defeating her own page, or a phone whose clock is a day ahead |
+| A stored time zone per user | Exact, if the zone is right | A column, a setting, zone data in the image, and behaviour for travel: `spec-v1.md` §13 lists time zones as a non-goal |
+| The page sends its date or offset with every request | As the chosen option | No safer (the server must still bound it), and more protocol |
+
+**Chosen: the third**, with the rule in both places.
+- **The page** offers dates up to the device's own calendar date. That is
+  "the date as entered" of `spec-v1.md` §13.
+- **The server** refuses a date after `fam.LatestToday(now)`: the date at
+  UTC+14, the zone furthest ahead. It is a pure function of the clock, which
+  the handler is given, so tests choose the instant. `fam-rules.md` §9 gains
+  the rule and its vectors with the code.
+- There is also a **floor: 1 January 2000**, one constant in `fam`. It
+  catches a mangled year (0002) and is never wrong for a real person. It is
+  an assumption and can be tuned. Rejected: no floor (year 0002 is storable,
+  and its cycle day would be about 739,000); a relative floor such as "within
+  a year" (it would refuse real long cycles, and `fam-rules.md` §5.1 says
+  there is no maximum length).
+
+**The onboarding endpoint: `POST /api/onboarding`.**
+
+```json
+{"cycle_start_unknown": false, "cycle_start_date": "2026-11-01", "measurement_time": "07:00"}
+{"cycle_start_unknown": true, "measurement_time": "07:00"}
+```
+
+- **`cycle_start_unknown` is required and explicit.** Rejected: a missing or
+  `null` date meaning "I don't know". A page bug that dropped the field would
+  silently store the wrong answer, and the answer is permanent
+  (`fam-rules.md` §5.2).
+- **One `InUserTx`, in this order:** `EnsureUser`; then
+  `UPDATE users SET onboarded_at = now(), cycle_start_unknown = … WHERE id = …
+  AND onboarded_at IS NULL`, which is **the gate**; then the `-infinity` row
+  of `measurement_time_periods`; then the `cycle_starts` row, if the date is
+  known; then the read for the response.
+- **A second submit is 409 `already_onboarded`, and nothing is written.** The
+  gate's `UPDATE` matches no row, and the transaction rolls back. Two taps at
+  once: the first `UPDATE` locks the row, the second waits and then matches
+  nothing. Rejected: overwriting (a new `-infinity` time would change every
+  past adjusted value, which `spec-v1.md` §7 forbids); answering 200 and
+  ignoring it (a different second answer would vanish without a word).
+- **It answers 200 with the same body as `GET /api/me`.** That endpoint's
+  shape doesn't change: `onboarded_at` already tells the page which screen to
+  show. `cycle_start_unknown` isn't exposed, because "?" versus blank is
+  derived by Go (§1.3).
+- Rejected shapes: `PATCH /api/me` (onboarding isn't a field edit; it writes
+  three tables, once); `PUT` (it is deliberately not repeatable).
 
 ---
 
@@ -640,6 +753,26 @@ tokens**, and the hook allowed exactly one sign-up. What that test changed:
     email".
   - **A wrong log-in typed with non-English characters** adds "Check that
     your keyboard is set to English."
+
+### Observed since Slice 2 (recorded 14 November 2026)
+
+Two of Slice 2's open questions, as Pe'er saw them on production. Each is
+one observation.
+
+- **The session outlives the access token.** He was still logged in 100
+  minutes after logging in. The token lasts an hour (*Supabase's default,
+  not read from the dashboard*), so the client had refreshed it or would on
+  the next call. *Not recorded:* whether the page was reloaded at that
+  point. A reload calls `GET /api/me`, and only its 200 proves the server
+  accepted a refreshed token. Slice 3's screens make that call on every
+  visit, so the question answers itself there.
+- **The second email reached the inbox,** after he marked the sender "not
+  spam" on the first. That is his mailbox learning, and says nothing yet
+  about another person's. Both "check your email" screens keep the line
+  about the spam folder.
+
+Still open: iOS Safari clearing a site's storage after about a week unused,
+and a hook host that answers nothing at all.
 
 ### Rejected, and when each would win
 
@@ -1084,6 +1217,56 @@ needs, which would turn a forgotten step 2 into a safely failed deploy.
 
 **`goose_db_version`** is goose's bookkeeping table, created on first use and
 owned by `postgres`. It lives in `public` alongside our tables.
+
+### Decided in the Slice 3 plan (14 November 2026): types at the boundary
+
+Decisions only; "as built" follows. This closes the question
+`data-model.md` §10 left for the first slice with real queries.
+
+| Option | For | Against |
+|---|---|---|
+| **Keep sqlc's `pgtype.*`, with no overrides, and convert in one hand-written file** | `pgtype.Date` is the only type here that can hold `-infinity`. One representation everywhere, and nothing surprising in the generated code | Conversions are explicit calls |
+| Override `DATE` to `time.Time` | Fewer `.Time` and `.Valid` | pgx can't scan `-infinity` into a `time.Time`, so `valid_from` would need an exception: two representations of one type |
+| Our own scanner types | Queries would return `fam` types directly | `fam` may import only the standard library, so it would mean wrapper types and overrides, for little |
+
+**`internal/db/convert.go`**, hand-written like `store.go`:
+
+| Function | What it refuses |
+|---|---|
+| `DateToPg(fam.Date) pgtype.Date` | Nothing |
+| `DateFromPg(pgtype.Date) (fam.Date, error)` | `NULL`, and either infinity: `-infinity` can never become a `fam.Date` |
+| `MinutesToPg(fam.Minutes) pgtype.Time` | Nothing (07:00 is 25,200,000,000 microseconds) |
+| `MinutesFromPg(pgtype.Time) (fam.Minutes, error)` | `NULL`, a part of a minute, anything outside 00:00–23:59 |
+| `ScheduleFromRows(rows) (fam.Schedule, error)` | No `-infinity` row at all. That row becomes `NewSchedule`'s `initial`, and every other row a `TimeChange` |
+
+- **`-infinity` is written in SQL, not built in Go:** onboarding's row has
+  its own query, with the literal `'-infinity'` in the `.sql` file, where a
+  reviewer sees it.
+- `internal/db` imports `internal/fam` for these types. The reverse is
+  forbidden (the depguard rule in `backend/.golangci.yml`). Rejected: converting in `internal/api`, which
+  would spread `pgtype` into every handler.
+
+**Migration `00003_onboarding.sql`** holds `users.cycle_start_unknown` and
+the tables `cycle_starts` and `measurement_time_periods`
+(`data-model.md` §4.1, §4.3, §4.4), each table with its cascade, `ENABLE`
+and `FORCE`, its policy and its grants.
+- **One file, not three.** goose runs a file in one transaction, so
+  production can't end half-migrated, and nothing uses one of the three
+  without the others. Rejected: three files (a failure after the first
+  leaves a partial state).
+- **It is safe with the code already running**, which is what the order
+  above requires. The new tables are invisible to that code. `EnsureUser`
+  names its one column, and the new column has a default. `GetUser` names
+  its four columns, so its result doesn't change shape. (Only `SELECT *`
+  breaks on an added column: pgx prepares statements once per connection,
+  and Postgres then refuses with "cached plan must not change result type".)
+- **`GetUser`'s text stays as it is in the migration's PR.** That PR's merge
+  deploys before `make migrate-prod` runs, so selecting the new column there
+  would break `GET /api/me` on production in between. What changes in that
+  PR is only a Go type: with a fifth column on the table, the four selected
+  no longer match it, so sqlc should return a `GetUserRow` where it returned
+  `db.User` (*expected from how sqlc picks a return type; to confirm with
+  `make sqlc`*). The endpoint's PR adds the column to the query.
 
 ---
 
@@ -1890,6 +2073,47 @@ alert did. npm's suggested "fix" is a downgrade to ESLint 9.
   allows; 0 violations on three browsers (§8.3).
 - HSTS arrives with a custom domain.
 - TypeScript 7 arrives once typescript-eslint supports it.
+
+### Decided in the Slice 3 plan (14 November 2026): the onboarding screen
+
+Decisions only; "as built" follows. The screen itself is sketched in
+`design-brief.md` §10.
+
+- **Onboarding has no address of its own.** At `/`, a signed-in person sees
+  onboarding or the app according to `onboarded_at` in `GET /api/me`. So it
+  can't be skipped by typing an address, a reload lands on the right screen,
+  and there are no redirect rules. One component owns the account's state
+  (loading, failed, not onboarded, onboarded); the placeholder page stops
+  asking for it itself. Rejected: `/onboarding` with redirects (a guard in
+  each direction, each waiting for `/api/me` first).
+- **A 409 `already_onboarded` means "go on":** the page asks `/api/me` again
+  and shows the app. It happens when she finished on another device, or
+  tapped twice.
+- **Its words are in `frontend/src/lib/onboardingText.ts`**, with tests, like
+  `authText.ts`: every string on the screen, what is wrong with the form,
+  and what each API `code` means for her.
+- **The page's today** is the device's calendar date (§3), read from the
+  local year, month and day, never through UTC.
+- **The lower limit on the date is checked when she submits, not by the date
+  box.** *Assumption, to check in the browser:* on a computer, typing a year
+  digit by digit passes through year 0002, which a `min` on the box would
+  refuse, putting the old value back in the middle of her typing.
+- **`lib/api.ts`** gains a `post`, and `ApiError` carries the `code` and
+  `field` of §3's error shape.
+
+**How it is checked in a browser** (`deploy/browser-check/`, as in §4):
+
+| Option | For | Against |
+|---|---|---|
+| Staged only: a made-up session in storage, and the script answers `/api/me` and `/api/onboarding` itself | No account and no email. It reaches the 409, a 422, a lost connection and a slow answer, and it reads the exact JSON the page sends | The page never meets the real server |
+| A real test account only | A real token, server and database | One run per account without a reset, and it can't produce the error states |
+| **Both** | Staged for every state of the screen, and one real pass: log in, onboard, reload, still past onboarding | A test account on madam-dev, which Pe'er creates once |
+
+The real pass runs against `make docker-run`, so the identity is madam-dev's
+and the rows are in the local container. The run first deletes that one
+user's rows there, as the owner. The account's email, password and id are in
+`.env`, added by Pe'er; a Makefile target hands them to the script
+(*how they reach Windows' Node is to verify*).
 
 ---
 
