@@ -32,6 +32,21 @@ const WEAK_PASSWORD =
   "Choose a stronger password: at least 8 characters, with an English letter and a digit.";
 export const OFFLINE =
   "Can't reach the server. Check your connection and try again.";
+// The server refused the session this browser holds: 401 from our own API.
+export const SESSION_REFUSED =
+  "Your session wasn't accepted. Log out and log in again.";
+
+// Why her account couldn't be read from our own API, by the HTTP status of
+// the failed call (0: no answer at all).
+export function accountProblem(status: number): string {
+  if (status === 0) {
+    return OFFLINE;
+  }
+  if (status === 401) {
+    return SESSION_REFUSED;
+  }
+  return TRY_AGAIN;
+}
 const TOO_MANY = "Too many attempts. Wait a few minutes and try again.";
 
 export function emailProblem(email: string): string | null {

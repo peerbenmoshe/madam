@@ -18,6 +18,8 @@ const BASE = `border-rule bg-surface relative flex cursor-pointer items-center b
 
 type OptionButtonsProps<T extends string> = {
   legend: string;
+  // A line of help between the question and its answers.
+  hint?: string;
   options: readonly Choice<T>[];
   // null while nothing is chosen yet.
   value: T | null;
@@ -26,6 +28,7 @@ type OptionButtonsProps<T extends string> = {
 
 export function OptionButtons<T extends string>({
   legend,
+  hint,
   options,
   value,
   onChange,
@@ -33,7 +36,10 @@ export function OptionButtons<T extends string>({
   const name = useId();
   return (
     <fieldset className="min-w-0">
-      <legend className="mb-2.5 font-bold">{legend}</legend>
+      <legend className={`font-bold ${hint ? "mb-1" : "mb-2.5"}`}>
+        {legend}
+      </legend>
+      {hint && <p className="text-muted mb-2.5 text-sm">{hint}</p>}
       <div className="flex flex-wrap gap-2">
         {options.map((option) => (
           <label

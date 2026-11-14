@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const {
+  OFFLINE: OFFLINE_MESSAGE,
+  SESSION_REFUSED,
+  accountProblem,
   ALREADY_REGISTERED,
   MIN_PASSWORD_LENGTH,
   PASSWORD_REMINDER,
@@ -327,4 +330,12 @@ test("the wait before sending again counts down in whole seconds", () => {
 
   assert.equal(resendWaitText(45), "You can send it again in 45 seconds.");
   assert.equal(resendWaitText(1), "You can send it again in 1 second.");
+});
+
+test("accountProblem: no answer, a refused session, anything else", () => {
+  assert.equal(accountProblem(0), OFFLINE_MESSAGE);
+  assert.equal(accountProblem(401), SESSION_REFUSED);
+  for (const status of [-1, 400, 404, 500, 503]) {
+    assert.equal(accountProblem(status), TRY_AGAIN, String(status));
+  }
 });

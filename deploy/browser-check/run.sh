@@ -1,14 +1,19 @@
 #!/bin/sh
-# Runs both browser checks against a running server, from WSL, using the
+# Runs the browser checks against a running server, from WSL, using the
 # Chrome and Node installed on the Windows side. See README.md.
 #
 #   sh deploy/browser-check/run.sh                       # http://localhost:8080
 #   sh deploy/browser-check/run.sh https://example.app   # another server
+#   make browser-check                                   # also the real pass
+#   sh deploy/browser-check/run.sh "" onboarding.mjs     # one script only
 #
 # Screenshots end up in deploy/browser-check/screenshots/ (gitignored).
 set -eu
 
 base=${1:-http://localhost:8080}
+[ -n "$base" ] || base=http://localhost:8080
+# One script only, by its file name; empty for all of them.
+only=${2:-}
 here=$(cd "$(dirname "$0")" && pwd)
 
 # Chrome's debugging port listens on Windows' own localhost, which WSL can't
@@ -20,7 +25,8 @@ mkdir -p "$work"
 cp "$here"/*.mjs "$work"/
 
 status=0
-for script in auth-screens.mjs auth-first-use.mjs; do
+for script in auth-screens.mjs auth-first-use.mjs onboarding.mjs; do
+	[ -z "$only" ] || [ "$only" = "$script" ] || continue
 	echo "=== $script"
 	# cmd.exe needs a Windows folder as its working directory. Its exit
 	# status doesn't survive the pipe, so the last line decides.
@@ -28,6 +34,21 @@ for script in auth-screens.mjs auth-first-use.mjs; do
 	printf '%s\n' "$out"
 	printf '%s\n' "$out" | grep -q "ALL CHECKS PASSED" || status=1
 done
+
+# The real pass needs a test account (README.md). Its email and password
+# reach Windows' Node through the environment: WSLENV names the variables
+# WSL hands to a Windows program. They are never put on a command line.
+if [ -n "$only" ] && [ "$only" != onboarding-real.mjs ]; then
+	: # another script was asked for
+elif [ -n "${MADAM_CHECK_EMAIL:-}" ] && [ -n "${MADAM_CHECK_PASSWORD:-}" ]; then
+	echo "=== onboarding-real.mjs"
+	out=$(cd "$work" && WSLENV="MADAM_CHECK_EMAIL:MADAM_CHECK_PASSWORD${WSLENV:+:$WSLENV}" \
+		cmd.exe /c "node onboarding-real.mjs . $base" 2>&1 | tr -d '\r')
+	printf '%s\n' "$out"
+	printf '%s\n' "$out" | grep -q "ALL CHECKS PASSED" || status=1
+else
+	echo "=== onboarding-real.mjs: skipped (no test account in the environment; see \"The test account\" in README.md)"
+fi
 
 mkdir -p "$here/screenshots"
 cp "$work"/*.png "$here/screenshots"/ 2>/dev/null || true

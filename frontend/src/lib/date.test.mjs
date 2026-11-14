@@ -10,8 +10,13 @@ process.env.TZ = "Pacific/Honolulu";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { dateRangeProblem, formatDate, formatDateLong } =
-  await import("./date.ts");
+const {
+  EARLIEST_DATE,
+  dateRangeProblem,
+  formatDate,
+  formatDateLong,
+  todayISO,
+} = await import("./date.ts");
 
 test("the test really runs behind UTC", () => {
   assert.equal(new Date(Date.UTC(2026, 10, 8)).getDate(), 7);
@@ -118,4 +123,26 @@ test("dateRangeProblem throws on something that isn't a date", () => {
     () => dateRangeProblem("", undefined, "2026-11-12"),
     RangeError,
   );
+});
+
+// The tests run in Honolulu (UTC-10, set at the top), so the device's date
+// and the UTC date differ for ten hours of every day.
+test("todayISO is the date on the device's own calendar, not the UTC date", () => {
+  // 19:00 on the 13th in Honolulu is already 05:00 on the 14th in UTC.
+  assert.equal(todayISO(new Date(Date.UTC(2026, 10, 14, 5, 0))), "2026-11-13");
+  // One minute either side of the device's midnight.
+  assert.equal(todayISO(new Date(2026, 10, 13, 23, 59)), "2026-11-13");
+  assert.equal(todayISO(new Date(2026, 10, 14, 0, 0)), "2026-11-14");
+  // Padded, and across a year's end.
+  assert.equal(todayISO(new Date(2026, 0, 5, 12, 0)), "2026-01-05");
+  assert.equal(todayISO(new Date(2026, 11, 31, 23, 59)), "2026-12-31");
+});
+
+test("todayISO without an argument is a real date", () => {
+  assert.match(todayISO(), /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(formatDate(todayISO()).length, 10);
+});
+
+test("the floor is 1 January 2000, as on the server", () => {
+  assert.equal(EARLIEST_DATE, "2000-01-01");
 });
