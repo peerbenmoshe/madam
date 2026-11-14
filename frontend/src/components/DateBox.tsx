@@ -20,12 +20,17 @@ type Props = {
   onChange: (value: string) => void;
   min?: string;
   max?: string;
+  // What the form finds wrong with the date, shown under the box: "Pick the
+  // date your cycle started." A pick the box itself has just refused is
+  // shown in its place, since that is what she did last.
+  error?: string;
 };
 
-export function DateBox({ label, value, onChange, min, max }: Props) {
+export function DateBox({ label, value, onChange, min, max, error }: Props) {
   // Why the last pick was refused, until a pick is accepted.
   const [refusal, setRefusal] = useState<string | null>(null);
   const refusalId = useId();
+  const shown = refusal ?? error;
 
   function pick(picked: string) {
     // Clearing the date is always allowed; the form decides if it's needed.
@@ -55,7 +60,8 @@ export function DateBox({ label, value, onChange, min, max }: Props) {
           value={value}
           min={min}
           max={max}
-          aria-describedby={refusal ? refusalId : undefined}
+          aria-invalid={shown ? true : undefined}
+          aria-describedby={shown ? refusalId : undefined}
           onChange={(event) => pick(event.target.value)}
           onClick={(event) => {
             // On a computer a click on a date input only focuses it, so ask
@@ -70,13 +76,13 @@ export function DateBox({ label, value, onChange, min, max }: Props) {
           className="absolute inset-0 size-full cursor-pointer opacity-0"
         />
       </label>
-      {refusal && (
+      {shown && (
         <p
           id={refusalId}
           role="alert"
           className="text-danger text-sm font-bold"
         >
-          {refusal}
+          {shown}
         </p>
       )}
     </div>

@@ -92,3 +92,19 @@ export function dateRangeProblem(
   }
   return `Pick ${formatDate(min as string)} or a later date.`;
 }
+
+// The earliest date the app accepts (docs/fam-rules.md §9.1): a floor for a
+// mangled year, such as 0002 while a year is being typed. The server holds
+// the same date (fam.EarliestDate).
+export const EARLIEST_DATE = "2000-01-01";
+
+// todayISO is today on this device's own calendar, as "YYYY-MM-DD". "Today"
+// is the date she sees on her phone, wherever she is (docs/spec-v1.md §4).
+//
+// It reads the local year, month and day. It must never go through UTC
+// (toISOString): in Israel that is yesterday's date from midnight until
+// 02:00, or 03:00 in summer.
+export function todayISO(now: Date = new Date()): string {
+  const year = String(now.getFullYear()).padStart(4, "0");
+  return `${year}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
+}

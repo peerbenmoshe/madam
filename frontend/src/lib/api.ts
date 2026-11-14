@@ -1,34 +1,39 @@
+import { ApiError, apiErrorFrom } from "./apiError.ts";
 import { accessToken } from "./auth.ts";
+import type { OnboardingBody } from "./onboardingText.ts";
 
 // Calls to our own API. Every one carries the signed-in user's token; the
 // server takes the user's identity from it and from nothing else.
 
-// A response that wasn't a success, with its HTTP status (0: no response).
-export class ApiError extends Error {
-  status: number;
-  constructor(status: number) {
-    super(`the API answered ${status}`);
-    this.status = status;
-  }
-}
+export { ApiError };
 
-async function get<T>(path: string): Promise<T> {
+// call sends one request and returns the decoded answer, or throws an
+// ApiError: status 0 when there was no answer at all, 401 when nobody is
+// signed in here, otherwise the server's status with its code and field.
+async function call<T>(method: "GET" | "POST", path: string, body?: unknown) {
   const token = await accessToken();
   if (token === null) {
     throw new ApiError(401);
   }
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
   let res: Response;
   try {
     res = await fetch(path, {
+      method,
       cache: "no-store",
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
     throw new ApiError(0);
   }
   if (!res.ok) {
-    throw new ApiError(res.status);
+    // The body may be anything: read it as text and let apiErrorFrom decide.
+    throw apiErrorFrom(res.status, await res.text().catch(() => ""));
   }
   return (await res.json()) as T;
 }
@@ -43,5 +48,12 @@ export type Me = {
 };
 
 export function fetchMe(): Promise<Me> {
-  return get<Me>("/api/me");
+  return call<Me>("GET", "/api/me");
+}
+
+// Stores her onboarding answers (POST /api/onboarding) and returns her
+// account as it now is. A second submit is refused with 409
+// already_onboarded and changes nothing.
+export function submitOnboarding(body: OnboardingBody): Promise<Me> {
+  return call<Me>("POST", "/api/onboarding", body);
 }

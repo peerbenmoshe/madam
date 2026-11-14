@@ -136,7 +136,7 @@ endef
 
 .PHONY: dev test test-integration lint build frontend check-node db-up db-down \
   db-reset image docker-run deploy sqlc migrate-up migrate-status migrate-new \
-  migrate-prod psql psql-app
+  migrate-prod psql psql-app browser-check
 
 # The API and the Vite dev server together; open http://localhost:5173. Vite
 # serves the page with instant reloads and passes /api/ to the server on
@@ -261,6 +261,24 @@ psql:
 # `SELECT set_config('madam.user_id', '<uuid>', false)` first, no rows at all.
 psql-app:
 	@psql "$$DATABASE_URL"
+
+# The browser checks, against the server of `make docker-run` in another
+# terminal (deploy/browser-check/README.md). Like `sh
+# deploy/browser-check/run.sh`, plus the one real pass: a test account from
+# madam-dev logs in and onboards. That account is three values in .env
+# (MADAM_CHECK_EMAIL, MADAM_CHECK_PASSWORD, MADAM_CHECK_USER_ID); without
+# them the real pass is skipped.
+#
+# Onboarding happens once per account, so its rows are deleted first: from
+# the LOCAL database only, whatever DB says. The id is passed to psql as a
+# value (:'id'), never pasted into the SQL.
+browser-check:
+	@if [ -n "$$MADAM_CHECK_USER_ID" ]; then \
+	  echo "DELETE FROM users WHERE id = :'id'::uuid;" | \
+	    psql "$(LOCAL_MIGRATE_URL)" --quiet --no-psqlrc -v ON_ERROR_STOP=1 -v id="$$MADAM_CHECK_USER_ID" \
+	  && echo "browser-check: the test account's rows in the local database are deleted"; \
+	fi
+	sh deploy/browser-check/run.sh
 
 # Regenerates backend/internal/db from the migrations and the .sql queries.
 # Run after touching either; never edit the generated files.
