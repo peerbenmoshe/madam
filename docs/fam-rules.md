@@ -10,6 +10,11 @@ in Celsius whatever the display unit; §3.5 gains the exact Fahrenheit
 arithmetic; §5.2 recognises the unknown-start cycle by the stored onboarding
 answer; §12 gains vectors F3, C11–C14 and M1–M5 (§12.8)._
 
+_Amended in Slice 3 (14 November 2026): §9 says what a future date is when
+the server doesn't know her time zone, adds a floor (1 January 2000), and
+fixes how a date and a time of day are written; §12 gains vectors FD1–FD8
+(§12.9), and P1–P10 and H1–H12 (§12.10)._
+
 ---
 
 ## 1. Provenance and honesty
@@ -363,7 +368,9 @@ practice.
 | Rule | Behaviour | Enforced by |
 |---|---|---|
 | One entry per date | Picking an existing date opens it for editing (AC-4) | Database primary key |
-| No future dates | Rejected | Go |
+| No future dates (§9.1) | Rejected | Go |
+| No date before **1 January 2000** (§9.1) | Rejected | Go |
+| A date or a time of day not written exactly as §9.2 says | Rejected | Go |
 | Temperature outside **35.00–39.00 °C** | **Question**: "This temperature is unusual, is it correct?" Yes saves, No returns to the field | Go |
 | Temperature outside **20.00–50.00 °C** | **Rejected** with a clear message | Go, with a database `CHECK` as backstop |
 | Temperature with no measurement time, or vice versa | Impossible | Database `CHECK` |
@@ -376,6 +383,54 @@ catches a *unit* bug in our own code — a conversion multiplying by 100 instead
 error; the Go check exists so the message is readable.
 
 The 35–39 bounds are an assumption and can be tuned.
+
+### 9.1 Which dates are accepted
+
+Added in Slice 3. These two limits apply to **every date the app accepts**:
+a cycle start, an entry's date, the last date of a measurement-time period.
+
+**No future dates.** "Future" needs a today, and the server doesn't know
+hers: its clock is in UTC, she is usually in Israel, and time zones are not
+handled (§11). So the rule has two halves.
+
+- **The page** offers no date after the one her device shows. That is her
+  today, wherever she is.
+- **The server** refuses a date only when it hasn't begun *anywhere on
+  Earth*:
+
+  ```
+  latest_today(now) = the calendar date of (now in UTC + 14 hours)
+  a date is in the future  ⇔  date > latest_today(now)
+  ```
+
+  UTC+14 is the time zone furthest ahead, so a date after `latest_today` is
+  nobody's today yet, and a date up to it may be hers.
+
+The server's half never refuses a real today. That is what a stricter rule
+would get wrong: by the server's own UTC date, the first two hours of every
+day in Israel (three in summer) are "tomorrow". The price is that it is
+looser than the page. A request that didn't come from our page can save
+tomorrow's date once tomorrow has begun at UTC+14, which in Israel is from
+12:00 (13:00 in summer) until midnight. It is her own data, and it takes
+going around her own page.
+
+**No date before 1 January 2000.** A floor for a mangled year (0002, 1026),
+not a judgement about plausible cycles: cycles still have no maximum length
+(§5.1). It is never wrong for a real person and can be tuned.
+
+### 9.2 How dates and times are written
+
+Added in Slice 3, for everything the API reads and writes.
+
+- **A date is `YYYY-MM-DD`,** exactly ten characters: four digits, a
+  hyphen, two digits, a hyphen, two digits. It must also exist on the
+  calendar.
+- **A time of day is `HH:MM`,** 24-hour, exactly five characters: two
+  digits, a colon, two digits, from `00:00` to `23:59`. There are no
+  seconds, and `24:00` is not a time.
+
+One spelling each, so `7:05` and `2026-2-3` are refused, not tidied up. What
+the user sees (dd/mm/yyyy, `design-brief.md` §7) is the page's concern.
 
 ---
 
@@ -396,7 +451,9 @@ change.
 - Temperature-shift detection (Sensiplan-style or otherwise). Listed as a future
   idea; if it is ever built, its rules are written here first.
 - Thermometer type, cycle intent, or medical context.
-- Time zone handling. Dates and times are taken exactly as entered.
+- Time zone handling. Dates and times are taken exactly as entered. The one
+  place a time zone could matter, "no future dates", is written so that it
+  needs none (§9.1).
 - "Shortest − 21 (20)" (§8).
 
 ---
@@ -527,6 +584,60 @@ a change says 06:30 from 1 April 2026.
 | M3 | 1 Apr 2026 | 06:30 |
 | M4 | 1 Jan 2020, before the account existed | 07:00, from the `-infinity` row |
 | M5 | Only the onboarding row; 1 Jan 2030 | 07:00 |
+
+### 12.9 Accepted dates
+
+Added in Slice 3 (§9.1). "Now" is the server's clock, in UTC; the dates are
+in 2026. Israel is at UTC+2 in November.
+
+| # | Now (UTC) | Date | Expected |
+|---|---|---|---|
+| FD1 | 13 Nov, 21:59 (23:59 in Israel) | 13 Nov | accepted |
+| FD2 | 13 Nov, 22:30 (00:30 on the 14th in Israel) | 14 Nov | **accepted**: her today, though the server's UTC date is still the 13th |
+| FD3 | 13 Nov, 09:59 | 14 Nov | refused: the 14th hasn't begun anywhere (23:59 on the 13th at UTC+14) |
+| FD4 | 13 Nov, 10:00 | 14 Nov | accepted: it is 00:00 on the 14th at UTC+14 |
+| FD5 | 13 Nov, 22:30 | 15 Nov | refused |
+| FD6 | 13 Nov, 22:30 | 1 Jan 2020 | accepted: any past date |
+| FD7 | 13 Nov, 22:30 | 31 Dec 1999 | refused: before the floor |
+| FD8 | 13 Nov, 22:30 | 1 Jan 2000 | accepted: the floor itself |
+
+FD2 is the case the rule exists for, and FD3 and FD4 are its edge, one
+minute apart.
+
+### 12.10 Written dates and times
+
+Added in Slice 3 (§9.2).
+
+| # | Written | Expected |
+|---|---|---|
+| P1 | `2026-11-01` | 1 November 2026 |
+| P2 | `2024-02-29` | 29 February 2024, a leap year |
+| P3 | `2026-02-30` | refused: no such date |
+| P4 | `2026-13-01` | refused: no such date |
+| P5 | `2026-2-3` | refused: not `YYYY-MM-DD` |
+| P6 | `01/11/2026` | refused: not `YYYY-MM-DD` |
+| P7 | `2026-11-01T00:00:00Z` | refused: not `YYYY-MM-DD` |
+| P8 | ` 2026-11-01` (a space first) | refused: not `YYYY-MM-DD` |
+| P9 | `２０２６-11-01` (full-width digits) | refused: not `YYYY-MM-DD` |
+| P10 | nothing at all | refused: not `YYYY-MM-DD` |
+
+| # | Written | Expected |
+|---|---|---|
+| H1 | `07:05` | 425 minutes after midnight |
+| H2 | `00:00` | 0 |
+| H3 | `23:59` | 1439 |
+| H4 | `24:00` | refused: outside 00:00–23:59 |
+| H5 | `07:60` | refused: outside 00:00–23:59 |
+| H6 | `7:05` | refused: not `HH:MM` |
+| H7 | `07:05:00` | refused: not `HH:MM` |
+| H8 | `07.05` | refused: not `HH:MM` |
+| H9 | `0705` | refused: not `HH:MM` |
+| H10 | `7:05 AM` | refused: not `HH:MM` |
+| H11 | `-7:05` | refused: not `HH:MM` |
+| H12 | nothing at all | refused: not `HH:MM` |
+
+Writing a time back out is the reverse: 425 is `07:05`. Every minute of the
+day, 0 to 1439, must survive being written and read again.
 
 ---
 
