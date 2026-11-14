@@ -8,6 +8,7 @@ import { Question } from "../components/Question.tsx";
 import { SegmentedControl } from "../components/SegmentedControl.tsx";
 import { Switch } from "../components/Switch.tsx";
 import { TextField } from "../components/TextField.tsx";
+import { TimeBox } from "../components/TimeBox.tsx";
 import { newPasswordProblem } from "../lib/authText.ts";
 import { formatDate, formatDateLong } from "../lib/date.ts";
 
@@ -92,6 +93,8 @@ export default function DesignPage() {
   const [showRaw, setShowRaw] = useState(true);
   const [date, setDate] = useState("2026-11-08");
   const [emptyDate, setEmptyDate] = useState("");
+  const [time, setTime] = useState("07:00");
+  const [emptyTime, setEmptyTime] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("short");
   const [asking, setAsking] = useState(false);
@@ -238,6 +241,21 @@ export default function DesignPage() {
           The first holds {date === "" ? "no date" : formatDate(date)}, and
           allows 01/01/2026 to 12/11/2026 only. A phone's picker offers later
           dates anyway: picking one is refused, with the reason.
+        </p>
+      </Section>
+
+      <Section title="Time box">
+        <TimeBox label="Measurement time" value={time} onChange={setTime} />
+        <TimeBox
+          label="Measured at"
+          value={emptyTime}
+          onChange={setEmptyTime}
+          error={emptyTime === "" ? "Pick a time." : undefined}
+        />
+        <p className="text-muted text-sm">
+          The first holds {time === "" ? "no time" : time}. The box always reads
+          24-hour. The picker that opens is the phone's own, and may offer AM
+          and PM.
         </p>
       </Section>
 

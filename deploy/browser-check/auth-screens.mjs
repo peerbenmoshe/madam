@@ -97,6 +97,14 @@ async function shot(name) {
   const { data } = await S("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
   writeFileSync(join(OUT, name + ".png"), Buffer.from(data, "base64"));
 }
+// shotOf saves only the element that expression finds, so one component can
+// be looked at closely.
+async function shotOf(name, expression) {
+  const clip = await js(`(() => { const b = (${expression}).getBoundingClientRect();
+    return { x: b.left + scrollX - 8, y: b.top + scrollY - 8, width: b.width + 16, height: b.height + 16, scale: 1 }; })()`);
+  const { data } = await S("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip });
+  writeFileSync(join(OUT, name + ".png"), Buffer.from(data, "base64"));
+}
 let failed = 0;
 function check(name, ok, detail = "") {
   if (!ok) failed++;
@@ -244,6 +252,26 @@ try {
   check("Save turns into the question", await has("Save without a temperature?"));
   await click("Save without");
   check("answering brings Save back", (await has("Answered: save without.")) && (await js(`[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Save entry")`)));
+
+  // The time box: its own 24-hour text, with the native input invisible on
+  // top. A real picker can't be opened headless, so a pick is staged by
+  // setting the input's value the way the browser does.
+  const setTime = (index, value) => js(`(() => { const i = document.querySelectorAll('input[type="time"]')[${index}];
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(i, ${q(value)});
+    i.dispatchEvent(new Event("input", { bubbles: true })); i.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+  const timeBoxText = (index) => js(`document.querySelectorAll('input[type="time"]')[${index}].closest("label").innerText`);
+  check("the time box shows its time as 24-hour text", (await timeBoxText(0)).includes("07:00") && (await has("The first holds 07:00.")), await timeBoxText(0));
+  check("a tap on the time box lands on the native input", await js(`(() => { const i = document.querySelector('input[type="time"]'); i.scrollIntoView({ block: "center" });
+    const r = i.closest("label").getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === i; })()`));
+  await setTime(0, "18:45");
+  check("picking a time changes what the box shows", (await timeBoxText(0)).includes("18:45") && (await has("The first holds 18:45.")), await timeBoxText(0));
+  check("an empty time box says hh:mm, with its error under it", (await timeBoxText(1)).includes("hh:mm") && (await has("Pick a time.")), await timeBoxText(1));
+  await shotOf("p-time-box", `[...document.querySelectorAll("h2")].find((h) => h.textContent === "Time box").parentElement`);
+  await setTime(1, "06:30");
+  check("…and the error goes once a time is picked", (await timeBoxText(1)).includes("06:30") && !(await has("Pick a time.")), await timeBoxText(1));
+  await setTime(0, "");
+  check("clearing the time empties the box", (await timeBoxText(0)).includes("hh:mm") && (await has("The first holds no time.")), await timeBoxText(0));
+  await setTime(0, "07:00");
   await shot("p-design");
 } catch (error) {
   failed++;
