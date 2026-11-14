@@ -127,12 +127,27 @@ else
 	fail "CSP: want connect-src 'self' $project; got '$(header Content-Security-Policy)'"
 fi
 
+# is_api_error CODE: the last fetch answered in the API's one error shape
+# (docs/tech-stack.md §3), with that code.
+is_api_error() {
+	[ "$(header Content-Type)" = application/json ] &&
+		grep -q "^{\"error\":{\"code\":\"$1\",\"message\":\"[^\"]*\"}}\$" "$tmp/body"
+}
+
 # User data is behind a token: without one, 401, and never cached.
 status=$(fetch /api/me)
-if [ "$status" = 401 ] && ! is_page && [ "$(header Cache-Control)" = no-store ]; then
-	pass "/api/me without a token: 401, no-store"
+if [ "$status" = 401 ] && is_api_error unauthorized && [ "$(header Cache-Control)" = no-store ]; then
+	pass "/api/me without a token: 401 as a JSON error, no-store"
 else
-	fail "/api/me without a token: want 401 with no-store; got $status, $(header Cache-Control)"
+	fail "/api/me without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}} with no-store; got $status '$(head -c 120 "$tmp/body")', $(header Cache-Control)"
+fi
+
+# An unknown API path answers in the same shape.
+status=$(fetch /api/nope)
+if [ "$status" = 404 ] && is_api_error not_found; then
+	pass "/api/nope: 404 as a JSON error"
+else
+	fail "/api/nope: want 404 {\"error\":{\"code\":\"not_found\",…}}; got $status '$(head -c 120 "$tmp/body")'"
 fi
 
 # The sign-up hook answers only requests signed by Supabase. Without a

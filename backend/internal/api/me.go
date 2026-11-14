@@ -50,7 +50,7 @@ func handleMe(store UserStore) http.HandlerFunc {
 		if !ok {
 			// The route was mounted without RequireUser: our bug.
 			slog.ErrorContext(ctx, "me: no user id in the request's context")
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			writeInternalError(ctx, w)
 			return
 		}
 
@@ -68,7 +68,7 @@ func handleMe(store UserStore) http.HandlerFunc {
 		if err != nil {
 			// The cause goes to the log only.
 			slog.ErrorContext(ctx, "me: database", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			writeInternalError(ctx, w)
 			return
 		}
 
@@ -80,13 +80,13 @@ func handleMe(store UserStore) http.HandlerFunc {
 	}
 }
 
-// writeJSON sends v as the response body.
+// writeJSON sends v as the response body. A value that can't be encoded is
+// our bug: it is logged and answered as a 500 in the API's error shape.
 func writeJSON(ctx context.Context, w http.ResponseWriter, status int, v any) {
 	body, err := json.Marshal(v)
 	if err != nil {
 		slog.ErrorContext(ctx, "encode response", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		status, body = http.StatusInternalServerError, []byte(internalErrorJSON)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

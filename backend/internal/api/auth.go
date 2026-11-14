@@ -40,12 +40,16 @@ func RequireUser(a Authenticator) func(http.Handler) http.Handler {
 			id, err := a.Authenticate(r)
 			if errors.Is(err, ErrAuthUnavailable) {
 				slog.WarnContext(r.Context(), "request could not be authenticated", "err", err)
-				http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+				writeError(r.Context(), w, http.StatusServiceUnavailable,
+					apiError{Code: codeAuthUnavailable, Message: "the token could not be checked; try again"})
 				return
 			}
 			if err != nil || !id.Valid {
+				// Why the token was refused stays in the log: telling the
+				// caller would help only someone forging one.
 				slog.InfoContext(r.Context(), "request not authenticated", "err", err)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeError(r.Context(), w, http.StatusUnauthorized,
+					apiError{Code: codeUnauthorized, Message: "a valid access token is required"})
 				return
 			}
 			ctx := context.WithValue(r.Context(), userIDKey{}, id)
