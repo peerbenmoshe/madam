@@ -31,7 +31,7 @@ const dbTimeout = 5 * time.Second
 type meResponse struct {
 	ID              string `json:"id"`
 	TemperatureUnit string `json:"temperature_unit"`
-	// OnboardedAt is null until onboarding is finished (Slice 3).
+	// OnboardedAt is null until onboarding is finished (POST /api/onboarding).
 	OnboardedAt *time.Time `json:"onboarded_at"`
 }
 
@@ -54,10 +54,7 @@ func handleMe(store UserStore) http.HandlerFunc {
 			return
 		}
 
-		// GetUserRow, not db.User: the query reads four of the table's
-		// columns. It can't read the fifth (cycle_start_unknown, migration
-		// 00003) until production has that column (docs/tech-stack.md §6).
-		var user db.GetUserRow
+		var user db.User
 		err := store.InUserTx(ctx, id, func(q *db.Queries) error {
 			if err := q.EnsureUser(ctx, id); err != nil {
 				return fmt.Errorf("ensure the user's row: %w", err)
@@ -75,12 +72,20 @@ func handleMe(store UserStore) http.HandlerFunc {
 			return
 		}
 
-		res := meResponse{ID: user.ID.String(), TemperatureUnit: string(user.TemperatureUnit)}
-		if user.OnboardedAt.Valid {
-			res.OnboardedAt = &user.OnboardedAt.Time
-		}
-		writeJSON(ctx, w, http.StatusOK, res)
+		writeJSON(ctx, w, http.StatusOK, meResponseFor(user))
 	}
+}
+
+// meResponseFor turns the user's row into what the page is told. It leaves
+// cycle_start_unknown out on purpose: what that answer means for a cycle day
+// ("?" or blank) is worked out here, in Go, never by the page
+// (docs/tech-stack.md §1.3).
+func meResponseFor(user db.User) meResponse {
+	res := meResponse{ID: user.ID.String(), TemperatureUnit: string(user.TemperatureUnit)}
+	if user.OnboardedAt.Valid {
+		res.OnboardedAt = &user.OnboardedAt.Time
+	}
+	return res
 }
 
 // writeJSON sends v as the response body. A value that can't be encoded is

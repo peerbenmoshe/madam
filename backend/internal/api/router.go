@@ -4,6 +4,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -18,6 +19,13 @@ import (
 // user created" hook, and cfg is what the page is told about Supabase. In
 // the server, db and users are the same *db.Store.
 func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.Handler, cfg PublicConfig, frontend http.Handler) http.Handler {
+	return newRouter(db, users, auth, signUpHook, cfg, frontend, time.Now)
+}
+
+// newRouter is NewRouter with the clock as an argument, so tests choose the
+// instant: which dates count as future depends on it (docs/fam-rules.md
+// §9.1). The server's clock is time.Now.
+func newRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.Handler, cfg PublicConfig, frontend http.Handler, now func() time.Time) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -58,6 +66,7 @@ func NewRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.H
 			r.Use(RequireUser(auth))
 
 			r.Get("/me", handleMe(users))
+			r.Post("/onboarding", handleOnboarding(users, now))
 		})
 	})
 

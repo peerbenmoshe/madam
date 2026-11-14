@@ -11,6 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const completeOnboarding = `-- name: CompleteOnboarding :execrows
+UPDATE users
+SET onboarded_at = now(),
+    cycle_start_unknown = $1
+WHERE id = $2
+  AND onboarded_at IS NULL
+`
+
+type CompleteOnboardingParams struct {
+	CycleStartUnknown bool
+	ID                pgtype.UUID
+}
+
+// CompleteOnboarding records that onboarding is finished and what it
+// answered about the cycle start (docs/fam-rules.md §5.2). It is also the
+// gate that makes onboarding happen once: it changes the row only while
+// onboarded_at is NULL, and returns how many rows it changed. Zero means
+// already onboarded, and the caller must write nothing else. Two requests at
+// once are safe: the second waits for the first one's row lock, then finds
+// no row to change. Run it through Store.InUserTx.
+func (q *Queries) CompleteOnboarding(ctx context.Context, arg CompleteOnboardingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, completeOnboarding, arg.CycleStartUnknown, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createUser = `-- name: CreateUser :exec
 INSERT INTO users (id) VALUES ($1)
 `
@@ -53,30 +81,24 @@ func (q *Queries) EnsureUser(ctx context.Context, id pgtype.UUID) error {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, temperature_unit, onboarded_at, created_at
+SELECT id, temperature_unit, onboarded_at, created_at, cycle_start_unknown
 FROM users
 WHERE id = $1
 `
-
-type GetUserRow struct {
-	ID              pgtype.UUID
-	TemperatureUnit TemperatureUnit
-	OnboardedAt     pgtype.Timestamptz
-	CreatedAt       pgtype.Timestamptz
-}
 
 // GetUser reads one users row by id, which is this table's user id, so the
 // WHERE is its "filter by user_id" (CLAUDE.md). Run it through
 // Store.InUserTx: Row Level Security then hides every other user's row even
 // if the id asked for is someone else's.
-func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (GetUserRow, error) {
+func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (User, error) {
 	row := q.db.QueryRow(ctx, getUser, id)
-	var i GetUserRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.TemperatureUnit,
 		&i.OnboardedAt,
 		&i.CreatedAt,
+		&i.CycleStartUnknown,
 	)
 	return i, err
 }
