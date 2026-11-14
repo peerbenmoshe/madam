@@ -22,6 +22,21 @@ func (q *Queries) CreateUser(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const deleteUser = `-- name: DeleteUser :exec
+DELETE FROM users
+WHERE id = $1
+`
+
+// DeleteUser removes the user's own row, and with it everything of hers:
+// every table that holds user data references users with ON DELETE CASCADE
+// (docs/data-model.md §8.8). Until account deletion is built (Slice 9) only
+// the cascade test calls it. Run it through Store.InUserTx: Row Level
+// Security lets a request delete no row but its own.
+func (q *Queries) DeleteUser(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteUser, id)
+	return err
+}
+
 const ensureUser = `-- name: EnsureUser :exec
 INSERT INTO users (id) VALUES ($1)
 ON CONFLICT (id) DO NOTHING
@@ -43,13 +58,20 @@ FROM users
 WHERE id = $1
 `
 
+type GetUserRow struct {
+	ID              pgtype.UUID
+	TemperatureUnit TemperatureUnit
+	OnboardedAt     pgtype.Timestamptz
+	CreatedAt       pgtype.Timestamptz
+}
+
 // GetUser reads one users row by id, which is this table's user id, so the
 // WHERE is its "filter by user_id" (CLAUDE.md). Run it through
 // Store.InUserTx: Row Level Security then hides every other user's row even
 // if the id asked for is someone else's.
-func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (User, error) {
+func (q *Queries) GetUser(ctx context.Context, id pgtype.UUID) (GetUserRow, error) {
 	row := q.db.QueryRow(ctx, getUser, id)
-	var i User
+	var i GetUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.TemperatureUnit,

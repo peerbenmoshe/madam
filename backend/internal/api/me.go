@@ -54,7 +54,10 @@ func handleMe(store UserStore) http.HandlerFunc {
 			return
 		}
 
-		var user db.User
+		// GetUserRow, not db.User: the query reads four of the table's
+		// columns. It can't read the fifth (cycle_start_unknown, migration
+		// 00003) until production has that column (docs/tech-stack.md §6).
+		var user db.GetUserRow
 		err := store.InUserTx(ctx, id, func(q *db.Queries) error {
 			if err := q.EnsureUser(ctx, id); err != nil {
 				return fmt.Errorf("ensure the user's row: %w", err)

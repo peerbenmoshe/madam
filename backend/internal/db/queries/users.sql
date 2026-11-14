@@ -20,3 +20,12 @@ WHERE id = sqlc.arg(id);
 -- request's.
 INSERT INTO users (id) VALUES (sqlc.arg(id))
 ON CONFLICT (id) DO NOTHING;
+
+-- name: DeleteUser :exec
+-- DeleteUser removes the user's own row, and with it everything of hers:
+-- every table that holds user data references users with ON DELETE CASCADE
+-- (docs/data-model.md §8.8). Until account deletion is built (Slice 9) only
+-- the cascade test calls it. Run it through Store.InUserTx: Row Level
+-- Security lets a request delete no row but its own.
+DELETE FROM users
+WHERE id = sqlc.arg(id);
