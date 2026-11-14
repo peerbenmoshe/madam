@@ -53,9 +53,23 @@ func (ns NullTemperatureUnit) Value() (driver.Value, error) {
 	return string(ns.TemperatureUnit), nil
 }
 
-type User struct {
-	ID              pgtype.UUID
-	TemperatureUnit TemperatureUnit
-	OnboardedAt     pgtype.Timestamptz
+type CycleStart struct {
+	UserID    pgtype.UUID
+	StartDate pgtype.Date
+	CreatedAt pgtype.Timestamptz
+}
+
+type MeasurementTimePeriod struct {
+	UserID          pgtype.UUID
+	ValidFrom       pgtype.Date
+	MeasurementTime pgtype.Time
 	CreatedAt       pgtype.Timestamptz
+}
+
+type User struct {
+	ID                pgtype.UUID
+	TemperatureUnit   TemperatureUnit
+	OnboardedAt       pgtype.Timestamptz
+	CreatedAt         pgtype.Timestamptz
+	CycleStartUnknown bool
 }
