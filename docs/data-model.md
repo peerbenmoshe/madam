@@ -25,6 +25,10 @@ and §4.4 gain each table's grants, §4.4 a `CHECK` on the time, §7 three rows,
 and §10's last open item is decided: sqlc's `pgtype.*` types stay
 (`tech-stack.md` §6)._
 
+_Amended after Slice 3 (14 November 2026): migration `00003` is built and in
+production. §4.3, §4.4 and §9 say what was built and measured, and the ERD
+shows `cycle_start_unknown`._
+
 ---
 
 ## 1. Principles
@@ -57,6 +61,7 @@ erDiagram
         uuid id PK "= Supabase Auth user id"
         temperature_unit temperature_unit "default celsius"
         timestamptz onboarded_at "NULL until onboarding done"
+        boolean cycle_start_unknown "the onboarding answer"
         timestamptz created_at
     }
 
@@ -151,7 +156,7 @@ code to know which members of one set are the chart-affecting ones.
 | `id` | `UUID` | no | **PK.** The UUID issued by Supabase Auth. |
 | `temperature_unit` | `temperature_unit` | no | Default `celsius`. |
 | `onboarded_at` | `TIMESTAMPTZ` | yes | `NULL` until onboarding is finished. |
-| `cycle_start_unknown` | `BOOLEAN` | no | Default `false`. `true` when onboarding answered "I don't know". **Planned:** added by migration `00003` (Slice 3). It means nothing while `onboarded_at` is `NULL`. |
+| `cycle_start_unknown` | `BOOLEAN` | no | Default `false`. `true` when onboarding answered "I don't know". Added by migration `00003` (Slice 3). It means nothing while `onboarded_at` is `NULL`. |
 | `created_at` | `TIMESTAMPTZ` | no | Default `now()`. |
 
 No email, no password, no name — identity is the auth provider's job and
@@ -266,7 +271,7 @@ writes to a different table than the rest of the form. Saving a day can therefor
 be two writes, and they must both succeed or both fail — one transaction. Since
 every request already runs inside a transaction for RLS (§9), this comes free.
 
-**Planned for migration `00003`** (Slice 3 plan, 14 November 2026). Row
+**As built in migration `00003`** (Slice 3, 14 November 2026). Row
 Level Security is `ENABLE`d and `FORCE`d, with one policy `FOR ALL TO
 madam_app` whose `USING` and `WITH CHECK` compare `user_id` to the request's
 user id, by the same expression as `users`' policy (§9). `madam_app` is
@@ -304,7 +309,7 @@ The user-facing flow asks for "the last date the previous time applied";
 `valid_from` is that date **+ 1 day**. The conversion happens once, in the
 handler.
 
-**Planned for migration `00003`** (Slice 3 plan, 14 November 2026):
+**As built in migration `00003`** (Slice 3, 14 November 2026):
 
 - **A `CHECK` on `measurement_time`: whole minutes, and before 24:00.** A
   Postgres `TIME` can hold `24:00:00` and microseconds; a fixed time is a
@@ -318,6 +323,12 @@ handler.
 - **The `-infinity` row is written once, by onboarding**, in the same
   transaction that sets `onboarded_at` (`tech-stack.md` §3). The primary key
   already makes a second one impossible.
+- The `CHECK` as written: `measurement_time < TIME '24:00' AND
+  EXTRACT(SECOND FROM measurement_time) = 0`. Tested: 24:00, 07:00:30 and
+  07:00:00.000001 are refused, 23:59 is stored.
+- **Deleting the user still deletes her periods,** although `madam_app` has
+  no `DELETE` here: a foreign key's cascade runs as the table's owner, not
+  with the caller's privileges. Measured locally and on madam-dev.
 
 ---
 
@@ -738,6 +749,50 @@ as the owner, the guard refused; as `madam_app` with RLS switched off, I3,
 (from `CREATEROLE`, PG16+) but neither INHERIT nor SET, so it can manage the
 role without acting as it.
 
+### As built in Slice 3
+
+Migration `00003_onboarding.sql` gives `cycle_starts` and
+`measurement_time_periods` the same treatment as `users`: `ENABLE` and
+`FORCE`, and one policy each (`cycle_starts_own_rows`,
+`measurement_time_periods_own_rows`), `FOR ALL TO madam_app`, with the
+`users` policy's expression on `user_id`. The grants differ per table and
+are in §4.3 and §4.4.
+
+**The proof now covers every table, and the checklist checks itself**
+(`internal/db/user_tables_test.go`, as `madam_app`, locally, in CI and on
+madam-dev):
+
+- `TestIsolationOfUserTables` runs `TestIsolation`'s cases for each table in
+  its `userTables` list: a user sees her own row; **I3**; `WITH CHECK`
+  refuses a row under another id; a query without the wrapper sees nothing,
+  on a fresh connection and on a used one.
+- `TestSchemaChecklist` reads the catalog. Every table in `public` must be
+  listed in `tableGrants` with exactly the privileges `madam_app` holds, and
+  every table of ours must have forced RLS, exactly one policy `FOR ALL TO
+  madam_app` with `USING` and `WITH CHECK`, and a foreign key to `users`
+  with `ON DELETE CASCADE`. **A table that arrives without its line there
+  fails the test.**
+- `TestDeletingAUserDeletesHerRows` deletes a user and counts.
+
+Each was seen failing: RLS disabled, `NO FORCE`, a policy without `WITH
+CHECK`, `USING (true)`, `WITH CHECK (true)`, a policy `TO PUBLIC`, an extra
+grant (`UPDATE`, `DELETE`, `TRUNCATE`), a missing one, no cascade, and a
+table nobody listed. Two of those are worth knowing:
+
+- **`NO FORCE` and a policy without `WITH CHECK` change no behaviour** for
+  `madam_app`. It isn't the owner, and Postgres applies `USING` to inserts
+  when `WITH CHECK` is absent. Only the catalog check sees them. They still
+  matter: they are what protects the day the role or the policy changes.
+- **`USING (true)` and `WITH CHECK (true)` pass the catalog check** and are
+  caught only by behaviour. So both kinds of test are needed.
+
+**On Supabase** (madam-dev, after `00003`): only `postgres` and `madam_app`
+hold any privilege on a table in `public`. The API roles got nothing on the
+new tables, so `00002`'s revocation of the default privileges holds for
+tables created later.
+
+**In production** since 14 November 2026 (`make migrate-prod`).
+
 ---
 
 ## 10. Open items
@@ -774,5 +829,8 @@ round-tripped values through Postgres 17 with pgx v5.12.0:
   representation of a date is better than two. The conversions to and from
   `fam.Date` and `fam.Minutes` are a handful of functions in
   `internal/db/convert.go` (`tech-stack.md` §6).
+
+**Since Slice 3 all three tables that exist are built** (`users`,
+`cycle_starts`, `measurement_time_periods`); `entries` is Slice 4's.
 
 Table ownership and the application role are recorded in §9.

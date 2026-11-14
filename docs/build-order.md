@@ -64,6 +64,9 @@ PRs. Its migration also creates `cycle_starts` and
 `measurement_time_periods`, which didn't exist yet, and Slice 4's "whose
 today?" is answered a slice early (both below)._
 
+_Amended in Slice 3 (14 November 2026): Slice 3 is done. Slice 4 gains what
+it built to reuse and what it learned (below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -564,6 +567,26 @@ No new dependency. The two accounts already in production have
 `onboarded_at` `NULL`, so they see onboarding on their first visit after
 PR 7, and nothing needs doing for them.
 
+**✅ Done (14 November 2026, PRs #44–#51).** A signed-in person who hasn't
+onboarded sees only the onboarding screen. Her answers are stored once, in
+one transaction, and a second submit changes nothing. Pe'er onboarded on
+production, on an Android phone, with a date.
+- **The setup half of AC-12 passes** (`TestOnboardingWithAnUnknownStart`):
+  after "I don't know", the stored facts give "?" and "Not enough data yet"
+  in `internal/fam`.
+- **AC-16 holds for both new tables and the new endpoint**
+  (`TestIsolationOfUserTables`, `TestOnboardingIsolation`), and
+  `TestSchemaChecklist` now fails for any table that arrives without its
+  policy, cascade or exact grants.
+- **Built in the planned order**, except that the time box (#48) came
+  before the endpoint (#49), which had to wait for `make migrate-prod`.
+- **No dependency added.**
+- **Still open:** the time box on an iPhone.
+
+What was built and measured is in `tech-stack.md` (§3, §6 and §8, each "As
+built in Slice 3") and `data-model.md` §9; the story, with what went wrong,
+is in `build-log.md`.
+
 ### Slice 4 — Daily entry
 
 The full day screen: quick section, "show all fields", save, edit, delete. All
@@ -591,6 +614,27 @@ no-temperature confirmation, one entry per date.
 - **Entries need an onboarded user:** the fixed time comes from the
   `-infinity` row that onboarding writes. Decide what the entry endpoints
   answer for an account that hasn't onboarded (a 409, by §3's conventions).
+
+*From Slice 3, as built* (`tech-stack.md` §3, §6, §8):
+- **Reuse, don't rewrite:** `readJSON` and `writeError` for every endpoint;
+  `fam.ParseDate`, `fam.CheckDate` and `fam.ParseMinutes` for every date
+  and time; `db.ScheduleFromRows` for the fixed time in effect; `TimeBox`,
+  `DateBox` (with its `error` line), `todayISO` and `isTimeOfDay` on the
+  page; a tested words module per screen, like `onboardingText.ts`.
+- **The new table goes into two lists in the tests:** `userTables` and
+  `tableGrants` (`internal/db/user_tables_test.go`). `TestSchemaChecklist`
+  fails until it does.
+- **`entries` has nullable columns,** which onboarding's tables didn't. A
+  nullable `INTEGER` is `pgtype.Int4`; the decision to keep `pgtype.*`
+  stands (`data-model.md` §10), so `convert.go` grows.
+- **A table gaining a column changes the Go type of queries that name only
+  some of its columns** (`GetUser` became `GetUserRow` for one PR). A
+  migration's PR must never read what production doesn't have yet.
+- **The browser checks' real account is onboarded by the real pass.** A
+  real pass for the day screen starts from there, or the reset in `make
+  browser-check` must put it back.
+- **The time box hasn't been seen on an iPhone.** This slice puts it on the
+  screen she uses every morning.
 
 *From the design step* (`design-brief.md` §6.3): the field order puts the
 "cycle starts on this day" switch directly under the temperature card. The

@@ -64,7 +64,7 @@ After sign-up, the user enters two things.
   - If she picks "I don't know," the current cycle is created as an **unknown-start cycle** (see section 8.4).
 - **Fixed measurement time** (required). Nothing is filled in for her: this time decides every adjusted value from then on, so it has to be one she chose.
 
-**"Today" is the date on her device.** The date box offers nothing later. The server can't know her time zone (section 13), so it refuses only a date that hasn't begun anywhere on Earth yet; between the two, a request that didn't come from our page could save tomorrow's date for part of the day. A date before 1 January 2000 is refused too: it is a mistyped year. The same two limits apply to every date the app accepts (section 5.1). The exact rule and its test vectors go into `docs/fam-rules.md` §9 together with the code.
+**"Today" is the date on her device.** The date box offers nothing later. The server can't know her time zone (section 13), so it refuses only a date that hasn't begun anywhere on Earth yet; between the two, a request that didn't come from our page could save tomorrow's date for part of the day. A date before 1 January 2000 is refused too: it is a mistyped year. The same two limits apply to every date the app accepts (section 5.1). The exact rule and its test vectors are in `docs/fam-rules.md` §9.1 and §12.9.
 
 **Onboarding is answered once.** Until it is, a signed-in user sees only this screen. Once it is, the answers stand: sending them again changes nothing. The measurement time is changed later through Settings (section 7), which never alters past values, and a cycle start through the day entry's switch (section 8.2).
 
