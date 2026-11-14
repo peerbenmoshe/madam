@@ -41,7 +41,7 @@ func TestIsolation(t *testing.T) {
 
 	// Without this, I3's zero rows could just mean B's row doesn't exist.
 	t.Run("a user sees their own row", func(t *testing.T) {
-		var got db.GetUserRow
+		var got db.User
 		err := store.InUserTx(ctx, b, func(q *db.Queries) error {
 			var err error
 			got, err = q.GetUser(ctx, b)

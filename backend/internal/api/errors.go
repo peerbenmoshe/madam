@@ -32,12 +32,30 @@ type errorBody struct {
 	Error apiError `json:"error"`
 }
 
-// The codes that belong to no single endpoint.
+// The codes (docs/tech-stack.md §3). The page reads them, so changing one
+// is changing the API.
 const (
+	// No single endpoint's.
 	codeUnauthorized    = "unauthorized"
 	codeNotFound        = "not_found"
 	codeInternal        = "internal"
 	codeAuthUnavailable = "auth_unavailable"
+
+	// A request body (request.go).
+	codeBadRequest           = "bad_request"
+	codeTooLarge             = "too_large"
+	codeUnsupportedMediaType = "unsupported_media_type"
+
+	// A well-formed body that a rule refuses: 422, with the field.
+	codeMissingField    = "missing_field"
+	codeUnexpectedField = "unexpected_field"
+	codeInvalidDate     = "invalid_date"
+	codeDateInFuture    = "date_in_future"
+	codeDateTooEarly    = "date_too_early"
+	codeInvalidTime     = "invalid_time"
+
+	// The account's state refuses it: 409.
+	codeAlreadyOnboarded = "already_onboarded"
 )
 
 // internalErrorJSON is errorBody{internal} already encoded, for the one

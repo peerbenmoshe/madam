@@ -8,7 +8,7 @@ INSERT INTO users (id) VALUES (sqlc.arg(id));
 -- WHERE is its "filter by user_id" (CLAUDE.md). Run it through
 -- Store.InUserTx: Row Level Security then hides every other user's row even
 -- if the id asked for is someone else's.
-SELECT id, temperature_unit, onboarded_at, created_at
+SELECT id, temperature_unit, onboarded_at, created_at, cycle_start_unknown
 FROM users
 WHERE id = sqlc.arg(id);
 
@@ -20,6 +20,20 @@ WHERE id = sqlc.arg(id);
 -- request's.
 INSERT INTO users (id) VALUES (sqlc.arg(id))
 ON CONFLICT (id) DO NOTHING;
+
+-- name: CompleteOnboarding :execrows
+-- CompleteOnboarding records that onboarding is finished and what it
+-- answered about the cycle start (docs/fam-rules.md §5.2). It is also the
+-- gate that makes onboarding happen once: it changes the row only while
+-- onboarded_at is NULL, and returns how many rows it changed. Zero means
+-- already onboarded, and the caller must write nothing else. Two requests at
+-- once are safe: the second waits for the first one's row lock, then finds
+-- no row to change. Run it through Store.InUserTx.
+UPDATE users
+SET onboarded_at = now(),
+    cycle_start_unknown = sqlc.arg(cycle_start_unknown)
+WHERE id = sqlc.arg(id)
+  AND onboarded_at IS NULL;
 
 -- name: DeleteUser :exec
 -- DeleteUser removes the user's own row, and with it everything of hers:

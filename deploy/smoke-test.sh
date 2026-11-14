@@ -142,6 +142,16 @@ else
 	fail "/api/me without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}} with no-store; got $status '$(head -c 120 "$tmp/body")', $(header Cache-Control)"
 fi
 
+# Writing is behind the token too. Refused before anything is read, so this
+# changes nothing.
+status=$(fetch /api/onboarding -X POST -H 'Content-Type: application/json' \
+	--data '{"cycle_start_unknown":true,"measurement_time":"07:00"}')
+if [ "$status" = 401 ] && is_api_error unauthorized && [ "$(header Cache-Control)" = no-store ]; then
+	pass "POST /api/onboarding without a token: 401 as a JSON error, no-store"
+else
+	fail "POST /api/onboarding without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}}; got $status '$(head -c 120 "$tmp/body")'"
+fi
+
 # An unknown API path answers in the same shape.
 status=$(fetch /api/nope)
 if [ "$status" = 404 ] && is_api_error not_found; then
