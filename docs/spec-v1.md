@@ -23,6 +23,10 @@ _Amended in Slice 2 (13 November 2026), decided by Pe'er after using the sign-in
 - _**Sign-up says when an address already has an account.** Password reset gives one answer for every address (§2, and §15 for when to revisit)._
 - _The user **stays logged in** on a device until she logs out there (§2)._
 
+_Amended in the Slice 3 plan (14 November 2026):_
+- _**"Today" is the date on her device** (§4, §5.1, §13). The server refuses only a date that hasn't begun anywhere on Earth, and any date before 1 January 2000._
+- _**Onboarding is answered once** (§4)._
+
 ## 1. Purpose
 
 A mobile-friendly web app that replaces a paper FAM/BBT chart. v1 covers recording daily data, charting temperatures, and showing cycle-length statistics. It gives **no fertility verdicts** (interpretation level B).
@@ -58,7 +62,11 @@ After sign-up, the user enters two things.
 
 - **Start date of her current cycle** (today or earlier), **or "I don't know."**
   - If she picks "I don't know," the current cycle is created as an **unknown-start cycle** (see section 8.4).
-- **Fixed measurement time** (required).
+- **Fixed measurement time** (required). Nothing is filled in for her: this time decides every adjusted value from then on, so it has to be one she chose.
+
+**"Today" is the date on her device.** The date box offers nothing later. The server can't know her time zone (section 13), so it refuses only a date that hasn't begun anywhere on Earth yet; between the two, a request that didn't come from our page could save tomorrow's date for part of the day. A date before 1 January 2000 is refused too: it is a mistyped year. The same two limits apply to every date the app accepts (section 5.1). The exact rule and its test vectors go into `docs/fam-rules.md` §9 together with the code.
+
+**Onboarding is answered once.** Until it is, a signed-in user sees only this screen. Once it is, the answers stand: sending them again changes nothing. The measurement time is changed later through Settings (section 7), which never alters past values, and a cycle start through the day entry's switch (section 8.2).
 
 Units default to Celsius and can be changed later in Settings. There are no follow-up prompts in v1 (see Future ideas).
 
@@ -68,7 +76,7 @@ Units default to Celsius and can be changed later in Settings. There are no foll
 
 | Field | Notes |
 |---|---|
-| Date | Defaults to today. Editable. No future dates. |
+| Date | Defaults to today. Editable. No future dates, where today is the date on her device (section 4). |
 | Measurement time | Defaults to the fixed measurement time in effect for that date. Editable, minute precision. Only relevant when a temperature is entered. |
 | Temperature | Optional. Entered to 2 decimals in the user's display unit. Saving an entry without a temperature asks "Save without a temperature?" While typing, the screen shows what the reading will count as after the time adjustment (section 6), labeled as an estimate. |
 | Cycle starts on this day | A switch, placed directly above bleeding, because the new-cycle suggestion appears on it (section 8.2). |
@@ -254,7 +262,7 @@ These are a starting set; more get written per feature during the build. The pre
 - Importing past paper data.
 - Multiple entries per date.
 - Onboarding follow-up prompts.
-- Time zone handling. Entries use the date and time as entered; when traveling, the user can add a note.
+- Time zone handling. Entries use the date and time as entered; when traveling, the user can add a note. "Today" is whatever date her device shows (section 4), so no time zone is stored or asked for.
 - Export resembling the paper chart (planned for v2).
 - WhatsApp bot (v3). The backend is still an API from day one.
 - Reminders or notifications, partner sharing, offline mode, and a native app.
