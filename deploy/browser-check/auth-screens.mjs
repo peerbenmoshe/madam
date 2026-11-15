@@ -253,6 +253,87 @@ try {
   await click("Save without");
   check("answering brings Save back", (await has("Answered: save without.")) && (await js(`[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Save entry")`)));
 
+  // ---- the pieces added for the day screen (Slice 4) ----
+  const tap = (text) => js(`[...document.querySelectorAll("label")].find((l) => l.textContent.trim() === ${q(text)}).click()`);
+  const radio = (text) => `[...document.querySelectorAll('input[type="radio"]')].find((i) => i.closest("label").textContent.trim() === ${q(text)})`;
+  const section = (title) => `[...document.querySelectorAll("h2")].find((h) => h.textContent === ${q(title)}).parentElement`;
+  const space = async () => {
+    await S("Input.dispatchKeyEvent", { type: "keyDown", key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " });
+    await S("Input.dispatchKeyEvent", { type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32 });
+    await sleep(100);
+  };
+
+  // Option buttons that can be cleared: a question that may have no answer.
+  check("a clearable question starts with its answer", await has("Secretion: milky."));
+  await tap("Sticky");
+  check("…choosing another answer replaces it", await has("Secretion: sticky."));
+  await tap("Sticky");
+  check("…and choosing the chosen answer again clears it", (await has("Secretion: none.")) && (await js(`${radio("Sticky")}.checked`)) === false);
+  await tap("Milky");
+  await js(`${radio("Milky")}.focus()`);
+  await space();
+  check("…with the space bar too", await has("Secretion: none."));
+  await space();
+  check("…and the space bar chooses it again", await has("Secretion: milky."));
+  check("a screen reader is told the question can be cleared", await js(`(() => { const f = ${radio("Milky")}.closest("fieldset");
+    return document.getElementById(f.getAttribute("aria-describedby"))?.textContent.includes("again to clear it") === true; })()`));
+  await tap("Heavy");
+  check("bleeding can't be cleared: tapping the chosen answer keeps it", (await has("Chosen: heavy.")) && (await js(`${radio("Heavy")}.checked`)) === true);
+  await shotOf("p-option-buttons", section("Option buttons"));
+
+  // A disabled switch: shown, and neither its words nor its track flip it.
+  const switches = () => js(`[...document.querySelectorAll('input[role="switch"]')].map((i) => [i.disabled, i.checked])`);
+  check("the gallery has two disabled switches, one off and one on", JSON.stringify((await switches()).slice(2)) === "[[true,false],[true,true]]", JSON.stringify(await switches()));
+  await tap("Off, and disabled");
+  await tap("On, and disabled");
+  await js(`document.querySelectorAll('input[role="switch"]')[2].click()`);
+  check("…and tapping them changes nothing", JSON.stringify((await switches()).slice(2)) === "[[true,false],[true,true]]", JSON.stringify(await switches()));
+  await shotOf("p-switch", section("Switch"));
+
+  // The temperature box: what she types stays exactly as typed.
+  const tempInput = `document.querySelector('input[inputmode="decimal"]')`;
+  check("the temperature is 40px and asks for the decimal keyboard", await js(`getComputedStyle(${tempInput}).fontSize`) === "40px", await js(`getComputedStyle(${tempInput}).fontSize`));
+  check("…and its row is tall enough to tap", (await js(`${tempInput}.parentElement.getBoundingClientRect().height`)) >= 44, String(await js(`${tempInput}.parentElement.getBoundingClientRect().height`)));
+  await type("Temperature", "36,62");
+  check("a comma is kept as typed", (await value("Temperature")) === "36,62" && (await has('The first holds "36,62"')), String(await value("Temperature")));
+  check("focus turns the underline berry", await js(`getComputedStyle(${tempInput}.parentElement).borderBottomColor`) === "rgb(160, 24, 90)", await js(`getComputedStyle(${tempInput}.parentElement).borderBottomColor`));
+  check("the box is read together with the line about the reading", await js(`document.getElementById(${tempInput}.getAttribute("aria-describedby"))?.textContent.includes("counts as") === true`));
+  check("a temperature's error sits under it, and marks it invalid", (await has("That isn't a body temperature. Enter a value between 20.00 and 50.00 °C.")) && (await js(`document.querySelectorAll('input[inputmode="decimal"]')[1].getAttribute("aria-invalid")`)) === "true");
+  await shotOf("p-temperature-box", section("Temperature box"));
+
+  // The text area: more than one line, kept as lines.
+  await type("Notes", "Slept badly.");
+  await S("Input.insertText", { text: "\nSecond line." });
+  check("the notes keep their line break", (await value("Notes")) === "Slept badly.\nSecond line." && (await has("25 characters, 2 lines.")), JSON.stringify(await value("Notes")));
+  const notesBox = await js(`(() => { const t = document.querySelector("textarea"); return [t.getBoundingClientRect().height, getComputedStyle(t).fontSize]; })()`);
+  check("the notes box is at least 72px tall, with 16px text", notesBox[0] >= 72 && notesBox[1] === "16px", notesBox.join(", "));
+  await shotOf("p-text-area", section("Text area"));
+
+  // The toast: appears, says it to a screen reader, and leaves by itself.
+  check("no toast until something is done", await js(`document.querySelector('[role="status"]')`) === null);
+  await click('Show "Entry saved"');
+  const toastShown = Date.now();
+  check("a toast says what was done", await js(`document.querySelector('[role="status"]')?.textContent`) === "Entry saved");
+  await sleep(300); // past its 0.2 s rise, so the measurements are of it at rest
+  const toastBox = await js(`(() => { const r = document.querySelector('[role="status"]').getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(innerHeight - r.bottom), innerWidth]; })()`);
+  check("…centred, 96px above the bottom of the screen", Math.abs(toastBox[0] - toastBox[2] / 2) <= 1 && toastBox[1] === 96, toastBox.join(", "));
+  {
+    const { data } = await S("Page.captureScreenshot", { format: "png" });
+    writeFileSync(join(OUT, "p-toast.png"), Buffer.from(data, "base64"));
+  }
+  check("…and still there after 1.5 seconds", (await (async () => { await sleep(1500 - (Date.now() - toastShown)); return js(`document.querySelector('[role="status"]')?.textContent`); })()) === "Entry saved");
+  await waitFor(`!document.querySelector('[role="status"]')`, "the toast to leave", 3000);
+  const toastLasted = Date.now() - toastShown;
+  check("…gone by itself after about 2.2 seconds", toastLasted >= 2000 && toastLasted <= 2900 && (await has("Now: no toast.")), `${toastLasted} ms`);
+  await click('Show "Entry saved"');
+  await sleep(1200);
+  await click('Show "Entry deleted"');
+  await sleep(1500);
+  check("a second toast replaces the first and gets its own full time", await js(`document.querySelector('[role="status"]')?.textContent`) === "Entry deleted");
+  await waitFor(`!document.querySelector('[role="status"]')`, "the second toast to leave", 3000);
+
+  check("nothing in the gallery is wider than the phone", await js(`document.documentElement.scrollWidth <= innerWidth`), await js(`document.documentElement.scrollWidth + " in " + innerWidth`));
+
   // The time box: its own 24-hour text, with the native input invisible on
   // top. A real picker can't be opened headless, so a pick is staged by
   // setting the input's value the way the browser does.

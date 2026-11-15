@@ -4,6 +4,7 @@ import type { Choice } from "./SegmentedControl.tsx";
 // The form's choices (docs/design-brief.md §5):
 //
 //   OptionButtons  one answer: bleeding, secretion, sensation. Radio buttons.
+//                  With `clearable`, tapping the chosen answer clears it.
 //   Chips          any number: disturbances, symptoms. Checkboxes.
 //
 // Both are real inputs, hidden, inside the labels that are drawn, in a
@@ -23,23 +24,39 @@ type OptionButtonsProps<T extends string> = {
   options: readonly Choice<T>[];
   // null while nothing is chosen yet.
   value: T | null;
-  onChange: (value: T) => void;
-};
+} & (
+  | {
+      // A question that always has an answer once one is tapped: bleeding.
+      clearable?: false;
+      onChange: (value: T) => void;
+    }
+  | {
+      // A question that may have no answer: secretion, sensation, cervix.
+      // Tapping the chosen answer again clears it, and onChange gets null.
+      clearable: true;
+      onChange: (value: T | null) => void;
+    }
+);
 
-export function OptionButtons<T extends string>({
-  legend,
-  hint,
-  options,
-  value,
-  onChange,
-}: OptionButtonsProps<T>) {
+export function OptionButtons<T extends string>(props: OptionButtonsProps<T>) {
+  const { legend, hint, options, value } = props;
   const name = useId();
+  const clearHintId = useId();
   return (
-    <fieldset className="min-w-0">
+    <fieldset
+      className="min-w-0"
+      aria-describedby={props.clearable ? clearHintId : undefined}
+    >
       <legend className={`font-bold ${hint ? "mb-1" : "mb-2.5"}`}>
         {legend}
       </legend>
       {hint && <p className="text-muted mb-2.5 text-sm">{hint}</p>}
+      {props.clearable && (
+        // Sighted people find this by trying; a screen reader says it.
+        <p id={clearHintId} className="sr-only">
+          Optional. Choose the selected answer again to clear it.
+        </p>
+      )}
       <div className="flex flex-wrap gap-2">
         {options.map((option) => (
           <label
@@ -52,7 +69,29 @@ export function OptionButtons<T extends string>({
               name={name}
               value={option.value}
               checked={option.value === value}
-              onChange={() => onChange(option.value)}
+              onChange={() => props.onChange(option.value)}
+              // A radio button can't be un-chosen: a tap or a click on the
+              // chosen one fires click and no change. So clearing listens
+              // for that click.
+              onClick={() => {
+                if (props.clearable && option.value === value) {
+                  props.onChange(null);
+                }
+              }}
+              // The space bar on the chosen one does nothing at all in the
+              // browser, not even a click (measured in Chrome). So the
+              // keyboard gets its own way to clear. On an answer that isn't
+              // chosen, space is left to the browser, which chooses it.
+              onKeyDown={(event) => {
+                if (
+                  props.clearable &&
+                  event.key === " " &&
+                  option.value === value
+                ) {
+                  event.preventDefault();
+                  props.onChange(null);
+                }
+              }}
             />
             {option.label}
           </label>

@@ -39,6 +39,24 @@
   --font-sans:
     "Atkinson Hyperlegible Next Variable", system-ui, -apple-system, "Segoe UI",
     Roboto, sans-serif;
+
+  /*
+   * The one entrance: something that appears because of what she just did
+   * rises a little into place (the toast; the mock's `rise`). It moves with
+   * `transform`, which leaves `translate` free for centring the element.
+   * "Reduce motion" switches it off, below.
+   */
+  --animate-rise: rise 0.2s ease-out;
+  @keyframes rise {
+    from {
+      transform: translateY(24px);
+      opacity: 0.4;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
 }
 
 @layer base {
