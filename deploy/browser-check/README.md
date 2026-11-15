@@ -12,6 +12,8 @@ across the screen, and a second tab stranded on "Choose a new password".
 | `auth-first-use.mjs` | The second tab during a password reset, "this email already has an account", "Send it again" and its one-minute wait, on sign-up and on reset |
 | `onboarding.mjs` | The onboarding screen in every state: nothing answered, each answer, each limit on the date, a slow answer, each refusal the server can give, an account that can't be read, and the half hour after midnight in Israel. Staged: see below |
 | `onboarding-real.mjs` | Onboarding once, for real: a test account logs in, answers, and the real server stores it. Only with `make browser-check` |
+| `day.mjs` | The day screen in every state: an empty day, an entry, the live line, both questions, each refusal, the date box as the way between days, addresses that aren't a day, a lost connection, and a screen left open past midnight. Staged, like `onboarding.mjs` |
+| `day-real.mjs` | The day screen for real: the test account saves two days through the screen, and the real server asks its two questions and stores the answers. It onboards the account through the API if it hasn't been, so it also runs alone |
 
 All of them also fail on any Content-Security-Policy violation.
 
@@ -60,7 +62,11 @@ it can show the page a 409, a 422, a lost connection and a slow answer, and
 it reads the exact JSON the page sends. What it can't show is whether the
 page and the server agree.
 
-`onboarding-real.mjs` is the opposite: nothing staged. It logs in as a real
+`day.mjs` is staged the same way, for `GET /api/me` and `GET` and `PUT
+/api/days/{date}`, and also moves the page's clock past midnight while the
+day screen is open.
+
+`onboarding-real.mjs` and `day-real.mjs` are the opposite: nothing staged. It logs in as a real
 account, and the page's token, our API and the database all meet. It also
 sends that real token straight at the endpoint: a second submit must be a
 409, a date three days ahead a 422.

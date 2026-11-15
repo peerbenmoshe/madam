@@ -48,6 +48,18 @@ function parse(iso: string): DateParts {
   return { year, month, day, weekday: utc.getUTCDay() };
 }
 
+// isDate says whether iso is a real calendar date written "YYYY-MM-DD".
+// For text that comes from outside the app, such as the address bar, where
+// a wrong value is not a bug and must not throw.
+export function isDate(iso: string): boolean {
+  try {
+    parse(iso);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function two(n: number): string {
   return String(n).padStart(2, "0");
 }
