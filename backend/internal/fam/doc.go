@@ -1,6 +1,7 @@
 // Package fam is Madam's domain logic: time adjustment, Fahrenheit
-// conversion, cycle days, lengths and numbers, the two bleeding rules, and
-// the statistics. docs/fam-rules.md is the source of truth for every rule
+// conversion, cycle days, lengths and numbers, the two bleeding rules, the
+// statistics, and what a day's entry may hold (a temperature's limits, the
+// tags, the free text). docs/fam-rules.md is the source of truth for every rule
 // here, and its §12 test vectors are this package's tests.
 //
 // The package takes plain values and returns plain values. It imports only
