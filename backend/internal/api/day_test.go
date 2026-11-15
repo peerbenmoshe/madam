@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -293,21 +294,43 @@ func TestPutDayRefusesTheWrongKindOfBody(t *testing.T) {
 	// The cap leaves room for both texts at their limits, with every
 	// character written the longest way JSON has: a 12-byte \u pair.
 	t.Run("the largest valid body fits under the cap", func(t *testing.T) {
-		emoji := `😀` // one character
+		// One character written the longest way JSON has: a pair of
+		// escapes, 12 bytes. Built from pieces, so that nothing on the way
+		// into this file can turn it into the 4-byte character itself.
+		escaped := `\` + `ud83d` + `\` + `ude00`
+		if len(escaped) != 12 {
+			t.Fatalf("the escape is %d bytes, want 12", len(escaped))
+		}
 		largest := entryBody(celsius("3662") +
-			`,"notes":"` + strings.Repeat(emoji, fam.MaxNotesLength) + `"` +
-			`,"secretion_description":"` + strings.Repeat(emoji, fam.MaxSecretionDescriptionLength) + `"` +
+			`,"notes":"` + strings.Repeat(escaped, fam.MaxNotesLength) + `"` +
+			`,"secretion_description":"` + strings.Repeat(escaped, fam.MaxSecretionDescriptionLength) + `"` +
 			`,"secretion_category":"clear_stretchy","sensation":"creamy","secretion_amount":3` +
 			`,"cervix_firmness":"firm","cervix_position":"low_closed","intercourse":"unprotected"`)
 		if len(largest) >= dayMaxBytes {
 			t.Fatalf("the largest valid body is %d bytes, the cap is %d", len(largest), dayMaxBytes)
 		}
+		// Through the router, so the cap itself is what lets it in. The
+		// store fails, which is fine: a 500 means it got past the cap and
+		// every rule, and a 413 or a 422 means it didn't.
+		failing := newRouter(fakeDB{}, failingStore{}, stubAuthenticator{id: stubUserID}, noHook, testConfig, fakeFrontend, fixedClock)
+		rec := sendDay(t, failing, http.MethodPut, "/api/days/"+dayToday, "", largest, nil)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, body %s; want it to reach the (failing) database", rec.Code, rec.Body.String())
+		}
+
+		// And it is what it claims: each escape is one character.
 		var req dayRequest
 		if err := json.Unmarshal([]byte(largest), &req); err != nil {
 			t.Fatalf("not JSON: %v", err)
 		}
-		if _, refused := checkDay(req); refused != nil {
-			t.Errorf("refused: %+v", refused)
+		if n := utf8.RuneCountInString(*req.Entry.Notes); n != fam.MaxNotesLength {
+			t.Errorf("the notes decode to %d characters, want %d", n, fam.MaxNotesLength)
+		}
+		// One character more is refused by its own rule, not by the cap.
+		tooLong := strings.Replace(largest, `"notes":"`, `"notes":"a`, 1)
+		rec = sendDay(t, failing, http.MethodPut, "/api/days/"+dayToday, "", tooLong, nil)
+		if got := decodeAPIError(t, rec, http.StatusUnprocessableEntity); got.Code != codeTooLong || got.Field != fieldNotes {
+			t.Errorf("one character more: got code %q field %q, want %q about the notes", got.Code, got.Field, codeTooLong)
 		}
 	})
 
