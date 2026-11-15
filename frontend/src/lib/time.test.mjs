@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { isTimeOfDay, timeFromInput } = await import("./time.ts");
+const time = await import("./time.ts");
+const { isTimeOfDay, timeFromInput } = time;
 
 // The same rows as docs/fam-rules.md §12.10 (H1 to H12), which the server's
 // fam.ParseMinutes is tested against: the page and the server must agree on
@@ -52,5 +53,23 @@ test("timeFromInput drops seconds, which some browsers add", () => {
 test("timeFromInput answers null for anything else, so the box keeps what it had", () => {
   for (const bad of ["7:05", "24:00", "07:60", "7:05 AM", "07:05:", "ab:cd"]) {
     assert.equal(timeFromInput(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("minutesOfDay counts the minutes after midnight", () => {
+  const { minutesOfDay } = time;
+  assert.equal(minutesOfDay("00:00"), 0);
+  assert.equal(minutesOfDay("07:00"), 420);
+  assert.equal(minutesOfDay("07:05"), 425); // H1 of fam-rules §12.10
+  assert.equal(minutesOfDay("07:45"), 465);
+  assert.equal(minutesOfDay("23:59"), 1439);
+  // "08" and "09" must not be read as octal, where they aren't numbers.
+  assert.equal(minutesOfDay("08:09"), 489);
+});
+
+test("minutesOfDay throws for anything that isn't a time of day", () => {
+  const { minutesOfDay } = time;
+  for (const bad of ["", "7:05", "24:00", "07:60", "07:05:00", "hh:mm"]) {
+    assert.throws(() => minutesOfDay(bad), RangeError, JSON.stringify(bad));
   }
 });

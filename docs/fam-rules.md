@@ -113,6 +113,17 @@ Why it is built this way:
 with a pencil and get the same number (`data-model.md` §8.3). Banker's rounding
 was rejected.
 
+> **This arithmetic exists twice** (since Slice 4). The server's is
+> `internal/fam`. The page holds a copy, `frontend/src/lib/adjust.ts`, only
+> for the day screen's live line, which must follow her typing; nothing the
+> copy computes is saved or sent (`tech-stack.md` §1.3). **Change the rate or
+> the rounding in both.** Two tests hold them together: the vectors of §12.1
+> on each side, and one checksum over 17,285,760 readings (four fixed times,
+> every accepted temperature, every minute of the day) whose expected value
+> is written in `internal/fam/copy_test.go` and in
+> `frontend/src/lib/adjust.test.mjs`. A change on one side only fails that
+> side's test.
+
 ### 3.4 When a reading counts as adjusted
 
 ```
