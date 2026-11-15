@@ -125,18 +125,22 @@ func TestEntryRoundTrip(t *testing.T) {
 	})
 }
 
-// TestEntriesAreByDate: one user, two dates. Reading or deleting one date
-// must leave the other alone. Every other test here gives a user a single
-// date, where a query that forgot its date would still look right.
+// TestEntriesAreByDate: one user, three dates. Reading, saving or deleting
+// the middle one must leave the day before and the day after alone. Every
+// other test here gives a user a single date, where a query that got its
+// date wrong would still look right.
 func TestEntriesAreByDate(t *testing.T) {
 	pool := testPool(t)
 	ctx := t.Context()
 	requireAppRole(t, ctx, db.New(pool))
 	store := db.NewStore(pool)
 	user := newStoredUser(t, store)
-	first, second := mustDate(t, 2026, time.November, 14), mustDate(t, 2026, time.November, 15)
+	before := mustDate(t, 2026, time.November, 13)
+	middle := mustDate(t, 2026, time.November, 14)
+	after := mustDate(t, 2026, time.November, 15)
 
-	for date, notes := range map[fam.Date]string{first: "the 14th", second: "the 15th"} {
+	save := func(date fam.Date, notes string) {
+		t.Helper()
 		params, err := db.EntryValues{Bleeding: db.BleedingLevelNone, Notes: &notes}.UpsertParams(user, date)
 		if err != nil {
 			t.Fatalf("UpsertParams: %v", err)
@@ -145,25 +149,33 @@ func TestEntriesAreByDate(t *testing.T) {
 			t.Fatalf("save %v: %v", date, err)
 		}
 	}
-	for date, want := range map[fam.Date]string{first: "the 14th", second: "the 15th"} {
-		row, found := entryAs(t, store, user, user, date)
-		if !found || row.Notes.String != want {
-			t.Errorf("entry for %v: found %v, notes %q; want %q", date, found, row.Notes.String, want)
+	// want is the notes each date should hold; "" for no entry.
+	check := func(when string, want map[fam.Date]string) {
+		t.Helper()
+		for date, notes := range want {
+			row, found := entryAs(t, store, user, user, date)
+			if found != (notes != "") || row.Notes.String != notes {
+				t.Errorf("%s, the entry for %v: found %v, notes %q; want %q", when, date, found, row.Notes.String, notes)
+			}
 		}
 	}
 
+	// Saved out of order, so the order of saving can't stand in for the date.
+	save(after, "the 15th")
+	save(before, "the 13th")
+	save(middle, "the 14th")
+	check("after three saves", map[fam.Date]string{before: "the 13th", middle: "the 14th", after: "the 15th"})
+
+	save(middle, "the 14th, changed")
+	check("after changing the middle one", map[fam.Date]string{before: "the 13th", middle: "the 14th, changed", after: "the 15th"})
+
 	err := store.InUserTx(ctx, user, func(q *db.Queries) error {
-		return q.DeleteEntry(ctx, db.DeleteEntryParams{UserID: user, EntryDate: db.DateToPg(first)})
+		return q.DeleteEntry(ctx, db.DeleteEntryParams{UserID: user, EntryDate: db.DateToPg(middle)})
 	})
 	if err != nil {
-		t.Fatalf("delete %v: %v", first, err)
+		t.Fatalf("delete %v: %v", middle, err)
 	}
-	if _, found := entryAs(t, store, user, user, first); found {
-		t.Errorf("the entry for %v is still there after its delete", first)
-	}
-	if row, found := entryAs(t, store, user, user, second); !found || row.Notes.String != "the 15th" {
-		t.Errorf("the entry for %v after deleting %v: found %v, notes %q", second, first, found, row.Notes.String)
-	}
+	check("after deleting the middle one", map[fam.Date]string{before: "the 13th", middle: "", after: "the 15th"})
 }
 
 // TestEntryConstraints sends rows the handlers would never build, straight
