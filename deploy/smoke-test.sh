@@ -168,6 +168,13 @@ else
 	fail "PUT /api/days/2026-11-06 without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}}; got $status '$(head -c 120 "$tmp/body")'"
 fi
 
+status=$(fetch /api/days/2026-11-06/entry -X DELETE)
+if [ "$status" = 401 ] && is_api_error unauthorized && [ "$(header Cache-Control)" = no-store ]; then
+	pass "DELETE /api/days/2026-11-06/entry without a token: 401 as a JSON error, no-store"
+else
+	fail "DELETE /api/days/2026-11-06/entry without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}}; got $status '$(head -c 120 "$tmp/body")'"
+fi
+
 # An unknown API path answers in the same shape.
 status=$(fetch /api/nope)
 if [ "$status" = 404 ] && is_api_error not_found; then
@@ -194,7 +201,7 @@ else
 fi
 
 # Nothing under /api/ may reach the page.
-for path in /api /api/ /api/nope /api/health/extra /api/me/extra /api/days /api/days/2026-11-06/extra; do
+for path in /api /api/ /api/nope /api/health/extra /api/me/extra /api/days /api/days/2026-11-06/extra /api/days/2026-11-06/entry/extra; do
 	expect_404 "$path"
 done
 

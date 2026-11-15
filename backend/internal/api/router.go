@@ -72,6 +72,7 @@ func newRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.H
 			// never in the path: it comes from the token.
 			r.Get("/days/{date}", handleGetDay(users, now))
 			r.Put("/days/{date}", handlePutDay(users, now))
+			r.Delete("/days/{date}/entry", handleDeleteEntry(users, now))
 		})
 	})
 

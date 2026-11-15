@@ -19,8 +19,12 @@ import (
 
 // One day of her chart, addressed by its date (docs/tech-stack.md §3):
 //
-//	GET /api/days/2026-11-15   what the day holds; "entry" is null if nothing
-//	PUT /api/days/2026-11-15   save the day's entry, new or existing
+//	GET    /api/days/2026-11-15         what the day holds; "entry" is null if nothing
+//	PUT    /api/days/2026-11-15         save the day's entry, new or existing
+//	DELETE /api/days/2026-11-15/entry   delete the day's entry
+//
+// DELETE has "/entry" in its path because the entry is all it deletes. From
+// Slice 5 a day can also be the start of a cycle, and that stays.
 //
 // The rules about what an entry may hold are internal/fam's and are
 // written in docs/fam-rules.md §9. This file reads the request, asks them,
@@ -222,6 +226,41 @@ func handlePutDay(store UserStore, now func() time.Time) http.HandlerFunc {
 	}
 }
 
+// handleDeleteEntry answers DELETE /api/days/{date}/entry with 204 and no
+// body. A day that had no entry is a 204 too: what she wanted, no entry on
+// that day, is true either way, and a second tap or a second device must
+// not look like a failure.
+func handleDeleteEntry(store UserStore, now func() time.Time) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), dbTimeout)
+		defer cancel()
+
+		id, date, ok := userAndDate(ctx, w, r, now())
+		if !ok {
+			return
+		}
+
+		err := store.InUserTx(ctx, id, func(q *db.Queries) error {
+			// The same answer as GET and PUT give an account that hasn't
+			// onboarded. It has no entries, so nothing is at stake; the
+			// page is simply told which screen she belongs on.
+			if _, err := onboardedUser(ctx, q, id); err != nil {
+				return err
+			}
+			err := q.DeleteEntry(ctx, db.DeleteEntryParams{UserID: id, EntryDate: db.DateToPg(date)})
+			if err != nil {
+				return fmt.Errorf("delete the entry: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			writeDayFailure(ctx, w, "delete entry", err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // userAndDate reads what every request about a day carries: whose it is,
 // from the token, and which day, from the path. ok is false when it has
 // already answered, and the handler just returns.
@@ -253,15 +292,9 @@ type dayAccount struct {
 // the fixed time is the row onboarding writes, and reading a day creates
 // nothing.
 func readDayAccount(ctx context.Context, q *db.Queries, id pgtype.UUID, date fam.Date) (dayAccount, error) {
-	user, err := q.GetUser(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return dayAccount{}, errNotOnboarded
-	}
+	user, err := onboardedUser(ctx, q, id)
 	if err != nil {
-		return dayAccount{}, fmt.Errorf("read the user's row: %w", err)
-	}
-	if !user.OnboardedAt.Valid {
-		return dayAccount{}, errNotOnboarded
+		return dayAccount{}, err
 	}
 	periods, err := q.ListMeasurementTimePeriods(ctx, id)
 	if err != nil {
@@ -272,6 +305,23 @@ func readDayAccount(ctx context.Context, q *db.Queries, id pgtype.UUID, date fam
 		return dayAccount{}, fmt.Errorf("the measurement times: %w", err)
 	}
 	return dayAccount{unit: user.TemperatureUnit, fixedTime: schedule.FixedTime(date)}, nil
+}
+
+// onboardedUser reads the account's users row. It returns errNotOnboarded
+// when the account hasn't onboarded, which includes having no row at all:
+// nothing about a day creates one.
+func onboardedUser(ctx context.Context, q *db.Queries, id pgtype.UUID) (db.User, error) {
+	user, err := q.GetUser(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.User{}, errNotOnboarded
+	}
+	if err != nil {
+		return db.User{}, fmt.Errorf("read the user's row: %w", err)
+	}
+	if !user.OnboardedAt.Valid {
+		return db.User{}, errNotOnboarded
+	}
+	return user, nil
 }
 
 // answerWithRow fills res with the day's answer for an entry row.
