@@ -34,6 +34,13 @@ const MINUTES_PER_DAY = 24 * 60;
 //
 // Anything outside those inputs is a bug in the caller, so it throws
 // rather than show a number.
+//
+// raw is whole hundredths of °C, which is all the page types today. The
+// server also meets raw values between two hundredths: a reading typed in
+// °F is stored as, say, 36628 thousandths. If this function is ever given
+// thousandths (a °F preview, Slice 9), the checksum both sides share must
+// grow to cover them, because that is where a rounding slip hides: see T7
+// in fam-rules §12.1.
 export function countsAs(
   rawHundredths: number,
   measuredMinutes: number,

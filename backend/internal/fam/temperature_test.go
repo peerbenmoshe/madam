@@ -26,6 +26,9 @@ func TestAdjustment(t *testing.T) {
 		{"T4", 36700, hm(7, 0), 110100, 3670, 3670, OnTime}, // on time
 		{"T5", 36620, hm(8, 30), 109410, 3662, 3647, Late},  // large late
 		{"T6", 36400, hm(5, 0), 109800, 3640, 3660, Early},  // large early
+		// 97.93 °F as stored. The exact value, 36.634667, is just under the
+		// half that T1 sits on, and must round down.
+		{"T7", 36628, hm(6, 56), 109904, 3663, 3663, OnTime},
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
