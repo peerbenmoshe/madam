@@ -113,6 +113,17 @@ Why it is built this way:
 with a pencil and get the same number (`data-model.md` §8.3). Banker's rounding
 was rejected.
 
+> **This arithmetic exists twice** (since Slice 4). The server's is
+> `internal/fam`. The page holds a copy, `frontend/src/lib/adjust.ts`, only
+> for the day screen's live line, which must follow her typing; nothing the
+> copy computes is saved or sent (`tech-stack.md` §1.3). **Change the rate or
+> the rounding in both.** Two tests hold them together: the vectors of §12.1
+> on each side, and one checksum over 17,285,760 readings (four fixed times,
+> every accepted temperature, every minute of the day) whose expected value
+> is written in `internal/fam/copy_test.go` and in
+> `frontend/src/lib/adjust.test.mjs`. A change on one side only fails that
+> side's test.
+
 ### 3.4 When a reading counts as adjusted
 
 ```
@@ -532,6 +543,7 @@ Fixed time 07:00 (420 minutes) throughout.
 | T4 | 36700 | 07:00 | 0 | 110100 | **36.70** | no | on time |
 | T5 | 36620 | 08:30 | −90 | 109410 | **36.47** | yes | large late |
 | T6 | 36400 | 05:00 | +120 | 109800 | **36.60** | yes | large early |
+| T7 | 36628 | 06:56 | +4 | 109904 | **36.63** | **no** | just under a half |
 
 T1 is the half-up case: the exact adjusted value is 36.545 and it must display as
 **36.55**, not 36.54.
@@ -539,6 +551,14 @@ T1 is the half-up case: the exact adjusted value is 36.545 and it must display a
 T3 is the cancellation case: the adjusted value differs from raw by less than half
 a hundredth, so after rounding it is identical and the reading is **not** adjusted
 — no ghost dot, no indicator.
+
+T7 is the other side of T1 (added in Slice 4). The exact adjusted value is
+36.634667, a third of a thousandth under the half, and it must display as
+**36.63**, not 36.64, which also makes the reading not adjusted. Its raw
+value isn't a whole hundredth of a degree Celsius: 36628 is 97.93 °F as
+stored (§3.5). Only a reading typed in Fahrenheit can land this close under
+a half; one typed in Celsius can't. It was added because rounding with
+`+ 16` in place of `+ 15` passed every vector above it.
 
 ### 12.2 Fahrenheit round trip
 

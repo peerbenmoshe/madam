@@ -13,6 +13,15 @@ export function isTimeOfDay(value: string): boolean {
   return TIME_OF_DAY.test(value);
 }
 
+// minutesOfDay("07:45") is 465: the minutes after midnight. Anything that
+// isn't a time of day is a bug in the caller, so it throws.
+export function minutesOfDay(time: string): number {
+  if (!isTimeOfDay(time)) {
+    throw new RangeError(`not a time of day: "${time}"`);
+  }
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+}
+
 // What a native <input type="time"> reports: "HH:MM", with seconds (and
 // fractions of one) in some browsers.
 const NATIVE_TIME = /^([0-9]{2}:[0-9]{2})(:[0-9]{2}(\.[0-9]+)?)?$/;

@@ -148,6 +148,22 @@ the day popup still comes from Go, so the bot and the app can't disagree
 about a saved reading. The copy is the preview only, and `fam-rules.md` §3.3
 names it, so whoever changes the arithmetic finds both.
 
+*As built in Slice 4 (15 November 2026).* The copy is one function,
+`countsAs(raw, measured, fixed)` in `frontend/src/lib/adjust.ts`, in whole
+numbers. Whether the reading counts as adjusted is "is the result different
+from raw", as in `fam-rules.md` §3.4.
+- **Repeating the six vectors on both sides wasn't enough of a guard:** six
+  points can't tell two formulas apart everywhere. So both sides also fold
+  the result for 17,285,760 readings into one checksum, and the same
+  expected number is written in a Go test and in a JavaScript test. It was
+  computed separately in each language before being written down, and the
+  two agreed.
+- **Typed text becomes hundredths without a fraction in between**
+  (`lib/temperature.ts`). `36.62 * 100` is `3661.9999999999995` in
+  JavaScript, so the text is split at the decimal point and the two halves
+  are read as whole numbers. A test reads and writes back every value from
+  20.00 to 50.00.
+
 ### 1.4 Backend internal structure
 
 Request path, in order:
