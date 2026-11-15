@@ -282,12 +282,10 @@ func TestEntryConstraints(t *testing.T) {
 		{"no reading at all", func(p *db.UpsertEntryParams) {
 			p.TemperatureMilliC, p.MeasuredAt = pgtype.Int4{}, pgtype.Time{}
 		}},
-		{"all nine disturbances", func(p *db.UpsertEntryParams) {
-			p.Disturbances = []string{"alcohol", "poor_sleep", "illness", "medication", "travel", "vacation", "new_thermometer", "uti", "yeast_infection"}
-		}},
-		{"every symptom", func(p *db.UpsertEntryParams) {
-			p.Symptoms = []string{"breast_tenderness", "bloating", "pms"}
-		}},
+		// fam's two lists and the CHECKs' two lists must be the same lists:
+		// everything fam accepts, the database must store.
+		{"every disturbance fam accepts", func(p *db.UpsertEntryParams) { p.Disturbances = fam.Disturbances() }},
+		{"every symptom fam accepts", func(p *db.UpsertEntryParams) { p.Symptoms = fam.Symptoms() }},
 	}
 	for _, tc := range accepted {
 		t.Run(tc.name+" is accepted", func(t *testing.T) {

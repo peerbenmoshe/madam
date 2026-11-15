@@ -67,6 +67,11 @@ func newRouter(db Pinger, users UserStore, auth Authenticator, signUpHook http.H
 
 			r.Get("/me", handleMe(users))
 			r.Post("/onboarding", handleOnboarding(users, now))
+
+			// A day is addressed by its date, YYYY-MM-DD. The user is
+			// never in the path: it comes from the token.
+			r.Get("/days/{date}", handleGetDay(users, now))
+			r.Put("/days/{date}", handlePutDay(users, now))
 		})
 	})
 

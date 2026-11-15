@@ -53,9 +53,24 @@ const (
 	codeDateInFuture    = "date_in_future"
 	codeDateTooEarly    = "date_too_early"
 	codeInvalidTime     = "invalid_time"
+	// A value that isn't one of the values a field has: an enum, a tag, a
+	// secretion amount, a unit, a name in "confirmed".
+	codeInvalidValue = "invalid_value"
+	// Notes or a secretion description over its limit.
+	codeTooLong = "too_long"
+	// A temperature outside 20.00–50.00 °C. Refused, never asked about
+	// (AC-17).
+	codeTemperatureOutOfRange = "temperature_out_of_range"
 
 	// The account's state refuses it: 409.
 	codeAlreadyOnboarded = "already_onboarded"
+	codeNotOnboarded     = "not_onboarded"
+
+	// She must be asked first: 409 too. Nothing is wrong with the request;
+	// it is saved once it comes again with this code's name in "confirmed"
+	// (docs/tech-stack.md §3). The code is the question.
+	codeNoTemperature      = "no_temperature"
+	codeUnusualTemperature = "unusual_temperature"
 )
 
 // internalErrorJSON is errorBody{internal} already encoded, for the one
