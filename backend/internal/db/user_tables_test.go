@@ -56,6 +56,33 @@ var userTables = []userTable{
 			return len(rows), err
 		},
 	},
+	{
+		name: "entries",
+		write: func(ctx context.Context, q *db.Queries, owner pgtype.UUID) error {
+			_, err := q.UpsertEntry(ctx, db.UpsertEntryParams{
+				UserID:       owner,
+				EntryDate:    pgtype.Date{Time: time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+				Bleeding:     db.BleedingLevelNone,
+				Disturbances: []string{},
+				Symptoms:     []string{},
+			})
+			return err
+		},
+		count: func(ctx context.Context, q *db.Queries, owner pgtype.UUID) (int, error) {
+			// One date, so one row or none.
+			_, err := q.GetEntry(ctx, db.GetEntryParams{
+				UserID:    owner,
+				EntryDate: pgtype.Date{Time: time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return 0, nil
+			}
+			if err != nil {
+				return 0, err
+			}
+			return 1, nil
+		},
+	},
 }
 
 // newStoredUser returns a new user id whose users row exists, created by the
@@ -341,6 +368,7 @@ var tableGrants = map[string][]string{
 	"users":                    {"SELECT", "INSERT", "UPDATE", "DELETE"},
 	"cycle_starts":             {"SELECT", "INSERT", "DELETE"},
 	"measurement_time_periods": {"SELECT", "INSERT"},
+	"entries":                  {"SELECT", "INSERT", "UPDATE", "DELETE"},
 }
 
 // Every privilege a PostgreSQL 17 table has.
