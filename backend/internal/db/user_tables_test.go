@@ -56,6 +56,33 @@ var userTables = []userTable{
 			return len(rows), err
 		},
 	},
+	{
+		name: "entries",
+		write: func(ctx context.Context, q *db.Queries, owner pgtype.UUID) error {
+			_, err := q.UpsertEntry(ctx, db.UpsertEntryParams{
+				UserID:       owner,
+				EntryDate:    pgtype.Date{Time: time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+				Bleeding:     db.BleedingLevelNone,
+				Disturbances: []string{},
+				Symptoms:     []string{},
+			})
+			return err
+		},
+		count: func(ctx context.Context, q *db.Queries, owner pgtype.UUID) (int, error) {
+			// One date, so one row or none.
+			_, err := q.GetEntry(ctx, db.GetEntryParams{
+				UserID:    owner,
+				EntryDate: pgtype.Date{Time: time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return 0, nil
+			}
+			if err != nil {
+				return 0, err
+			}
+			return 1, nil
+		},
+	},
 }
 
 // newStoredUser returns a new user id whose users row exists, created by the
@@ -341,6 +368,32 @@ var tableGrants = map[string][]string{
 	"users":                    {"SELECT", "INSERT", "UPDATE", "DELETE"},
 	"cycle_starts":             {"SELECT", "INSERT", "DELETE"},
 	"measurement_time_periods": {"SELECT", "INSERT"},
+	"entries":                  {"SELECT", "INSERT", "UPDATE", "DELETE"},
+}
+
+// TestBothListsNameTheSameTables: a table of ours in tableGrants must also
+// be one of the userTables, or the isolation and cascade tests would pass
+// without ever looking at it. TestSchemaChecklist makes sure tableGrants
+// itself is complete, so between them a new table can't miss either list.
+// It needs no database.
+func TestBothListsNameTheSameTables(t *testing.T) {
+	inUserTables := map[string]bool{}
+	for _, table := range userTables {
+		inUserTables[table.name] = true
+		if tableGrants[table.name] == nil {
+			t.Errorf("userTables has %s, which tableGrants doesn't list with any privilege", table.name)
+		}
+	}
+	for name, grants := range tableGrants {
+		// Not a table of ours, or the table the others hang from, which
+		// TestIsolation covers.
+		if grants == nil || name == "users" {
+			continue
+		}
+		if !inUserTables[name] {
+			t.Errorf("tableGrants has %s, which isn't in userTables: add it there, so its isolation and its cascade are tested", name)
+		}
+	}
 }
 
 // Every privilege a PostgreSQL 17 table has.
@@ -421,8 +474,10 @@ func TestSchemaChecklist(t *testing.T) {
 				t.Errorf("row level security: enabled %v, forced %v; want both", flags.rls, flags.forced)
 			}
 
+			// qual is the USING expression and with_check the WITH CHECK
+			// one, each as text, or NULL when the policy has none.
 			policies, err := pool.Query(ctx, `
-				SELECT policyname::text, cmd, roles::text[], qual IS NOT NULL, with_check IS NOT NULL
+				SELECT policyname::text, cmd, roles::text[], qual, with_check
 				FROM pg_catalog.pg_policies
 				WHERE schemaname = 'public' AND tablename = $1`, name)
 			if err != nil {
@@ -432,14 +487,25 @@ func TestSchemaChecklist(t *testing.T) {
 			for policies.Next() {
 				var policy, cmd string
 				var roles []string
-				var using, withCheck bool
+				var using, withCheck *string
 				if err := policies.Scan(&policy, &cmd, &roles, &using, &withCheck); err != nil {
 					t.Fatalf("scan: %v", err)
 				}
 				count++
-				if cmd != "ALL" || !slices.Equal(roles, []string{appRole}) || !using || !withCheck {
+				if cmd != "ALL" || !slices.Equal(roles, []string{appRole}) || using == nil || withCheck == nil {
 					t.Errorf("policy %s: FOR %s TO %v, USING %v, WITH CHECK %v; want FOR ALL TO [%s] with both",
-						policy, cmd, roles, using, withCheck, appRole)
+						policy, cmd, roles, using != nil, withCheck != nil, appRole)
+					continue
+				}
+				// The two must be one rule. The isolation tests prove USING
+				// by behaviour (I3); this carries that proof to WITH CHECK,
+				// which behaviour can't always reach: Postgres also applies
+				// USING to a new row that the statement can read back
+				// (RETURNING, ON CONFLICT DO UPDATE), so an upsert is still
+				// refused under WITH CHECK (true). A plain INSERT isn't.
+				if *using != *withCheck {
+					t.Errorf("policy %s: USING and WITH CHECK differ; they must be the same rule\n     USING %s\nWITH CHECK %s",
+						policy, *using, *withCheck)
 				}
 			}
 			if err := policies.Err(); err != nil {

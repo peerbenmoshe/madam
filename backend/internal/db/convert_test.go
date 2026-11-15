@@ -2,6 +2,7 @@ package db_test
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -168,6 +169,177 @@ func TestScheduleFromRows(t *testing.T) {
 			_, err := db.ScheduleFromRows([]db.ListMeasurementTimePeriodsRow{first, tc.row})
 			if !errors.Is(err, tc.want) {
 				t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
+			}
+		}
+	})
+}
+
+// ptr returns a pointer to v, for the optional fields of db.EntryValues.
+func ptr[T any](v T) *T {
+	return &v
+}
+
+// A day with every field filled in, as the database returns it and as
+// handlers see it. 36.62 °C at 07:45.
+func fullEntryRow(user pgtype.UUID, date fam.Date) db.Entry {
+	return db.Entry{
+		UserID:               user,
+		EntryDate:            db.DateToPg(date),
+		TemperatureMilliC:    pgtype.Int4{Int32: 36620, Valid: true},
+		MeasuredAt:           pgTime(7, 45, 0, 0),
+		Bleeding:             db.BleedingLevelSpotting,
+		SecretionCategory:    db.NullSecretionCategory{SecretionCategory: db.SecretionCategoryClearStretchy, Valid: true},
+		Sensation:            db.NullSensation{Sensation: db.SensationWet, Valid: true},
+		SecretionAmount:      pgtype.Int2{Int16: 2, Valid: true},
+		SecretionDescription: pgtype.Text{String: "clear, stretches", Valid: true},
+		CervixFirmness:       db.NullCervixFirmness{CervixFirmness: db.CervixFirmnessSoft, Valid: true},
+		CervixPosition:       db.NullCervixPosition{CervixPosition: db.CervixPositionHighOpen, Valid: true},
+		Disturbances:         []string{"alcohol", "poor_sleep"},
+		Symptoms:             []string{"bloating"},
+		Intercourse:          db.NullIntercourseRecord{IntercourseRecord: db.IntercourseRecordProtected, Valid: true},
+		Notes:                pgtype.Text{String: "line one\nline two", Valid: true},
+	}
+}
+
+func fullEntryValues() db.EntryValues {
+	return db.EntryValues{
+		Reading:              &db.Reading{Temperature: 36620, MeasuredAt: 7*60 + 45},
+		Bleeding:             db.BleedingLevelSpotting,
+		SecretionCategory:    ptr(db.SecretionCategoryClearStretchy),
+		Sensation:            ptr(db.SensationWet),
+		SecretionAmount:      ptr(2),
+		SecretionDescription: ptr("clear, stretches"),
+		CervixFirmness:       ptr(db.CervixFirmnessSoft),
+		CervixPosition:       ptr(db.CervixPositionHighOpen),
+		Intercourse:          ptr(db.IntercourseRecordProtected),
+		Notes:                ptr("line one\nline two"),
+		Disturbances:         []string{"alcohol", "poor_sleep"},
+		Symptoms:             []string{"bloating"},
+	}
+}
+
+// paramsOf is the row's own columns as UpsertEntry's parameters: what
+// writing that row takes.
+func paramsOf(row db.Entry) db.UpsertEntryParams {
+	return db.UpsertEntryParams{
+		UserID:               row.UserID,
+		EntryDate:            row.EntryDate,
+		TemperatureMilliC:    row.TemperatureMilliC,
+		MeasuredAt:           row.MeasuredAt,
+		Bleeding:             row.Bleeding,
+		SecretionCategory:    row.SecretionCategory,
+		Sensation:            row.Sensation,
+		SecretionAmount:      row.SecretionAmount,
+		SecretionDescription: row.SecretionDescription,
+		CervixFirmness:       row.CervixFirmness,
+		CervixPosition:       row.CervixPosition,
+		Disturbances:         row.Disturbances,
+		Symptoms:             row.Symptoms,
+		Intercourse:          row.Intercourse,
+		Notes:                row.Notes,
+	}
+}
+
+func TestEntryConversion(t *testing.T) {
+	user := pgtype.UUID{Bytes: [16]byte{1}, Valid: true}
+	date := mustDate(t, 2026, time.November, 15)
+
+	t.Run("every field filled in, both ways", func(t *testing.T) {
+		row := fullEntryRow(user, date)
+		got, err := db.EntryFromRow(row)
+		if err != nil {
+			t.Fatalf("EntryFromRow: %v", err)
+		}
+		if want := fullEntryValues(); !reflect.DeepEqual(got, want) {
+			t.Errorf("EntryFromRow:\n got %+v\nwant %+v", got, want)
+		}
+		params, err := fullEntryValues().UpsertParams(user, date)
+		if err != nil {
+			t.Fatalf("UpsertParams: %v", err)
+		}
+		if want := paramsOf(row); !reflect.DeepEqual(params, want) {
+			t.Errorf("UpsertParams:\n got %+v\nwant %+v", params, want)
+		}
+	})
+
+	t.Run("nothing filled in, both ways", func(t *testing.T) {
+		// As the database returns a day with only its defaults.
+		row := db.Entry{
+			UserID: user, EntryDate: db.DateToPg(date),
+			Bleeding: db.BleedingLevelNone, Disturbances: []string{}, Symptoms: []string{},
+		}
+		got, err := db.EntryFromRow(row)
+		if err != nil {
+			t.Fatalf("EntryFromRow: %v", err)
+		}
+		want := db.EntryValues{Bleeding: db.BleedingLevelNone, Disturbances: []string{}, Symptoms: []string{}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("EntryFromRow:\n got %+v\nwant %+v", got, want)
+		}
+		params, err := want.UpsertParams(user, date)
+		if err != nil {
+			t.Fatalf("UpsertParams: %v", err)
+		}
+		if !reflect.DeepEqual(params, paramsOf(row)) {
+			t.Errorf("UpsertParams:\n got %+v\nwant %+v", params, paramsOf(row))
+		}
+	})
+
+	t.Run("a nil list becomes an empty one, never NULL", func(t *testing.T) {
+		// pgx writes a nil slice as NULL, which the columns refuse.
+		params, err := db.EntryValues{Bleeding: db.BleedingLevelNone}.UpsertParams(user, date)
+		if err != nil {
+			t.Fatalf("UpsertParams: %v", err)
+		}
+		if params.Disturbances == nil || params.Symptoms == nil {
+			t.Errorf("UpsertParams: disturbances %#v, symptoms %#v; want empty, not nil", params.Disturbances, params.Symptoms)
+		}
+		got, err := db.EntryFromRow(db.Entry{Bleeding: db.BleedingLevelNone})
+		if err != nil {
+			t.Fatalf("EntryFromRow: %v", err)
+		}
+		if got.Disturbances == nil || got.Symptoms == nil {
+			t.Errorf("EntryFromRow: disturbances %#v, symptoms %#v; want empty, not nil", got.Disturbances, got.Symptoms)
+		}
+	})
+
+	t.Run("a row the table could never hold is refused", func(t *testing.T) {
+		bad := []struct {
+			name   string
+			change func(*db.Entry)
+			want   error
+		}{
+			{"a temperature without a time", func(e *db.Entry) { e.MeasuredAt = pgtype.Time{} }, db.ErrHalfReading},
+			{"a time without a temperature", func(e *db.Entry) { e.TemperatureMilliC = pgtype.Int4{} }, db.ErrHalfReading},
+			{"a time with seconds", func(e *db.Entry) { e.MeasuredAt = pgTime(7, 45, 30, 0) }, db.ErrNotAMinute},
+			{"24:00", func(e *db.Entry) { e.MeasuredAt = pgTime(24, 0, 0, 0) }, db.ErrNotAMinute},
+		}
+		for _, tc := range bad {
+			row := fullEntryRow(user, date)
+			tc.change(&row)
+			if _, err := db.EntryFromRow(row); !errors.Is(err, tc.want) {
+				t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
+			}
+		}
+	})
+
+	t.Run("a number that doesn't fit its column is refused, not wrapped", func(t *testing.T) {
+		// 65537 as a 16-bit number is 1, which the CHECK (1 to 3) would
+		// accept; 4294967296 + 36620 as a 32-bit number is 36620.
+		tooBig := []struct {
+			name   string
+			change func(*db.EntryValues)
+		}{
+			{"secretion amount 65537", func(v *db.EntryValues) { v.SecretionAmount = ptr(65537) }},
+			{"secretion amount -65535", func(v *db.EntryValues) { v.SecretionAmount = ptr(-65535) }},
+			{"temperature 2^32 + 36620", func(v *db.EntryValues) { v.Reading.Temperature = 1<<32 + 36620 }},
+			{"temperature -2^32 + 36620", func(v *db.EntryValues) { v.Reading.Temperature = -(1 << 32) + 36620 }},
+		}
+		for _, tc := range tooBig {
+			values := fullEntryValues()
+			tc.change(&values)
+			if _, err := values.UpsertParams(user, date); !errors.Is(err, db.ErrDoesNotFit) {
+				t.Errorf("%s: err = %v, want ErrDoesNotFit", tc.name, err)
 			}
 		}
 	})

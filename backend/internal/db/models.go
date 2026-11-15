@@ -11,6 +11,320 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BleedingLevel string
+
+const (
+	BleedingLevelNone     BleedingLevel = "none"
+	BleedingLevelSpotting BleedingLevel = "spotting"
+	BleedingLevelBleeding BleedingLevel = "bleeding"
+)
+
+func (e *BleedingLevel) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = BleedingLevel(s)
+	case string:
+		*e = BleedingLevel(s)
+	default:
+		return fmt.Errorf("unsupported scan type for BleedingLevel: %T", src)
+	}
+	return nil
+}
+
+type NullBleedingLevel struct {
+	BleedingLevel BleedingLevel
+	Valid         bool // Valid is true if BleedingLevel is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullBleedingLevel) Scan(value interface{}) error {
+	if value == nil {
+		ns.BleedingLevel, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.BleedingLevel.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullBleedingLevel) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.BleedingLevel), nil
+}
+
+func (e BleedingLevel) Valid() bool {
+	switch e {
+	case BleedingLevelNone,
+		BleedingLevelSpotting,
+		BleedingLevelBleeding:
+		return true
+	}
+	return false
+}
+
+type CervixFirmness string
+
+const (
+	CervixFirmnessFirm CervixFirmness = "firm"
+	CervixFirmnessSoft CervixFirmness = "soft"
+)
+
+func (e *CervixFirmness) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CervixFirmness(s)
+	case string:
+		*e = CervixFirmness(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CervixFirmness: %T", src)
+	}
+	return nil
+}
+
+type NullCervixFirmness struct {
+	CervixFirmness CervixFirmness
+	Valid          bool // Valid is true if CervixFirmness is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCervixFirmness) Scan(value interface{}) error {
+	if value == nil {
+		ns.CervixFirmness, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CervixFirmness.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCervixFirmness) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CervixFirmness), nil
+}
+
+func (e CervixFirmness) Valid() bool {
+	switch e {
+	case CervixFirmnessFirm,
+		CervixFirmnessSoft:
+		return true
+	}
+	return false
+}
+
+type CervixPosition string
+
+const (
+	CervixPositionHighOpen  CervixPosition = "high_open"
+	CervixPositionLowClosed CervixPosition = "low_closed"
+)
+
+func (e *CervixPosition) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CervixPosition(s)
+	case string:
+		*e = CervixPosition(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CervixPosition: %T", src)
+	}
+	return nil
+}
+
+type NullCervixPosition struct {
+	CervixPosition CervixPosition
+	Valid          bool // Valid is true if CervixPosition is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCervixPosition) Scan(value interface{}) error {
+	if value == nil {
+		ns.CervixPosition, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CervixPosition.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCervixPosition) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CervixPosition), nil
+}
+
+func (e CervixPosition) Valid() bool {
+	switch e {
+	case CervixPositionHighOpen,
+		CervixPositionLowClosed:
+		return true
+	}
+	return false
+}
+
+type IntercourseRecord string
+
+const (
+	IntercourseRecordNone        IntercourseRecord = "none"
+	IntercourseRecordProtected   IntercourseRecord = "protected"
+	IntercourseRecordUnprotected IntercourseRecord = "unprotected"
+)
+
+func (e *IntercourseRecord) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = IntercourseRecord(s)
+	case string:
+		*e = IntercourseRecord(s)
+	default:
+		return fmt.Errorf("unsupported scan type for IntercourseRecord: %T", src)
+	}
+	return nil
+}
+
+type NullIntercourseRecord struct {
+	IntercourseRecord IntercourseRecord
+	Valid             bool // Valid is true if IntercourseRecord is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullIntercourseRecord) Scan(value interface{}) error {
+	if value == nil {
+		ns.IntercourseRecord, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.IntercourseRecord.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullIntercourseRecord) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.IntercourseRecord), nil
+}
+
+func (e IntercourseRecord) Valid() bool {
+	switch e {
+	case IntercourseRecordNone,
+		IntercourseRecordProtected,
+		IntercourseRecordUnprotected:
+		return true
+	}
+	return false
+}
+
+type SecretionCategory string
+
+const (
+	SecretionCategoryClearStretchy SecretionCategory = "clear_stretchy"
+	SecretionCategoryMilky         SecretionCategory = "milky"
+	SecretionCategorySticky        SecretionCategory = "sticky"
+)
+
+func (e *SecretionCategory) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SecretionCategory(s)
+	case string:
+		*e = SecretionCategory(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SecretionCategory: %T", src)
+	}
+	return nil
+}
+
+type NullSecretionCategory struct {
+	SecretionCategory SecretionCategory
+	Valid             bool // Valid is true if SecretionCategory is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSecretionCategory) Scan(value interface{}) error {
+	if value == nil {
+		ns.SecretionCategory, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SecretionCategory.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSecretionCategory) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SecretionCategory), nil
+}
+
+func (e SecretionCategory) Valid() bool {
+	switch e {
+	case SecretionCategoryClearStretchy,
+		SecretionCategoryMilky,
+		SecretionCategorySticky:
+		return true
+	}
+	return false
+}
+
+type Sensation string
+
+const (
+	SensationDry    Sensation = "dry"
+	SensationCreamy Sensation = "creamy"
+	SensationWet    Sensation = "wet"
+)
+
+func (e *Sensation) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = Sensation(s)
+	case string:
+		*e = Sensation(s)
+	default:
+		return fmt.Errorf("unsupported scan type for Sensation: %T", src)
+	}
+	return nil
+}
+
+type NullSensation struct {
+	Sensation Sensation
+	Valid     bool // Valid is true if Sensation is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSensation) Scan(value interface{}) error {
+	if value == nil {
+		ns.Sensation, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.Sensation.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSensation) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.Sensation), nil
+}
+
+func (e Sensation) Valid() bool {
+	switch e {
+	case SensationDry,
+		SensationCreamy,
+		SensationWet:
+		return true
+	}
+	return false
+}
+
 type TemperatureUnit string
 
 const (
@@ -53,10 +367,39 @@ func (ns NullTemperatureUnit) Value() (driver.Value, error) {
 	return string(ns.TemperatureUnit), nil
 }
 
+func (e TemperatureUnit) Valid() bool {
+	switch e {
+	case TemperatureUnitCelsius,
+		TemperatureUnitFahrenheit:
+		return true
+	}
+	return false
+}
+
 type CycleStart struct {
 	UserID    pgtype.UUID
 	StartDate pgtype.Date
 	CreatedAt pgtype.Timestamptz
+}
+
+type Entry struct {
+	UserID               pgtype.UUID
+	EntryDate            pgtype.Date
+	TemperatureMilliC    pgtype.Int4
+	MeasuredAt           pgtype.Time
+	Bleeding             BleedingLevel
+	SecretionCategory    NullSecretionCategory
+	Sensation            NullSensation
+	SecretionAmount      pgtype.Int2
+	SecretionDescription pgtype.Text
+	CervixFirmness       NullCervixFirmness
+	CervixPosition       NullCervixPosition
+	Disturbances         []string
+	Symptoms             []string
+	Intercourse          NullIntercourseRecord
+	Notes                pgtype.Text
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
 }
 
 type MeasurementTimePeriod struct {
