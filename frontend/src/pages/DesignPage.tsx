@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import { AppBar, NavLink } from "../components/AppBar.tsx";
 import { Button, LinkButton } from "../components/Button.tsx";
@@ -7,8 +7,11 @@ import { DateBox } from "../components/DateBox.tsx";
 import { Question } from "../components/Question.tsx";
 import { SegmentedControl } from "../components/SegmentedControl.tsx";
 import { Switch } from "../components/Switch.tsx";
+import { TemperatureBox } from "../components/TemperatureBox.tsx";
+import { TextArea } from "../components/TextArea.tsx";
 import { TextField } from "../components/TextField.tsx";
 import { TimeBox } from "../components/TimeBox.tsx";
+import { Toast } from "../components/Toast.tsx";
 import { newPasswordProblem } from "../lib/authText.ts";
 import { formatDate, formatDateLong } from "../lib/date.ts";
 
@@ -68,11 +71,18 @@ const DISTURBANCES = [
   { value: "stress", label: "Stress" },
 ] as const;
 
+const SECRETIONS = [
+  { value: "clear_stretchy", label: "Clear, stretchy" },
+  { value: "milky", label: "Milky" },
+  { value: "sticky", label: "Sticky" },
+] as const;
+
 type View = (typeof VIEWS)[number]["value"];
 type Range = (typeof RANGES)[number]["value"];
 type Unit = (typeof UNITS)[number]["value"];
 type Bleeding = (typeof BLEEDING)[number]["value"];
 type Disturbance = (typeof DISTURBANCES)[number]["value"];
+type Secretion = (typeof SECRETIONS)[number]["value"];
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -99,6 +109,14 @@ export default function DesignPage() {
   const [password, setPassword] = useState("short");
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState("Nothing saved yet.");
+  const [secretion, setSecretion] = useState<Secretion | null>("milky");
+  const [temperature, setTemperature] = useState("36.45");
+  const [badTemperature, setBadTemperature] = useState("12");
+  const [notes, setNotes] = useState("");
+  const [toast, setToast] = useState<string | null>(null);
+  // The same function at every draw, so the toast's timer isn't restarted
+  // by a redraw.
+  const hideToast = useCallback(() => setToast(null), []);
 
   return (
     <main className="mx-auto max-w-md px-4 pb-16">
@@ -201,6 +219,18 @@ export default function DesignPage() {
         <p className="text-muted text-sm">
           Chosen: {bleeding ?? "nothing yet"}.
         </p>
+        <OptionButtons
+          clearable
+          legend="Cervical secretion"
+          options={SECRETIONS}
+          value={secretion}
+          onChange={setSecretion}
+        />
+        <p className="text-muted text-sm">
+          Secretion: {secretion ?? "none"}. This question may have no answer:
+          tap the chosen one again to clear it. Bleeding, above, can't be
+          cleared.
+        </p>
       </Section>
 
       <Section title="Chips">
@@ -226,6 +256,82 @@ export default function DesignPage() {
           checked={showRaw}
           onChange={setShowRaw}
         />
+        <Switch
+          label="Off, and disabled"
+          checked={false}
+          onChange={() => {}}
+          disabled
+        />
+        <Switch
+          label="On, and disabled"
+          checked={true}
+          onChange={() => {}}
+          disabled
+        />
+      </Section>
+
+      <Section title="Temperature box">
+        <div className="bg-sheet grid gap-3.5 rounded-[20px] p-4 shadow-[inset_0_0_0_1px_var(--color-rule)]">
+          <TemperatureBox
+            label="Temperature"
+            unit="°C"
+            placeholder="36.45"
+            value={temperature}
+            onChange={setTemperature}
+            describedBy="design-counts-as"
+          />
+          <p id="design-counts-as" className="text-sm">
+            Measured 45 min late, so it counts as{" "}
+            <b className="text-berry">36.30 °C</b>. That's an estimate.
+          </p>
+        </div>
+        <TemperatureBox
+          label="With an error"
+          unit="°C"
+          placeholder="36.45"
+          value={badTemperature}
+          onChange={setBadTemperature}
+          error="That isn't a body temperature. Enter a value between 20.00 and 50.00 °C."
+        />
+        <p className="text-muted text-sm">
+          The first holds "{temperature}", exactly as typed. A phone shows its
+          number keyboard, with a dot or a comma.
+        </p>
+      </Section>
+
+      <Section title="Text area">
+        <TextArea
+          label="Notes"
+          placeholder="Mood, travel, anything else"
+          maxLength={2000}
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+        />
+        <p className="text-muted text-sm">
+          {notes.length} characters, {notes.split("\n").length} line
+          {notes.split("\n").length === 1 ? "" : "s"}.
+        </p>
+        <TextArea
+          label="With an error"
+          defaultValue="Too long, say."
+          error="Keep the notes under 2,000 characters."
+        />
+      </Section>
+
+      <Section title="Toast">
+        <div className="flex flex-wrap gap-3">
+          <Button variant="secondary" onClick={() => setToast("Entry saved")}>
+            Show "Entry saved"
+          </Button>
+          <Button variant="secondary" onClick={() => setToast("Entry deleted")}>
+            Show "Entry deleted"
+          </Button>
+        </div>
+        <p className="text-muted text-sm">
+          It rises near the bottom of the screen and leaves after 2.2 seconds.
+          Now: {toast ?? "no toast"}.
+        </p>
+        {toast && <Toast message={toast} onDone={hideToast} />}
       </Section>
 
       <Section title="Date box">
