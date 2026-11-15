@@ -101,6 +101,10 @@ export default function DesignPage() {
   const [disturbances, setDisturbances] = useState<Disturbance[]>(["alcohol"]);
   const [cycleStart, setCycleStart] = useState(false);
   const [showRaw, setShowRaw] = useState(true);
+  // Real state behind the two disabled switches, so that only `disabled`
+  // stands between a tap and a flip.
+  const [lockedOff, setLockedOff] = useState(false);
+  const [lockedOn, setLockedOn] = useState(true);
   const [date, setDate] = useState("2026-11-08");
   const [emptyDate, setEmptyDate] = useState("");
   const [time, setTime] = useState("07:00");
@@ -258,14 +262,14 @@ export default function DesignPage() {
         />
         <Switch
           label="Off, and disabled"
-          checked={false}
-          onChange={() => {}}
+          checked={lockedOff}
+          onChange={setLockedOff}
           disabled
         />
         <Switch
           label="On, and disabled"
-          checked={true}
-          onChange={() => {}}
+          checked={lockedOn}
+          onChange={setLockedOn}
           disabled
         />
       </Section>
