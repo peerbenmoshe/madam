@@ -375,6 +375,8 @@ practice.
 | Temperature outside **20.00–50.00 °C** | **Rejected** with a clear message | Go, with a database `CHECK` as backstop |
 | Temperature with no measurement time, or vice versa | Impossible | Database `CHECK` |
 | Entry with no temperature | Confirmation prompt, then saves; the day is a gap in the line | Go |
+| A disturbance or symptom that isn't in §7's lists, or one given twice (§9.4) | Rejected | Go, with a database `CHECK` for the lists |
+| Notes over **2,000 characters**, or a secretion description over **200** (§9.5) | Rejected | Go |
 
 The two temperature ranges catch different mistakes and never collide. **35–39**
 catches a human typo (34.20 for 36.20) and only ever asks a question. **20–50**
@@ -431,6 +433,61 @@ Added in Slice 3, for everything the API reads and writes.
 
 One spelling each, so `7:05` and `2026-2-3` are refused, not tidied up. What
 the user sees (dd/mm/yyyy, `design-brief.md` §7) is the page's concern.
+
+### 9.3 A temperature as it arrives
+
+Added in Slice 4. A temperature arrives in whole hundredths of a degree,
+with its unit named: 36.62 °C is 3662 hundredths of Celsius
+(`tech-stack.md` §3).
+
+```
+// Celsius: exact, nothing is rounded
+milli = 10 × c_hundredths            // accepted from 20.00 to 50.00 °C
+
+// Fahrenheit: §3.5                  // accepted from 68.00 to 122.00 °F
+```
+
+Then, in this order:
+
+1. **Outside the accepted range, it is rejected.** The two ranges are the
+   same temperatures, 20.000 to 50.000 °C, and they don't overlap as
+   numbers. So a value sent with the wrong unit (97.91 as Celsius, 36.62 as
+   Fahrenheit) is always rejected and never stored as a wrong reading.
+2. **Otherwise, the stored value decides the question:**
+
+   ```
+   unusual  ⇔  milli < 35000  or  milli > 39000
+   ```
+
+   35.00 and 39.00 °C themselves are usual. It is decided on the stored
+   thousandths, whatever unit she typed, so in Fahrenheit the edges are
+   exactly the spec's 95.00 and 102.20 °F (`spec-v1.md` §5.3).
+
+An unusual temperature is saved once she has said it is correct. A rejected
+one is never saved.
+
+### 9.4 Disturbances and symptoms
+
+Added in Slice 4. Each is a list of tags from §7.
+
+- A tag that isn't in its own list is rejected. `pms` is a symptom, so it
+  is rejected as a disturbance. One spelling each: `Alcohol` is rejected.
+- A tag given twice is rejected.
+- **Any order is accepted, and the list is stored in §7's order.** A day
+  with alcohol and poor sleep is then stored one way, however it was
+  tapped.
+
+### 9.5 Free text
+
+Added in Slice 4. The notes hold up to **2,000 characters** and the
+secretion description up to **200**. A character is a Unicode code point,
+not a byte: 2,000 Hebrew letters are 4,000 bytes and are accepted. Text is
+stored as typed, line breaks included; it is never trimmed. An empty text
+is the same as none.
+
+Both limits are assumptions and can be tuned. They exist so that an
+over-long text is refused about its own field, with a message, and not by
+the size limit on a whole request.
 
 ---
 
@@ -638,6 +695,67 @@ Added in Slice 3 (§9.2).
 
 Writing a time back out is the reverse: 425 is `07:05`. Every minute of the
 day, 0 to 1439, must survive being written and read again.
+
+### 12.11 A temperature as it arrives
+
+Added in Slice 4 (§9.3).
+
+| # | Arrives as | Stored (milli) | Expected |
+|---|---|---|---|
+| L1 | 34.20 °C | 34200 | accepted; **unusual**, so she is asked (AC-14) |
+| L2 | 36.62 °C | 36620 | accepted; usual |
+| L3 | 35.00 °C | 35000 | usual: the edge itself |
+| L4 | 34.99 °C | 34990 | unusual |
+| L5 | 39.00 °C | 39000 | usual: the edge itself |
+| L6 | 39.01 °C | 39010 | unusual |
+| L7 | 20.00 °C | 20000 | accepted, the lowest; unusual |
+| L8 | 19.99 °C | none | **rejected** (AC-17) |
+| L9 | 50.00 °C | 50000 | accepted, the highest; unusual |
+| L10 | 50.01 °C | none | **rejected** (AC-17) |
+| L11 | 95.00 °F | 35000 | usual: the same edge as L3 |
+| L12 | 94.99 °F | 34994 | unusual |
+| L13 | 102.20 °F | 39000 | usual: the same edge as L5 |
+| L14 | 102.21 °F | 39006 | unusual |
+| L15 | 68.00 °F | 20000 | accepted, the lowest; unusual |
+| L16 | 67.99 °F | none | **rejected** |
+| L17 | 122.00 °F | 50000 | accepted, the highest; unusual |
+| L18 | 122.01 °F | none | **rejected** |
+| L19 | 97.91 °C, a Fahrenheit number sent as Celsius | none | **rejected** |
+| L20 | 36.62 °F, a Celsius number sent as Fahrenheit | none | **rejected** |
+
+Every Celsius value from 20.00 to 50.00 must also come back as it was typed:
+stored, then displayed, it is the same hundredths.
+
+### 12.12 Disturbances and symptoms
+
+Added in Slice 4 (§9.4).
+
+| # | List | As | Expected |
+|---|---|---|---|
+| G1 | empty | disturbances | accepted: none |
+| G2 | `poor_sleep`, `alcohol` | disturbances | stored as `alcohol`, `poor_sleep` |
+| G3 | all nine of §7, last first | disturbances | all nine, in §7's order |
+| G4 | `alcohol`, `alcohol` | disturbances | rejected: given twice |
+| G5 | `jet_lag` | disturbances | rejected: not in the list |
+| G6 | `pms` | disturbances | rejected: a symptom isn't a disturbance |
+| G7 | `Alcohol` | disturbances | rejected: one spelling |
+| G8 | an empty tag | disturbances | rejected |
+| G9 | `pms`, `breast_tenderness` | symptoms | stored as `breast_tenderness`, `pms` |
+| G10 | `alcohol` | symptoms | rejected: a disturbance isn't a symptom |
+
+### 12.13 Free text
+
+Added in Slice 4 (§9.5).
+
+| # | Text | Expected |
+|---|---|---|
+| X1 | notes of 2,000 characters | accepted |
+| X2 | notes of 2,001 characters | rejected |
+| X3 | notes of 2,000 Hebrew letters (4,000 bytes) | accepted: characters are counted, not bytes |
+| X4 | notes of 2,001 Hebrew letters | rejected |
+| X5 | a secretion description of 200 characters | accepted |
+| X6 | a secretion description of 201 characters | rejected |
+| X7 | empty notes | accepted: the same as none |
 
 ---
 
