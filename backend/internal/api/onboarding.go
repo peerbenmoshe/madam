@@ -136,17 +136,6 @@ func handleOnboarding(store UserStore, now func() time.Time) http.HandlerFunc {
 	}
 }
 
-// refusal is an error answer and its status.
-type refusal struct {
-	status int
-	apiError
-}
-
-// refuse builds a refusal about one field of the request.
-func refuse(status int, code, field, message string) *refusal {
-	return &refusal{status: status, apiError: apiError{Code: code, Field: field, Message: message}}
-}
-
 // checkOnboarding applies the rules to a decoded request, at the instant
 // now. It returns the answers in the domain's types, or the first thing
 // that is wrong. The page checks all of this before sending, so one error
@@ -169,22 +158,9 @@ func checkOnboarding(req onboardingRequest, now time.Time) (onboarding, *refusal
 		return out, refuse(http.StatusUnprocessableEntity, codeMissingField, fieldCycleStartDate,
 			"cycle_start_date is required when cycle_start_unknown is false")
 	case !out.startUnknown:
-		start, err := fam.ParseDate(*req.CycleStartDate)
-		if err != nil {
-			return out, refuse(http.StatusUnprocessableEntity, codeInvalidDate, fieldCycleStartDate,
-				"cycle_start_date must be a real date written YYYY-MM-DD")
-		}
-		switch err := fam.CheckDate(start, now); {
-		case errors.Is(err, fam.ErrDateInFuture):
-			return out, refuse(http.StatusUnprocessableEntity, codeDateInFuture, fieldCycleStartDate,
-				"cycle_start_date is after today")
-		case errors.Is(err, fam.ErrDateTooEarly):
-			return out, refuse(http.StatusUnprocessableEntity, codeDateTooEarly, fieldCycleStartDate,
-				"cycle_start_date is before "+fam.EarliestDate().String())
-		case err != nil:
-			// CheckDate grew a rule this handler doesn't know. Refuse.
-			return out, refuse(http.StatusUnprocessableEntity, codeInvalidDate, fieldCycleStartDate,
-				"cycle_start_date is not accepted")
+		start, refused := acceptedDate(fieldCycleStartDate, *req.CycleStartDate, now)
+		if refused != nil {
+			return out, refused
 		}
 		out.start = start
 	}

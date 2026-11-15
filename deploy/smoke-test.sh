@@ -152,6 +152,22 @@ else
 	fail "POST /api/onboarding without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}}; got $status '$(head -c 120 "$tmp/body")'"
 fi
 
+# A day is behind the token as well, for reading and for saving. Both are
+# refused before the date or the body is looked at, so this changes nothing.
+status=$(fetch /api/days/2026-11-06)
+if [ "$status" = 401 ] && is_api_error unauthorized && [ "$(header Cache-Control)" = no-store ]; then
+	pass "/api/days/2026-11-06 without a token: 401 as a JSON error, no-store"
+else
+	fail "/api/days/2026-11-06 without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}} with no-store; got $status '$(head -c 120 "$tmp/body")', $(header Cache-Control)"
+fi
+status=$(fetch /api/days/2026-11-06 -X PUT -H 'Content-Type: application/json' \
+	--data '{"entry":{"bleeding":"none","disturbances":[],"symptoms":[]},"confirmed":["no_temperature"]}')
+if [ "$status" = 401 ] && is_api_error unauthorized && [ "$(header Cache-Control)" = no-store ]; then
+	pass "PUT /api/days/2026-11-06 without a token: 401 as a JSON error, no-store"
+else
+	fail "PUT /api/days/2026-11-06 without a token: want 401 {\"error\":{\"code\":\"unauthorized\",…}}; got $status '$(head -c 120 "$tmp/body")'"
+fi
+
 # An unknown API path answers in the same shape.
 status=$(fetch /api/nope)
 if [ "$status" = 404 ] && is_api_error not_found; then
@@ -178,7 +194,7 @@ else
 fi
 
 # Nothing under /api/ may reach the page.
-for path in /api /api/ /api/nope /api/health/extra /api/me/extra; do
+for path in /api /api/ /api/nope /api/health/extra /api/me/extra /api/days /api/days/2026-11-06/extra; do
 	expect_404 "$path"
 done
 
