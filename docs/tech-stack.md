@@ -116,7 +116,8 @@ Reasons:
 - **One place to change** the rounding mode or a future configurable correction rate.
 
 Accepted trade-off: no instant on-screen preview of the adjusted temperature while
-typing, unless we later add a small frontend copy of that one formula.
+typing, unless we later add a small frontend copy of that one formula. *That copy
+was decided on in the Slice 4 plan: see the second exception below.*
 
 **Consequence worth remembering:** rules that look like UI are really domain
 logic. The backend decides *whether* to ask "Did bleeding stop?" or "Start a new
@@ -127,6 +128,25 @@ those checks.
 segments (§8.3) is genuinely presentational and lives in the frontend. It is safe
 there precisely because no second client draws a line — the WhatsApp bot never
 will.
+
+**A second exception, decided in the Slice 4 plan (15 November 2026): the
+day screen's live line.** `spec-v1.md` §5.1 and `design-brief.md` §6.3 ask
+for a line that says, while she types, what the reading will count as. That
+is the "small frontend copy of that one formula" named above, and it is now
+taken (Pe'er): `frontend/src/lib/adjust.ts` holds `fam-rules.md` §3.3–§3.4
+in integers, tested with the same vectors as Go (§12.1).
+
+| Option | For | Against |
+|---|---|---|
+| **A TypeScript copy of the one formula** | Instant, and it works on a slow connection. The line is labelled an estimate and is never stored | The formula exists twice: a change of rate or rounding must touch both |
+| An endpoint, asked after she stops typing | One formula | A request per pause, a line that lags and is blank offline or during a cold start, and debounce and out-of-order answers to handle |
+| No number until she saves | §1.3 unchanged | Two documents would have to drop what they ask for |
+
+It is safe for the same reason as the first exception: nothing it computes
+is saved or sent. Every value that is stored, drawn on the graph or shown in
+the day popup still comes from Go, so the bot and the app can't disagree
+about a saved reading. The copy is the preview only, and `fam-rules.md` §3.3
+names it, so whoever changes the arithmetic finds both.
 
 ### 1.4 Backend internal structure
 
@@ -377,6 +397,141 @@ unknown field 400. The row in the database held what was typed.
 **On production** (14 November 2026): Pe'er onboarded his own account on an
 Android phone, with a date. Both "missing" messages appeared for an empty
 form, the answers were stored, and a reload stayed past onboarding.
+
+### Decided in the Slice 4 plan (15 November 2026): the day endpoints
+
+Decisions only; "as built" follows. The conventions above stand. These are
+the first endpoints that read and write `entries`.
+
+**The address is the day, by its date.**
+
+| Option | For | Against |
+|---|---|---|
+| `/api/entries/{date}` for everything | Names the table | A day without an entry still has things to say: its fixed time now, its cycle start in Slice 5 |
+| `/api/days/{date}` for everything | One address | From Slice 5 a `DELETE` there reads as "delete the day", cycle start included, which no screen offers |
+| **`GET` and `PUT /api/days/{date}`, and `DELETE /api/days/{date}/entry`** | The day is what is read and saved, and Slice 5's switch joins the same `PUT`. Only the entry is ever deleted | Two path shapes |
+
+**`GET /api/days/{date}` answers 200 whether or not the day has an entry:**
+
+```json
+{
+  "date": "2026-11-15",
+  "fixed_time": "07:00",
+  "entry": {
+    "temperature": {"hundredths": 3662, "unit": "celsius"},
+    "measured_at": "07:45",
+    "bleeding": "none",
+    "secretion_category": null,
+    "sensation": null,
+    "secretion_amount": null,
+    "secretion_description": null,
+    "cervix_firmness": null,
+    "cervix_position": null,
+    "disturbances": [],
+    "symptoms": [],
+    "intercourse": null,
+    "notes": null
+  }
+}
+```
+
+- `entry` is `null` on a day with none. Rejected: a 404. The page needs
+  `fixed_time` for a new day, because "Measured at" defaults to it
+  (`spec-v1.md` §5.1), and only Go can work it out
+  (`db.ScheduleFromRows`, `Schedule.FixedTime`).
+- With no temperature, `temperature` and `measured_at` are both `null`.
+- Nothing derived is in the answer yet: no adjusted value, no cycle day.
+  Slice 5 and Slice 6 add what their screens show.
+
+**A temperature on the wire is whole hundredths with its unit named.**
+
+| Option | For | Against |
+|---|---|---|
+| Thousandths of °C, the stored unit | No conversion on the server | A Fahrenheit client would convert by itself: domain arithmetic outside Go (§1.3) |
+| A decimal string, `"36.62"` | Reads like the date and time strings | One more strict, hand-written parser |
+| **`{"hundredths": 3662, "unit": "celsius"}`** | An integer, as temperatures are everywhere else. `fam` already has `HundredthsC`, `HundredthsF` and `FromFahrenheit`. The unit travels with the number, so a setting changed in another tab can't reinterpret it | The page turns typed text into `3662`: a rule about spelling, like `isTimeOfDay` |
+
+- **The server accepts both units from the start; the page sends Celsius
+  only** (Pe'er). Nothing can change `users.temperature_unit` until
+  Settings (Slice 9), which then changes the page and not the API.
+- The answer is in the account's unit, converted by `fam` from the stored
+  thousandths (`fam-rules.md` §3.5, vector F1).
+- The accepted ranges of the two units don't overlap (20.00–50.00 and
+  68.00–122.00), so a number sent with the wrong unit is always refused,
+  never stored as a wrong reading.
+- *Noted for Slice 9, not solved here:* saving an entry again after
+  switching units rounds its raw value again.
+
+**`PUT /api/days/{date}` saves the day's entry, new or existing.**
+
+```
+{"entry": { the thirteen fields above }, "confirmed": []}
+```
+
+- **`PUT`, not `POST`.** The address is the date, and saving twice leaves
+  one row. That is the primary key's rule, and case I2 of `fam-rules.md`
+  §12.7: an update of a date that has no entry creates it. Rejected: `POST`
+  to create and `PUT` to change (the page would have to know which, and a
+  second device makes it wrong).
+- **It replaces the whole entry** and answers 200 with `GET`'s body.
+- **Required:** `entry`, and in it `bleeding`, `disturbances` and
+  `symptoms`. A request without one is a 400 that names the field, as for
+  `cycle_start_unknown`. Every other field may be `null` or left out.
+  `confirmed` may be left out.
+- A temperature needs `measured_at` (`missing_field`). `measured_at`
+  without a temperature is `unexpected_field`: the page leaves it out.
+- An empty text is stored as `NULL`.
+- The body is capped at 32 KiB.
+
+**`DELETE /api/days/{date}/entry` answers 204,** also when the day had no
+entry: what she wanted is true either way.
+
+**An account that hasn't onboarded gets 409 `not_onboarded`** from all
+three, because an entry's fixed time comes from the row onboarding writes.
+No `users` row at all counts the same, and a `GET` creates nothing. The page
+then asks `/api/me` again and shows onboarding: the mirror of
+`already_onboarded`.
+
+**Questions before saving.** The server decides whether to ask (§1.3); each
+client decides how.
+
+| Option | For | Against |
+|---|---|---|
+| A separate "check" endpoint, then `PUT` | Reads cleanly | `PUT` must enforce it anyway, or a client skips the questions |
+| 200 with `"saved": false` | No error involved | A client that reads only the status believes it saved. Health data, silently not stored |
+| 422 with a question's code | One status for everything about a value | 422 here means "change the field". A question means "answer, then send the same thing" |
+| **409 with the question as the `code`, answered by naming it in `confirmed`** | The existing error shape, and one question per answer, as the screen shows them. A client can't save without having asked | 409 now means two things: the account's state stands in the way, or she must be asked first |
+
+- `no_temperature`: the entry has no temperature (AC-13).
+- `unusual_temperature`: it is outside 35.00–39.00 °C (AC-14).
+- Both name the field `temperature`. The page asks, and on "yes" sends the
+  same body with `"confirmed": ["unusual_temperature"]`.
+- An unknown name in `confirmed` is `invalid_value`. A known one that
+  doesn't apply is ignored: "yes, I'm sure" about nothing harms nothing,
+  and Slice 5's question depends on stored state, which can change between
+  the question and the answer.
+- Slice 5 adds `bleeding_stopped` to the same mechanism.
+
+**AC-17 is a refusal, never a question.** A temperature outside
+20.00–50.00 °C (68.00–122.00 °F) is 422 `temperature_out_of_range`, before
+the questions and before the database.
+
+**The order of checks,** rules before state, as in onboarding: the date in
+the path (`fam.ParseDate`, `fam.CheckDate`; a bad one is a 422 about
+`date`, on `GET` too), the body, each field, the 20–50 rule, the questions,
+and only then the database, where `not_onboarded` is found. The rules are
+one function of the request and the clock (`checkDay`), with no database in
+it, like `checkOnboarding`.
+
+| Status | New codes |
+|---|---|
+| 409 | `not_onboarded`, `no_temperature`, `unusual_temperature` |
+| 422 | `temperature_out_of_range`, `invalid_value` (an enum, a tag, an amount, a unit or a `confirmed` name the rules don't have), `too_long` |
+
+**Two limits on text,** new rules that `fam-rules.md` §9 gains with the
+code: notes up to 2,000 characters, the secretion description up to 200.
+Rejected: the body cap alone, which would answer a long note with a 413 and
+no field to point at.
 
 ---
 
@@ -1385,6 +1540,76 @@ some other time.
 **In production:** `00003` was applied with `make migrate-prod` on
 14 November 2026, between the merges of #45 and #49.
 
+### Decided in the Slice 4 plan (15 November 2026): `entries`
+
+Decisions only; "as built" follows.
+
+**Migration `00004_entries.sql`** holds six enum types, the `entries` table
+and the schema's first trigger (`data-model.md` §3, §4.2).
+
+- **One file.** goose runs it in one transaction, as for `00003`, and
+  nothing uses a type without the table. Rejected: the types in one file
+  and the table in the next (a failure between them leaves types nobody
+  uses).
+- **Six named `CHECK`s:** `data-model.md` §4.2's five, and one decided in
+  this plan, that `measured_at` is a whole minute of the day (§4.2).
+- **The trigger** is a `plpgsql` function, `public.set_updated_at()`, and
+  `BEFORE UPDATE … FOR EACH ROW` on `entries`. The `DO UPDATE` branch of an
+  upsert fires it. *To measure, not assume:*
+  - that it fires for `madam_app`, which holds no `TRIGGER` privilege
+    (that privilege is for creating a trigger, not for firing one);
+  - whether it still fires after `REVOKE ALL ON FUNCTION … FROM PUBLIC`. A
+    trigger function can't be called directly, so the revoke is tidiness;
+    if the trigger then fails, the default stays and this section says so;
+  - on madam-dev, what Supabase's three API roles hold on the function.
+- **The checklist:** the cascade from `users`; `ENABLE` and `FORCE`; one
+  policy, `entries_own_rows`, `FOR ALL TO madam_app` with `USING` and
+  `WITH CHECK`; and `GRANT SELECT, INSERT, UPDATE, DELETE`. It is the first
+  table after `users` that needs `UPDATE`. It joins both lists in
+  `internal/db/user_tables_test.go`.
+- **It is safe with the code already running.** It adds types and one
+  table and changes no existing table, so no existing query's Go type
+  changes, and the running server never names `entries`. Both in-between
+  states are run, not argued, as in Slice 3.
+
+**The queries** (`internal/db/queries/entries.sql`), each filtered by
+`user_id`: `GetEntry` (one date), `UpsertEntry` (`INSERT … ON CONFLICT
+(user_id, entry_date) DO UPDATE`, returning the row) and `DeleteEntry`.
+Each names its columns; none uses `SELECT *` (the prepared-statement lesson
+above).
+
+**Types at the boundary.** The Slice 3 decision stands: sqlc's types, no
+overrides, converted in `internal/db/convert.go`.
+
+| Column | Expected Go type | Measured? |
+|---|---|---|
+| `temperature_milli_c` | `pgtype.Int4` | In 0c |
+| `measured_at` | `pgtype.Time` | In 0c |
+| `secretion_amount` (`SMALLINT`) | `pgtype.Int2` | No |
+| `secretion_description`, `notes` (nullable `TEXT`) | `pgtype.Text` | No |
+| `bleeding` | `BleedingLevel` | No |
+| The five nullable enums | A `Null…` struct each, as `NullTemperatureUnit` is | The shape only |
+| `disturbances`, `symptoms` | `[]string` | In 0c |
+
+`make sqlc` confirms or corrects each.
+
+- **`convert.go` gains `EntryValues`,** an entry in plain Go, with
+  `EntryFromRow` and `EntryValues.UpsertParams`. "Not said" is a `nil`
+  pointer. Handlers never see a `pgtype` value of an entry.
+- **The temperature and its time are one optional pair** (`Reading
+  *Reading`). "One without the other" then can't be written in Go, as it
+  can't be stored. `EntryFromRow` refuses a row that has only one.
+- **Both arrays are always written as `[]string{}`,** never `nil`, which
+  would be `NULL` (measured in 0c).
+- **Which enum values exist comes from the generated code.** `sqlc.yaml`
+  gains `emit_enum_valid_method` (*the option's name is to confirm*), so
+  the migration is the one list. It is a setting, not a dependency. The two
+  array columns have no generated form: their lists are in `fam`
+  (`fam-rules.md` §7), and a database test holds them against the `CHECK`.
+- Rejected: `emit_pointers_for_null_types`. It would turn `pgtype.Int4`
+  into `*int32` and nothing else here (measured in 0c), for two shapes of
+  "maybe a number".
+
 ---
 
 ## 7. Hosting: Google Cloud Run
@@ -2286,6 +2511,53 @@ checks**, all against the built image:
 - **The real pass's screenshot is never committed:** it shows the test
   account's address, and the repository is public. The screenshots folder is
   gitignored; the ones kept as evidence are added with `git add -f`.
+
+### Decided in the Slice 4 plan (15 November 2026): the day screen
+
+Decisions only; "as built" follows. The screen is `design-brief.md` §6.3.
+
+- **A day has an address: `/day/YYYY-MM-DD`.** `App.tsx` stops sending
+  every signed-in path to `/`. A path that isn't a real date the page
+  accepts goes to `/`. Rejected: a second address, `/today` (two names for
+  one screen).
+- **The date box is navigation,** as in the approved mock. Picking a date
+  opens that day: its entry if it has one (AC-4), a blank form if not. A
+  pick *replaces* the address, so the browser's Back leaves the day screen
+  in one step. Accepted cost, from the mock: values typed and not saved are
+  dropped.
+- **After Save or Delete** the address is replaced with `/`, with a toast.
+- **Until the graph exists (Slice 6),** the placeholder page has one
+  primary button, "Today's entry", which works out today when it is
+  tapped. Any other day is reached through the date box.
+- **Today is read again,** not kept: at every draw, on submit, and when
+  the tab becomes visible again. A day screen that was opened as today and
+  is still open the next day shows a notice with "Go to today's entry". It
+  never moves by itself, and Save saves the date that the date box shows.
+  The server's rule is unchanged (`fam.CheckDate`).
+- **The page checks spelling and the 20–50 range first; the server decides
+  both questions** (§3). A 409 with a question's code puts the question in
+  Save's place, and "yes" sends the same body with the name in `confirmed`.
+- **The live line** is `lib/adjust.ts` (§1.3's second exception), fed by
+  the day's `fixed_time`.
+- **Typed text becomes hundredths in `lib/temperature.ts`:** a comma or a
+  dot, one or two decimals. No floating point.
+- **The words** are in `lib/dayText.ts`, with tests, like
+  `onboardingText.ts`.
+- **The cycle-start switch is shown disabled** (Pe'er). It sends nothing;
+  Slice 5 makes it live.
+
+**How it is checked in a browser** (`deploy/browser-check/`):
+
+- `day.mjs`, staged throughout, like `onboarding.mjs`: every state of the
+  screen, each question, each refusal, the date pick, the notice after
+  midnight (by a staged clock), and the sticky Save at 390px.
+- `day-real.mjs`, nothing staged. **It doesn't depend on
+  `onboarding-real.mjs` having run:** it onboards the test account through
+  the API if needed (a 409 means it already is) and deletes the day's entry
+  first. So it runs alone or after the other, and the Makefile's reset
+  needs no new SQL. Rejected: relying on the order of the scripts;
+  onboarding the account with SQL in the reset (a second description of
+  what the endpoint writes).
 
 ---
 

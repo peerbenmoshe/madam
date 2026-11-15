@@ -141,6 +141,20 @@ Fallback: the system font stack.
 - **`/design`** shows every component with made-up values, for checking on a
   phone. It is not linked from the app and goes in the v1 review pass.
 
+*Planned for Slice 4 (15 November 2026), each shown on `/design` before the
+day screen uses it:*
+- **Option buttons that can be cleared.** §6.3 says tapping the chosen
+  secretion again clears it, and a radio button can't be un-chosen. So the
+  option buttons gain a `clearable` variant, for the questions that may
+  have no answer. Bleeding stays as it is: one is always chosen.
+- **A switch that can be disabled,** for "Cycle starts on this day" until
+  Slice 5 (§6.3).
+- **A text area,** the text field's twin with the same label, border and
+  focus, for the notes.
+- **The temperature box:** the mock's large number (2.5rem, weight 800)
+  over an ink underline, with the unit beside it.
+- **The toast** of the table above, which nothing has needed until now.
+
 Questions that need an answer (save without a temperature, unusual
 temperature, "Did bleeding stop?", delete) **replace the Save button in
 place** with the question and two buttons, never a browser dialog.
@@ -281,6 +295,35 @@ framed in `berry` on `blush` with one line above the switch:
 
 The third row is the spec's new-cycle suggestion (`spec-v1.md` §8.2): turning
 the switch on confirms it, and leaving it off dismisses it.
+
+**In Slice 4** (planned 15 November 2026; `tech-stack.md` §8):
+- **All nine parts are built, and the switch is shown disabled** (Pe'er).
+  Its rules, its message and its write are Slice 5. Rejected: leaving it
+  out until then; showing it read-only.
+- **The title** is "Today's entry", or the weekday and date for any other
+  day. The mock's line under it ("Cycle 4, day 8") needs the cycle rules,
+  so it waits for Slice 5; a day without an entry says "No entry yet."
+- **The date box opens the day that is picked,** as in the mock: that
+  day's entry if it has one, a blank form if not. Values typed and not
+  saved are dropped.
+- **"Measured at" starts at her usual time** for that date, and an
+  existing reading shows its own time.
+- **The live line** has the mock's five wordings: "Your usual time is
+  07:00."; "Measured 45 min late. The value will be adjusted to 07:00.";
+  "Measured at your usual time, so no adjustment."; "Measured 1 min late.
+  Too little to change the value."; and "Measured 45 min late, so it counts
+  as **36.30 °C**. That's an estimate."
+- **"Show all fields" starts open when the entry has a value in it,** so
+  nothing she saved is hidden. Open, it reads "Hide extra fields".
+- **The questions,** in Save's place (§5, §7): "Save without a
+  temperature?" with "Add a temperature" and "Save without"; "34.20 °C is
+  unusual. Is it correct?" with "No, fix it" and "Yes, save it"; "Delete
+  the entry for 14/11/2026? This can't be undone." with "Keep it" and
+  "Delete entry".
+- **A day left open overnight** shows a notice with "Go to today's entry".
+  The screen never changes day by itself.
+- **A "Back" button** at the top, where the mock has "Graph", until the
+  graph exists.
 
 ### 6.4 Cycles and stats
 

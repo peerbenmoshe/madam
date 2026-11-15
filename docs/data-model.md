@@ -212,7 +212,24 @@ CHECK (symptoms <@ ARRAY['breast_tenderness','bloating','pms']::TEXT[])
 
 -- unit-bug backstop, mirrored in Go (see below)
 CHECK (temperature_milli_c BETWEEN 20000 AND 50000)
+
+-- a reading's time is a whole minute of the day (added in the Slice 4 plan)
+CONSTRAINT measured_at_is_a_minute_of_the_day CHECK (
+    measured_at < TIME '24:00' AND EXTRACT(SECOND FROM measured_at) = 0
+)
 ```
+
+In the migration (`00004`, Slice 4) every one of these has a name, so an
+error says which rule refused.
+
+**Why `measured_at` has its own `CHECK` (decided in the Slice 4 plan,
+15 November 2026, by Pe'er).** The column is "minute precision", and until
+now nothing held it to that. A Postgres `TIME` can also hold seconds,
+microseconds and `24:00:00`, and `db.MinutesFromPg` refuses all three, so
+one such row, written by hand in `psql`, would make its day unreadable. It
+is the twin of `measurement_time_periods`' constraint (§4.4). Go only ever
+writes whole minutes, so this is a backstop, like the 20–50 °C `CHECK`. A
+`NULL` time passes, as it must: an entry may have no reading.
 
 **Why `bleeding` is `NOT NULL DEFAULT 'none'`.** It could have been nullable, with
 `NULL` meaning "she didn't say." `spec-v1.md` §8.3 already chose otherwise: the
@@ -435,6 +452,7 @@ migrate and nothing that can fall out of sync.
 | Deleting a user deletes everything | **Database** — `ON DELETE CASCADE` |
 | No overlapping time periods | **Structure** — inexpressible by design |
 | A fixed time is a whole minute, 00:00–23:59 (§4.4) | **Database** — `CHECK`, with Go refusing first so the message is readable |
+| A reading's time is a whole minute, 00:00–23:59 (§4.2; from Slice 4) | **Database** — `CHECK`, with Go refusing first so the message is readable |
 | A cycle start is never edited, a time period never edited or deleted | **Database** — `madam_app` isn't granted the statement (§4.3, §4.4) |
 | No date before 1 January 2000 | **Go** (`tech-stack.md` §3) |
 | Impossible temperature, 20–50 °C (AC-17) | **Go first**, with a database `CHECK` as backstop |

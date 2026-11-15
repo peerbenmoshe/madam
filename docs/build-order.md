@@ -641,6 +641,50 @@ no-temperature confirmation, one entry per date.
 card shows live what a late or early reading will count as. The questions
 replace the Save button in place, never a browser dialog.
 
+*Planned (15 November 2026).* Things the lines above didn't say:
+- **Six of the seven enum types don't exist either,** and `updated_at`'s
+  trigger is the schema's first. The migration creates all of it.
+- **The live line and "the frontend computes nothing" can't both hold.**
+  Pe'er chose a TypeScript copy of the one formula, the way out that
+  `tech-stack.md` §1.3 already named.
+- **The server decides the questions, and had no way to say "ask her
+  first".** It is now a 409 whose code is the question.
+- **A day screen needs an address,** and until the graph exists (Slice 6)
+  something must lead to it: one button on the placeholder.
+- **The cycle-start switch is in the layout but its rules are Slice 5.** It
+  is shown disabled (Pe'er).
+- **`measured_at` had no rule holding it to a whole minute.** It gets a
+  `CHECK`, as the fixed time has (Pe'er).
+- **Fahrenheit:** the API accepts both units now; the page stays Celsius
+  until Settings can change the unit (Pe'er).
+
+The decisions are in `tech-stack.md` (§1.3: the live line; §3: the day
+endpoints, the questions, temperatures on the wire; §6: the migration and
+the types at the boundary; §8: the screen, its address and its browser
+checks), `data-model.md` (§4.2, §7) and `design-brief.md` (§5, §6.3). One
+concern per PR, merged one at a time, in this order:
+1. these documents;
+2. migration `00004`, with the queries for `entries`, the conversions and
+   the isolation, grants, cascade and constraint tests. No handler uses
+   them yet. Then madam-dev as the rehearsal, then `make migrate-prod`;
+3. `internal/fam`: Celsius input, the usual range, the two tag lists and
+   the text limits, with `fam-rules.md` §9 and its new vectors first;
+4. `GET` and `PUT /api/days/{date}`, only once production has `00004`;
+5. `DELETE /api/days/{date}/entry`;
+6. the new components, shown on `/design`;
+7. the page's two rule modules, typed temperatures and the copy of the
+   formula, with their tests;
+8. the day screen, part one: its address, the quick section, the live
+   line, Save and its questions, the placeholder's button, and the browser
+   checks, staged and real;
+9. the day screen, part two: "Show all fields" and Delete;
+10. the record: what was built and measured, `build-log.md`, `CLAUDE.md`.
+
+No new dependency. Not in this slice: anything of Slice 5 (the switch's
+behaviour, the suggestion, "Did bleeding stop?", the second write, the
+cycle text under the title), a list or range of entries, adjusted values in
+an API answer, and the unit switch.
+
 ### Slice 5 — Cycle rules
 
 The new-cycle suggestion, the manual "cycle starts on this day" toggle, and the
