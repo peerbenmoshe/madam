@@ -11,8 +11,9 @@ export { ApiError };
 // call sends one request and returns the decoded answer, or throws an
 // ApiError: status 0 when there was no answer at all, 401 when nobody is
 // signed in here, otherwise the server's status with its code and field.
+// A 204 has no body, and returns undefined.
 async function call<T>(
-  method: "GET" | "POST" | "PUT",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
 ) {
@@ -39,6 +40,9 @@ async function call<T>(
   if (!res.ok) {
     // The body may be anything: read it as text and let apiErrorFrom decide.
     throw apiErrorFrom(res.status, await res.text().catch(() => ""));
+  }
+  if (res.status === 204) {
+    return undefined as T;
   }
   return (await res.json()) as T;
 }
@@ -75,4 +79,10 @@ export function fetchDay(date: string): Promise<Day> {
 // is then sent again with that name in `confirmed`.
 export function saveDay(date: string, body: DayBody): Promise<Day> {
   return call<Day>("PUT", `/api/days/${date}`, body);
+}
+
+// Deletes the day's entry (DELETE /api/days/{date}/entry). The server
+// answers 204 whether or not there was one: either way, there is none now.
+export function deleteEntry(date: string): Promise<void> {
+  return call<void>("DELETE", `/api/days/${date}/entry`);
 }

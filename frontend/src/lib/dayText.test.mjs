@@ -3,7 +3,20 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 const {
+  AMOUNT_OPTIONS,
+  DELETE,
+  DELETED,
+  DESCRIPTION_TOO_LONG,
   DISTURBANCE_OPTIONS,
+  FIRMNESS_OPTIONS,
+  INTERCOURSE_OPTIONS,
+  POSITION_OPTIONS,
+  SENSATION_OPTIONS,
+  SYMPTOM_OPTIONS,
+  amountFrom,
+  amountText,
+  deleteQuestion,
+  hasExtraValues,
   NO_ENTRY_YET,
   NOTES_TOO_LONG,
   TEMPERATURE_IMPOSSIBLE,
@@ -250,6 +263,80 @@ test("the disturbances are in fam-rules §7's order, all nine", () => {
   );
 });
 
+test("the extra fields' answers are the server's values, symptoms in §7's order", () => {
+  const values = (options) => options.map((o) => o.value);
+  assert.deepEqual(values(SENSATION_OPTIONS), ["dry", "creamy", "wet"]);
+  assert.deepEqual(values(FIRMNESS_OPTIONS), ["firm", "soft"]);
+  assert.deepEqual(values(POSITION_OPTIONS), ["high_open", "low_closed"]);
+  assert.deepEqual(values(SYMPTOM_OPTIONS), [
+    "breast_tenderness",
+    "bloating",
+    "pms",
+  ]);
+  assert.deepEqual(values(INTERCOURSE_OPTIONS), [
+    "none",
+    "protected",
+    "unprotected",
+  ]);
+  assert.deepEqual(values(AMOUNT_OPTIONS), ["1", "2", "3"]);
+});
+
+test("the amount travels as a number and is chosen as text", () => {
+  for (const n of [1, 2, 3]) {
+    assert.equal(amountText(n), String(n));
+    assert.equal(amountFrom(String(n)), n);
+  }
+  assert.equal(amountText(null), null);
+  assert.equal(amountFrom(null), null);
+  // No button for it: none shows chosen.
+  assert.equal(amountText(0), null);
+  assert.equal(amountText(4), null);
+});
+
+test("Show all fields starts open only when something under it is said", () => {
+  const blank = dayFormFrom(EMPTY_DAY);
+  assert.equal(hasExtraValues(blank), false);
+  // The quick section's own fields don't open it.
+  assert.equal(
+    hasExtraValues({
+      ...blank,
+      temperature: "36.5",
+      bleeding: "bleeding",
+      secretionCategory: "milky",
+      disturbances: ["alcohol"],
+      notes: "x",
+    }),
+    false,
+  );
+  // Each extra field alone does.
+  for (const change of [
+    { sensation: "dry" },
+    { secretionAmount: 1 },
+    { secretionDescription: "x" },
+    { cervixFirmness: "firm" },
+    { cervixPosition: "low_closed" },
+    { symptoms: ["pms"] },
+    { intercourse: "none" },
+  ]) {
+    assert.equal(
+      hasExtraValues({ ...blank, ...change }),
+      true,
+      JSON.stringify(change),
+    );
+  }
+  assert.equal(hasExtraValues(dayFormFrom(FULL_DAY)), true);
+});
+
+test("the delete question, in the words of design-brief §6.3", () => {
+  assert.deepEqual(deleteQuestion("2026-11-14"), {
+    question: "Delete the entry for 14/11/2026? This can't be undone.",
+    yes: "Delete entry",
+    no: "Keep it",
+  });
+  assert.equal(DELETE, "Delete entry");
+  assert.equal(DELETED, "Entry deleted");
+});
+
 test("the two questions, in the words of design-brief §7", () => {
   const form = { ...dayFormFrom(EMPTY_DAY), temperature: "34,2" };
   assert.deepEqual(questionFor("no_temperature", form), {
@@ -307,6 +394,11 @@ test("dayFailure: what each answer of the server means for her", () => {
     kind: "message",
     field: "notes",
     message: NOTES_TOO_LONG,
+  });
+  assert.deepEqual(read(422, "too_long", "secretion_description"), {
+    kind: "message",
+    field: "secretionDescription",
+    message: DESCRIPTION_TOO_LONG,
   });
   assert.deepEqual(read(0), { kind: "message", message: OFFLINE });
   assert.deepEqual(read(401, "unauthorized"), {

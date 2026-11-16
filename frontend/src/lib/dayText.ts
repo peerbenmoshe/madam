@@ -110,8 +110,31 @@ export const NOTES_EXAMPLE = "Mood, travel, anything else";
 // The server's limit (docs/fam-rules.md §9.5). The box stops there.
 export const NOTES_MAX = 2000;
 
+// "Show all fields" (docs/design-brief.md §6.3, part 8): what it says
+// closed, and open.
+export const SHOW_ALL = "Show all fields";
+export const HIDE_EXTRA = "Hide extra fields";
+export const SENSATION_LABEL = "Sensation";
+export const AMOUNT_LABEL = "Secretion amount";
+// The mock says "Description" under the amount. A label is read alone by a
+// screen reader, and by the message about its length, so it names its
+// question in full.
+export const DESCRIPTION_LABEL = "Secretion description";
+export const DESCRIPTION_EXAMPLE = "In your own words";
+// The server's limit (docs/fam-rules.md §9.5). The box stops there.
+export const DESCRIPTION_MAX = 200;
+// One heading over two rows of answers, as in the mock. Each row's own name
+// is heard, not shown.
+export const CERVIX_LABEL = "Cervix";
+export const FIRMNESS_LABEL = "Firmness";
+export const POSITION_LABEL = "Position";
+export const SYMPTOMS_LABEL = "Symptoms";
+export const INTERCOURSE_LABEL = "Intercourse";
+
 export const SAVE = "Save entry";
 export const SAVED = "Entry saved";
+export const DELETE = "Delete entry";
+export const DELETED = "Entry deleted";
 export const GO_TO_TODAY = "Go to today's entry";
 
 export const DATE_NEEDED = "Pick a date.";
@@ -121,6 +144,8 @@ export const TEMPERATURE_IMPOSSIBLE =
   "That isn't a body temperature. Enter a value between 20.00 and 50.00 °C.";
 export const TIME_NEEDED = "Pick a time.";
 export const NOTES_TOO_LONG = "Keep the notes under 2,000 characters.";
+export const DESCRIPTION_TOO_LONG =
+  "Keep the description under 200 characters.";
 
 // The answers, in the order they are shown. The values are the server's.
 export const BLEEDING_OPTIONS = [
@@ -148,6 +173,57 @@ export const DISTURBANCE_OPTIONS = [
   { value: "yeast_infection", label: "Yeast infection" },
 ] as const satisfies readonly { value: Disturbance; label: string }[];
 
+export const SENSATION_OPTIONS = [
+  { value: "dry", label: "Dry" },
+  { value: "creamy", label: "Creamy" },
+  { value: "wet", label: "Wet" },
+] as const satisfies readonly { value: Sensation; label: string }[];
+
+// The amount is a number on the wire, 1 to 3. Option buttons choose text,
+// so the screen uses these and amountFrom/amountText convert.
+export const AMOUNT_OPTIONS = [
+  { value: "1", label: "1" },
+  { value: "2", label: "2" },
+  { value: "3", label: "3" },
+] as const satisfies readonly { value: string; label: string }[];
+export type AmountText = (typeof AMOUNT_OPTIONS)[number]["value"];
+
+export const FIRMNESS_OPTIONS = [
+  { value: "firm", label: "Firm" },
+  { value: "soft", label: "Soft" },
+] as const satisfies readonly { value: CervixFirmness; label: string }[];
+
+export const POSITION_OPTIONS = [
+  { value: "high_open", label: "High, open" },
+  { value: "low_closed", label: "Low, closed" },
+] as const satisfies readonly { value: CervixPosition; label: string }[];
+
+// In docs/fam-rules.md §7's order, which is the order they are stored in.
+export const SYMPTOM_OPTIONS = [
+  { value: "breast_tenderness", label: "Breast tenderness" },
+  { value: "bloating", label: "Bloating" },
+  { value: "pms", label: "PMS" },
+] as const satisfies readonly { value: Symptom; label: string }[];
+
+export const INTERCOURSE_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "protected", label: "Protected" },
+  { value: "unprotected", label: "Unprotected" },
+] as const satisfies readonly { value: Intercourse; label: string }[];
+
+// amountText is the amount as its option's value, or null for none. A
+// number the screen has no button for (the server allows only 1 to 3) is
+// also null, so no button shows chosen; it is sent back as it came unless
+// she chooses one.
+export function amountText(amount: number | null): AmountText | null {
+  return AMOUNT_OPTIONS.find((o) => o.value === String(amount))?.value ?? null;
+}
+
+// amountFrom is the number an amount option stands for.
+export function amountFrom(text: AmountText | null): number | null {
+  return text === null ? null : Number(text);
+}
+
 // dayTitle is the screen's title: "Today's entry", or the weekday and date
 // of any other day. today is the device's date.
 export function dayTitle(date: string, today: string): string {
@@ -166,9 +242,8 @@ export function otherDayNotice(date: string, today: string): string {
 // What is on the screen. The temperature is text, exactly as typed; the
 // rest are the entry's own values.
 //
-// The fields from sensation down have no control on the screen yet ("Show
-// all fields"). They are still here: saving replaces the whole entry, so
-// what the screen doesn't show must be sent back as it came.
+// The fields from sensation down are under "Show all fields". Closed, they
+// are still sent: saving replaces the whole entry.
 export type DayForm = {
   temperature: string;
   // "HH:MM", or "" when she cleared it.
@@ -217,6 +292,21 @@ export function dayFormFrom(day: Day): DayForm {
     symptoms: entry?.symptoms ?? [],
     intercourse: entry?.intercourse ?? null,
   };
+}
+
+// hasExtraValues says whether anything under "Show all fields" holds a
+// value. The section starts open when it does, so nothing she saved is
+// hidden (docs/design-brief.md §6.3).
+export function hasExtraValues(form: DayForm): boolean {
+  return (
+    form.sensation !== null ||
+    form.secretionAmount !== null ||
+    form.secretionDescription !== "" ||
+    form.cervixFirmness !== null ||
+    form.cervixPosition !== null ||
+    form.symptoms.length > 0 ||
+    form.intercourse !== null
+  );
 }
 
 // What is wrong, by the control it is shown under. Empty: nothing.
@@ -329,6 +419,17 @@ export function questionFor(name: QuestionName, form: DayForm): Ask {
   }
 }
 
+// deleteQuestion is the question in Save's place before an entry is
+// deleted. Unlike the others it is the page's own, never the server's.
+// "yes" deletes. date is "YYYY-MM-DD".
+export function deleteQuestion(date: string): Omit<Ask, "name"> {
+  return {
+    question: `Delete the entry for ${formatDate(date)}? This can't be undone.`,
+    yes: DELETE,
+    no: "Keep it",
+  };
+}
+
 // ---- what a failed request means ----
 
 // ask: the server wants a question answered first. notOnboarded: she
@@ -340,10 +441,16 @@ export type DayFailure =
   | {
       kind: "message";
       message: string;
-      field?: "date" | "temperature" | "measuredAt" | "notes";
+      field?:
+        | "date"
+        | "temperature"
+        | "measuredAt"
+        | "notes"
+        | "secretionDescription";
     };
 
-// dayFailure reads a failed GET or PUT of a day.
+// dayFailure reads a failed request about a day: GET, PUT, or the DELETE
+// of its entry.
 export function dayFailure(failure: {
   status: number;
   code?: string;
@@ -394,6 +501,16 @@ export function dayFailure(failure: {
   }
   if (failure.field === "notes" && failure.code === "too_long") {
     return { kind: "message", field: "notes", message: NOTES_TOO_LONG };
+  }
+  if (
+    failure.field === "secretion_description" &&
+    failure.code === "too_long"
+  ) {
+    return {
+      kind: "message",
+      field: "secretionDescription",
+      message: DESCRIPTION_TOO_LONG,
+    };
   }
   // Everything else is a bug of ours or an outage, and there is nothing
   // she can correct.

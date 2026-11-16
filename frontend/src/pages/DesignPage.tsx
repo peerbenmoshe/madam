@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import type { ReactNode } from "react";
 import { AppBar, NavLink } from "../components/AppBar.tsx";
-import { Button, LinkButton } from "../components/Button.tsx";
+import { Button, DangerButton, LinkButton } from "../components/Button.tsx";
 import { Chips, OptionButtons } from "../components/Choices.tsx";
 import { DateBox } from "../components/DateBox.tsx";
+import { Disclosure } from "../components/Disclosure.tsx";
 import { Question } from "../components/Question.tsx";
 import { SegmentedControl } from "../components/SegmentedControl.tsx";
 import { Switch } from "../components/Switch.tsx";
@@ -77,12 +78,24 @@ const SECRETIONS = [
   { value: "sticky", label: "Sticky" },
 ] as const;
 
+const FIRMNESS = [
+  { value: "firm", label: "Firm" },
+  { value: "soft", label: "Soft" },
+] as const;
+
+const POSITIONS = [
+  { value: "high_open", label: "High, open" },
+  { value: "low_closed", label: "Low, closed" },
+] as const;
+
 type View = (typeof VIEWS)[number]["value"];
 type Range = (typeof RANGES)[number]["value"];
 type Unit = (typeof UNITS)[number]["value"];
 type Bleeding = (typeof BLEEDING)[number]["value"];
 type Disturbance = (typeof DISTURBANCES)[number]["value"];
 type Secretion = (typeof SECRETIONS)[number]["value"];
+type Firmness = (typeof FIRMNESS)[number]["value"];
+type Position = (typeof POSITIONS)[number]["value"];
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -117,6 +130,10 @@ export default function DesignPage() {
   const [temperature, setTemperature] = useState("36.45");
   const [badTemperature, setBadTemperature] = useState("12");
   const [notes, setNotes] = useState("");
+  const [firmness, setFirmness] = useState<Firmness | null>(null);
+  const [position, setPosition] = useState<Position | null>("high_open");
+  const [more, setMore] = useState(false);
+  const [deleteTaps, setDeleteTaps] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   // The same function at every draw, so the toast's timer isn't restarted
   // by a redraw.
@@ -187,6 +204,14 @@ export default function DesignPage() {
           </Button>
           <LinkButton>Forgot password?</LinkButton>
         </div>
+        <DangerButton onClick={() => setDeleteTaps((n) => n + 1)}>
+          Delete entry
+        </DangerButton>
+        <p className="text-muted text-sm">
+          The danger button is for what can't be undone, and never acts by
+          itself: a question asks first. Tapped {deleteTaps}{" "}
+          {deleteTaps === 1 ? "time" : "times"}.
+        </p>
       </Section>
 
       <Section title="Segmented control">
@@ -234,6 +259,47 @@ export default function DesignPage() {
           Secretion: {secretion ?? "none"}. This question may have no answer:
           tap the chosen one again to clear it. Bleeding, above, can't be
           cleared.
+        </p>
+        <fieldset className="min-w-0">
+          <legend className="mb-2.5 font-bold">Cervix</legend>
+          <div className="grid gap-2.5">
+            <OptionButtons
+              clearable
+              legendHidden
+              legend="Firmness"
+              options={FIRMNESS}
+              value={firmness}
+              onChange={setFirmness}
+            />
+            <OptionButtons
+              clearable
+              legendHidden
+              legend="Position"
+              options={POSITIONS}
+              value={position}
+              onChange={setPosition}
+            />
+          </div>
+        </fieldset>
+        <p className="text-muted text-sm">
+          Cervix: {firmness ?? "no firmness"}, {position ?? "no position"}. One
+          heading over two rows; each row's own name is heard, not shown.
+        </p>
+      </Section>
+
+      <Section title="Disclosure">
+        <Disclosure
+          closedLabel="Show all fields"
+          openLabel="Hide extra fields"
+          open={more}
+          onToggle={setMore}
+        >
+          <p>Fields that are used less often go here.</p>
+          <TextField label="Something extra" placeholder="Hidden, not gone" />
+        </Disclosure>
+        <p className="text-muted text-sm">
+          {more ? "Open" : "Closed"}. What is typed inside stays while it is
+          closed.
         </p>
       </Section>
 

@@ -5,8 +5,9 @@
 // Nothing here reaches our API's data. The script stages:
 //   - a signed-in, onboarded person, by putting a made-up session in the
 //     page's storage and answering GET /api/me itself;
-//   - the server's answers to GET and PUT /api/days/{date}: an empty day,
-//     an entry, each question (409), each refusal, a lost connection;
+//   - the server's answers to GET and PUT /api/days/{date} and DELETE
+//     /api/days/{date}/entry: an empty day, an entry, each question (409),
+//     each refusal, a lost connection;
 //   - the device's clock and time zone, for a screen left open past
 //     midnight.
 // It reads the exact JSON the page sends.
@@ -156,7 +157,9 @@ const entries = {};
 let getReply = null; // { status, body } or "offline": overrides the day
 // PUT /api/days/{date}: answered from this queue, then by saving the entry.
 const putReplies = [];
-const sentDays = []; // every request about a day: { method, date, body }
+// DELETE /api/days/{date}/entry: from this queue, then by deleting it (204).
+const deleteReplies = [];
+const sentDays = []; // every request about a day: { method, date, path, body, headers }
 
 const FIXED = "07:00";
 const dayOf = (date) => ({ date, fixed_time: FIXED, entry: entries[date] ?? NO_ENTRY });
@@ -172,9 +175,12 @@ ws.addEventListener("message", (m) => {
   } else {
     const date = url.pathname.split("/")[3];
     const body = request.postData ? JSON.parse(request.postData) : undefined;
-    sentDays.push({ method: request.method, date, body, headers: request.headers });
+    sentDays.push({ method: request.method, date, path: url.pathname, body, headers: request.headers });
     if (request.method === "GET") {
       reply = getReply ?? { status: 200, body: dayOf(date) };
+    } else if (request.method === "DELETE") {
+      reply = deleteReplies.length > 0 ? deleteReplies.shift() : { status: 204 };
+      if (reply !== "offline" && reply.status === 204) delete entries[date];
     } else if (putReplies.length > 0) {
       reply = putReplies.shift();
     } else {
@@ -183,9 +189,11 @@ ws.addEventListener("message", (m) => {
     }
   }
   if (reply === "offline") return void S("Fetch.failRequest", { requestId, errorReason: "InternetDisconnected" });
+  // A 204 has no body and no Content-Type, as the server sends it.
+  const noBody = reply.status === 204;
   setTimeout(() => void S("Fetch.fulfillRequest", { requestId, responseCode: reply.status,
-    responseHeaders: [{ name: "Content-Type", value: "application/json" }, { name: "Cache-Control", value: "no-store" }],
-    body: Buffer.from(JSON.stringify(reply.body)).toString("base64") }), reply.delay ?? 0);
+    responseHeaders: [...(noBody ? [] : [{ name: "Content-Type", value: "application/json" }]), { name: "Cache-Control", value: "no-store" }],
+    body: noBody ? "" : Buffer.from(JSON.stringify(reply.body)).toString("base64") }), reply.delay ?? 0);
 });
 await S("Fetch.enable", { patterns: [{ urlPattern: "*/api/me" }, { urlPattern: "*/api/days/*" }] });
 
@@ -207,6 +215,32 @@ const blankEntry = (changes = {}) => ({
 });
 const toast = () => js(`document.querySelector('[role="status"]')?.textContent ?? null`);
 const focusIsTemperature = () => js(`document.activeElement === ${temperatureInput}`);
+// "Show all fields": open or closed, and what its summary says.
+const details = `document.querySelector("details")`;
+const moreState = () => js(`(() => { const d = ${details}; return d ? (d.open ? "open: " : "closed: ") + d.querySelector("summary").textContent : "(no details)"; })()`);
+async function toggleMore() {
+  await js(`${details}.querySelector("summary").click()`);
+  await sleep(250);
+}
+// Whether an answer can be seen: hidden in a closed section, it can't.
+const answerShown = (text) => js(`[...document.querySelectorAll("fieldset label")].find((l) => l.textContent.trim() === ${q(text)})?.checkVisibility() ?? false`);
+// Taps an answer of the question in the Save bar. "Delete entry" is both
+// the link that asks and the answer that deletes, so this looks only in
+// the question.
+async function answer(text) {
+  await js(`(() => { const b = [...document.querySelectorAll('[role="group"] button')].find((b) => b.textContent.trim() === ${q(text)});
+    if (!b) throw new Error("no answer " + ${q(text)}); b.focus(); b.click(); })()`);
+  await sleep(150);
+}
+// The message a field is described by: its error, if it has one.
+const describedBy = (label) => js(`(() => { const l = [...document.querySelectorAll("label")].find((l) => l.textContent.trim() === ${q(label)});
+  return (document.getElementById(l.htmlFor).getAttribute("aria-describedby") ?? "").split(" ").map((id) => document.getElementById(id)?.textContent ?? "").join(" "); })()`);
+const deletes = () => sentDays.filter((r) => r.method === "DELETE");
+// What has the focus, and whether it can be seen: nothing covers its middle.
+const focused = () => js(`(() => { const e = document.activeElement; const r = e.getBoundingClientRect();
+  const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return e.textContent.trim() + (top === e || e.contains(top) ? "" : " (covered)"); })()`);
+const buttonsOff = (...texts) => js(`${q(texts)}.every((t) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === t)?.disabled === true)`);
 
 try {
   await goto("/design");
@@ -233,6 +267,7 @@ try {
   check("the cycle-start switch is there, off and disabled", await js(`(() => { const s = document.querySelector('input[role="switch"]'); return s && s.disabled && !s.checked; })()`));
   check("…with a line saying it can't be used yet", await has("Cycle starts can't be changed here yet."));
   check("there's no Delete on a day without an entry", !(await hasButton("Delete entry")));
+  check("Show all fields starts closed on a new day", (await moreState()) === "closed: Show all fields", await moreState());
   check("nothing on the screen is wider than the phone", await js(`document.documentElement.scrollWidth <= innerWidth`), await js(`document.documentElement.scrollWidth + " in " + innerWidth`));
   // The Save bar stays at the bottom of the screen while the form scrolls.
   await js(`scrollTo(0, 0)`);
@@ -283,6 +318,7 @@ try {
   check("…the question takes Save's place, with two specific answers", !(await hasButton("Save entry")) && (await hasButton("Yes, save it")) && (await hasButton("No, fix it")));
   check("…the first request asked nothing in advance", same(lastPut().body, { entry: blankEntry({ temperature: { hundredths: 3420, unit: "celsius" }, measured_at: "07:00" }), confirmed: [] }), q(lastPut().body));
   check("…a PUT of JSON to the day's own address, with her token", lastPut().date === today && /^application\/json/.test(lastPut().headers["Content-Type"] ?? "") && /^Bearer /.test(lastPut().headers["Authorization"] ?? ""), q(lastPut().headers));
+  check("…and the focus is on the answer that changes nothing", (await focused()) === "No, fix it", await focused());
   await screen("p-day-unusual");
   const putsBeforeNo = puts().length;
   await click("No, fix it");
@@ -338,14 +374,18 @@ try {
   await settle("the picked day");
   check("AC-4: picking a date with an entry opens that entry", (await path()) === `/day/${yesterday}` && (await fieldValue("Temperature")) === "36.62", `${await path()} ${await fieldValue("Temperature")}`);
   check("…its time, not the usual one", (await boxText("time")).includes("07:45"), await boxText("time"));
-  check("…its answers chosen", same(await chosen(), ["Spotting", "Milky", "Alcohol", "Poor sleep"]), q(await chosen()));
+  check("…its answers chosen, the extra ones too", same(await chosen(), ["Spotting", "Milky", "Alcohol", "Poor sleep", "Wet", "2", "Soft", "High, open", "Bloating", "Protected"]), q(await chosen()));
+  check("…with Show all fields open, so nothing saved is hidden", (await moreState()) === "open: Hide extra fields" && (await answerShown("Wet")), await moreState());
+  check("…its secretion description", (await fieldValue("Secretion description")) === "clear, stretches", String(await fieldValue("Secretion description")));
+  check("…and Delete entry, below Show all fields", await js(`(() => { const b = [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Delete entry");
+    return !!b && !!(${details}.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); })()`));
   check("…its notes, line breaks kept", (await fieldValue("Notes")) === "Slept badly.\nFlight at 6.", q(await fieldValue("Notes")));
   check("…no \"No entry yet.\"", !(await has("No entry yet.")));
   check("…and the line says what it counts as", (await liveLine()) === "Measured 45 min late, so it counts as 36.55 °C. That's an estimate.", await liveLine());
   await screen("p-day-existing");
   await shot("p-day-existing-whole");
   await choose("Milky");
-  check("tapping the chosen secretion clears it", same(await chosen(), ["Spotting", "Alcohol", "Poor sleep"]), q(await chosen()));
+  check("tapping the chosen secretion clears it", same(await chosen(), ["Spotting", "Alcohol", "Poor sleep", "Wet", "2", "Soft", "High, open", "Bloating", "Protected"]), q(await chosen()));
   await choose("Illness");
   // A copy: the staged server replaces its own when the page saves.
   const asItCame = { ...entries[yesterday] };
@@ -355,6 +395,88 @@ try {
     entry: { ...asItCame, secretion_category: null, disturbances: ["alcohol", "poor_sleep", "illness"] }, confirmed: [],
   }), q(lastPut().body));
   check("…and the disturbances in fam-rules §7's order, wherever she tapped", same(lastPut().body.entry.disturbances, ["alcohol", "poor_sleep", "illness"]), q(lastPut().body.entry.disturbances));
+
+  // ---- Show all fields (design-brief §6.3, part 8) ----
+  const twoDaysAgo = await deviceDay(-2);
+  await goto(`/day/${twoDaysAgo}`);
+  check("on a new day the extra answers are out of sight", !(await answerShown("Dry")) && (await answerShown("Spotting")));
+  await toggleMore();
+  check("a tap opens Show all fields, and it says what the next tap does", (await moreState()) === "open: Hide extra fields", await moreState());
+  check("…showing sensation, amount, description, cervix, symptoms and intercourse",
+    (await answerShown("Dry")) && (await answerShown("3")) && (await fieldValue("Secretion description")) === "" && (await answerShown("Low, closed")) && (await answerShown("PMS")) && (await answerShown("Unprotected")));
+  check("…nothing chosen in them yet", same(await chosen(), ["None"]), q(await chosen()));
+  check("the description stops at 200 characters", (await js(`document.getElementById([...document.querySelectorAll("label")].find((l) => l.textContent.trim() === "Secretion description").htmlFor).maxLength`)) === 200);
+  await choose("Dry");
+  await choose("Dry");
+  check("an extra answer clears like secretion: tap it again", same(await chosen(), ["None"]), q(await chosen()));
+  await choose("Creamy");
+  await choose("3");
+  await choose("2");
+  await type("Secretion description", "stretchy, a lot");
+  await choose("Soft");
+  await choose("Low, closed");
+  await choose("PMS");
+  await choose("Breast tenderness");
+  await choose("Unprotected");
+  const extras = ["None", "Creamy", "2", "Soft", "Low, closed", "Breast tenderness", "PMS", "Unprotected"];
+  check("every extra answer can be chosen", same(await chosen(), extras), q(await chosen()));
+  check("nothing on the open screen is wider than the phone", await js(`document.documentElement.scrollWidth <= innerWidth`), await js(`document.documentElement.scrollWidth + " in " + innerWidth`));
+  await shot("p-day-more");
+  await toggleMore();
+  check("closing it keeps every answer", (await moreState()) === "closed: Show all fields" && same(await chosen(), extras) && (await fieldValue("Secretion description")) === "stretchy, a lot", `${await moreState()} ${q(await chosen())}`);
+  // A refusal about a field inside a closed section must still be seen.
+  putReplies.push({ status: 422, body: apiError("too_long", "secretion_description") });
+  await click("Save entry");
+  await waitFor(`document.body.innerText.includes("Keep the description under 200 characters.")`, "the refusal");
+  check("a refusal about the description opens the section, and is said under it", (await moreState()) === "open: Hide extra fields" && (await describedBy("Secretion description")).includes("Keep the description under 200 characters."), `${await moreState()} / ${await describedBy("Secretion description")}`);
+  await type("Secretion description", "stretchy, lots");
+  check("…and it goes once she changes it", !(await has("Keep the description under")));
+  putReplies.push({ status: 409, body: apiError("no_temperature", "temperature") });
+  await click("Save entry");
+  await waitFor(`document.body.innerText.includes("Save without a temperature?")`, "the question");
+  await answer("Save without");
+  await waitFor(`location.pathname === "/"`, "home after saving");
+  check("saving sends every extra answer, the symptoms in §7's order", same(lastPut().body, { entry: blankEntry({
+    sensation: "creamy", secretion_amount: 2, secretion_description: "stretchy, lots", cervix_firmness: "soft", cervix_position: "low_closed",
+    symptoms: ["breast_tenderness", "pms"], intercourse: "unprotected" }), confirmed: ["no_temperature"] }), q(lastPut().body));
+
+  // ---- Delete (design-brief §6.3, part 9) ----
+  await goto(`/day/${twoDaysAgo}`);
+  check("the saved extras come back, with the section open", (await moreState()) === "open: Hide extra fields" && same(await chosen(), extras), `${await moreState()} ${q(await chosen())}`);
+  const deletesBefore = deletes().length;
+  await click("Delete entry");
+  check("Delete asks first, in Save's place, with the date as dd/mm/yyyy", (await has(`Delete the entry for ${ddmmyyyy(twoDaysAgo)}? This can't be undone.`)) && !(await hasButton("Save entry")) && (await hasButton("Keep it")), await bodyText());
+  check("…and asking deletes nothing", deletes().length === deletesBefore, `${deletes().length - deletesBefore} DELETEs`);
+  check("…the focus on \"Keep it\", in sight", (await focused()) === "Keep it", await focused());
+  await screen("p-day-delete");
+  await answer("Keep it");
+  check("\"Keep it\": Save is back, nothing is deleted, and the focus is on Delete again", (await hasButton("Save entry")) && deletes().length === deletesBefore && (await focused()) === "Delete entry", await focused());
+  await click("Delete entry");
+  await choose("Spotting");
+  check("changing anything puts Save back in place of the delete question", (await hasButton("Save entry")) && !(await has("This can't be undone.")) && deletes().length === deletesBefore);
+  deleteReplies.push({ status: 500, body: apiError("internal") });
+  await click("Delete entry");
+  await answer("Delete entry");
+  await waitFor(`document.body.innerText.includes("Something went wrong")`, "the error");
+  check("a delete that fails: try again, in the Save bar, and the day stays", (await has("Something went wrong. Try again.")) && (await path()) === `/day/${twoDaysAgo}` && (await hasButton("Save entry")) && !(await has("a message for developers")), await bodyText());
+  deleteReplies.push("offline");
+  await click("Delete entry");
+  await answer("Delete entry");
+  await waitFor(`document.body.innerText.includes("Can't reach the server")`, "the offline message");
+  check("a delete with no connection: said so", await has("Can't reach the server. Check your connection and try again."), await bodyText());
+  deleteReplies.push({ status: 204, delay: 900 });
+  await click("Delete entry");
+  await answer("Delete entry");
+  check("while a delete is on its way, Save and Delete are off", await buttonsOff("Save entry", "Delete entry"));
+  await waitFor(`location.pathname === "/"`, "home after deleting");
+  const deleted = deletes().at(-1);
+  check("deleted: a DELETE to the entry's own address, with her token and no body", deleted.path === `/api/days/${twoDaysAgo}/entry` && /^Bearer /.test(deleted.headers["Authorization"] ?? "") && deleted.body === undefined, q({ ...deleted, headers: undefined }));
+  check("…back on the home page, saying so", (await path()) === "/" && (await toast()) === "Entry deleted", `${await path()} ${await toast()}`);
+  await js(`history.back()`);
+  await sleep(400);
+  check("the browser's Back doesn't return to the deleted day", (await path()) === "/", await path());
+  await goto(`/day/${twoDaysAgo}`);
+  check("the day has no entry now, and no Delete", (await has("No entry yet.")) && !(await hasButton("Delete entry")) && (await moreState()) === "closed: Show all fields", `${await moreState()} ${await bodyText()}`);
 
   // ---- moving between days with the date box ----
   await goto(`/day/${today}`);

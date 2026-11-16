@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 
 // The buttons of docs/design-brief.md §5.
 //
@@ -12,6 +12,8 @@ import type { ButtonHTMLAttributes } from "react";
 type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary";
   size?: "large" | "regular";
+  // React 19 passes a ref as a prop; it reaches the <button> with the rest.
+  ref?: Ref<HTMLButtonElement>;
 };
 
 const VARIANT = {
@@ -37,6 +39,29 @@ export function Button({
     <button
       type={type}
       className={`${VARIANT[variant]} ${SIZE[size]} cursor-pointer disabled:cursor-default disabled:opacity-50 ${className}`}
+      {...rest}
+    />
+  );
+}
+
+// A button for what can't be undone: "Delete entry", and "Delete account"
+// in Settings. Bold text in the danger colour, no fill and no underline, as
+// the mock's danger-link. It never acts by itself: a question asks first.
+// The padding makes it 44px tall, for §8's tap area.
+export function DangerButton({
+  type = "button",
+  className = "",
+  ref,
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  // So the page can put the focus back on it ("Keep it").
+  ref?: Ref<HTMLButtonElement>;
+}) {
+  return (
+    <button
+      ref={ref}
+      type={type}
+      className={`text-danger min-h-11 cursor-pointer justify-self-start py-3 font-bold disabled:cursor-default disabled:opacity-50 ${className}`}
       {...rest}
     />
   );

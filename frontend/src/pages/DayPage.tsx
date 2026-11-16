@@ -1,45 +1,71 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { AppBar } from "../components/AppBar.tsx";
-import { Button } from "../components/Button.tsx";
+import { Button, DangerButton } from "../components/Button.tsx";
 import { Chips, OptionButtons } from "../components/Choices.tsx";
 import { DateBox } from "../components/DateBox.tsx";
+import { Disclosure } from "../components/Disclosure.tsx";
 import { Question } from "../components/Question.tsx";
 import { FormError, Notice } from "../components/Screen.tsx";
 import { Switch } from "../components/Switch.tsx";
 import { TemperatureBox } from "../components/TemperatureBox.tsx";
 import { TextArea } from "../components/TextArea.tsx";
+import { TextField } from "../components/TextField.tsx";
 import { TimeBox } from "../components/TimeBox.tsx";
-import { ApiError, fetchDay, saveDay } from "../lib/api.ts";
+import { ApiError, deleteEntry, fetchDay, saveDay } from "../lib/api.ts";
 import { TRY_AGAIN } from "../lib/authText.ts";
 import {
+  AMOUNT_LABEL,
+  AMOUNT_OPTIONS,
   BACK,
   BLEEDING_LABEL,
   BLEEDING_OPTIONS,
   CELSIUS,
+  CERVIX_LABEL,
   CYCLE_START_LABEL,
   CYCLE_START_NOT_YET,
   DATE_LABEL,
+  DELETE,
+  DELETED,
+  DESCRIPTION_EXAMPLE,
+  DESCRIPTION_LABEL,
+  DESCRIPTION_MAX,
   DISTURBANCES_HINT,
   DISTURBANCES_LABEL,
   DISTURBANCE_OPTIONS,
+  FIRMNESS_LABEL,
+  FIRMNESS_OPTIONS,
   GO_TO_TODAY,
+  HIDE_EXTRA,
+  INTERCOURSE_LABEL,
+  INTERCOURSE_OPTIONS,
   MEASURED_AT_LABEL,
   NOTES_EXAMPLE,
   NOTES_LABEL,
   NOTES_MAX,
   NO_ENTRY_YET,
+  POSITION_LABEL,
+  POSITION_OPTIONS,
   SAVE,
   SAVED,
   SECRETION_LABEL,
   SECRETION_OPTIONS,
+  SENSATION_LABEL,
+  SENSATION_OPTIONS,
+  SHOW_ALL,
+  SYMPTOMS_LABEL,
+  SYMPTOM_OPTIONS,
   TEMPERATURE_EXAMPLE,
   TEMPERATURE_LABEL,
+  amountFrom,
+  amountText,
   dateProblem,
   dayBody,
   dayFailure,
   dayFormFrom,
   dayProblems,
   dayTitle,
+  deleteQuestion,
+  hasExtraValues,
   liveLine,
   otherDayNotice,
   questionFor,
@@ -57,8 +83,9 @@ import { useToday } from "../lib/useToday.ts";
 
 // One day of her chart (docs/design-brief.md §6.3): the date, the
 // temperature and its time, the cycle-start switch (shown, not usable
-// until Slice 5), bleeding, secretion, disturbances, notes, and a Save that
-// stays at the bottom of the screen.
+// until Slice 5), bleeding, secretion, disturbances, notes, "Show all
+// fields", Delete on a day that has an entry, and a Save that stays at the
+// bottom of the screen.
 //
 // Every word and every rule is in lib/dayText.ts. This file lays them out,
 // holds what she has typed, and talks to the server.
@@ -71,7 +98,7 @@ import { useToday } from "../lib/useToday.ts";
 type Props = {
   // "YYYY-MM-DD", from the address. App.tsx has checked it.
   date: string;
-  // Called after a save, with what to tell her. The owner shows the toast
+  // Called after a save or a delete, with what to tell her. The owner shows the toast
   // and the screen she goes back to.
   onDone: (message: string) => void;
   // The server says the account hasn't onboarded: the owner reads the
@@ -103,6 +130,10 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
   // this form. Any change to the form forgets both.
   const [asking, setAsking] = useState<Ask | null>(null);
   const [confirmed, setConfirmed] = useState<QuestionName[]>([]);
+  // The delete question is in Save's place.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // "Show all fields" is open. Set when the day loads, then hers to change.
+  const [moreOpen, setMoreOpen] = useState(false);
   // Asks the server for the day again ("Try again").
   const [attempt, setAttempt] = useState(0);
 
@@ -127,6 +158,8 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
     setRefusal(null);
     setAsking(null);
     setConfirmed([]);
+    setConfirmingDelete(false);
+    setMoreOpen(false);
   }
 
   useEffect(() => {
@@ -136,7 +169,9 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
       (day) => {
         if (!current) return;
         try {
-          setForm(dayFormFrom(day));
+          const loaded = dayFormFrom(day);
+          setForm(loaded);
+          setMoreOpen(hasExtraValues(loaded));
           setLoad({ state: "ready", day });
         } catch {
           setLoad({ state: "failed", message: TRY_AGAIN });
@@ -163,6 +198,7 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
   }, [date, attempt, onNotOnboarded]);
 
   const temperatureRef = useRef<HTMLInputElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
   const lineId = useId();
 
   function change(answer: Partial<DayForm>) {
@@ -172,6 +208,7 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
     setRefusal(null);
     setAsking(null);
     setConfirmed([]);
+    setConfirmingDelete(false);
   }
 
   function pickDate(picked: string) {
@@ -193,6 +230,7 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
     setBusy(true);
     setRefusal(null);
     setAsking(null);
+    setConfirmingDelete(false);
     try {
       await saveDay(date, dayBody(form, answered));
       onDone(SAVED);
@@ -211,7 +249,51 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
           onNotOnboarded();
           break;
         case "message":
+          // A refusal about a field under "Show all fields" must be seen.
+          if (failure.field === "secretionDescription") setMoreOpen(true);
           setRefusal(failure);
+          break;
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // "Delete entry" asks first, in Save's place, and deletes only on "yes".
+  function askDelete() {
+    setRefusal(null);
+    setAsking(null);
+    setConfirmed([]);
+    setConfirmingDelete(true);
+  }
+
+  function keepIt() {
+    setConfirmingDelete(false);
+    // Back where she was.
+    deleteRef.current?.focus();
+  }
+
+  async function remove() {
+    setConfirmingDelete(false);
+    setBusy(true);
+    setRefusal(null);
+    try {
+      await deleteEntry(date);
+      onDone(DELETED);
+    } catch (error) {
+      const failure = dayFailure(
+        error instanceof ApiError ? error : { status: -1 },
+      );
+      switch (failure.kind) {
+        case "notOnboarded":
+          onNotOnboarded();
+          break;
+        case "message":
+          setRefusal(failure);
+          break;
+        case "ask":
+          // A delete asks nothing: this would be a bug of ours.
+          setRefusal({ kind: "message", message: TRY_AGAIN });
           break;
       }
     } finally {
@@ -382,6 +464,87 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
               onChange={(event) => change({ notes: event.target.value })}
               error={fieldRefusal("notes")}
             />
+
+            <Disclosure
+              closedLabel={SHOW_ALL}
+              openLabel={HIDE_EXTRA}
+              open={moreOpen}
+              onToggle={setMoreOpen}
+            >
+              <OptionButtons
+                clearable
+                legend={SENSATION_LABEL}
+                options={SENSATION_OPTIONS}
+                value={form.sensation}
+                onChange={(sensation) => change({ sensation })}
+              />
+
+              <div className="grid gap-4">
+                <OptionButtons
+                  clearable
+                  legend={AMOUNT_LABEL}
+                  options={AMOUNT_OPTIONS}
+                  value={amountText(form.secretionAmount)}
+                  onChange={(amount) =>
+                    change({ secretionAmount: amountFrom(amount) })
+                  }
+                />
+                <TextField
+                  label={DESCRIPTION_LABEL}
+                  placeholder={DESCRIPTION_EXAMPLE}
+                  maxLength={DESCRIPTION_MAX}
+                  value={form.secretionDescription}
+                  onChange={(event) =>
+                    change({ secretionDescription: event.target.value })
+                  }
+                  error={fieldRefusal("secretionDescription")}
+                />
+              </div>
+
+              {/* One heading over two rows of answers, as in the mock. */}
+              <fieldset className="min-w-0">
+                <legend className="mb-2.5 font-bold">{CERVIX_LABEL}</legend>
+                <div className="grid gap-2.5">
+                  <OptionButtons
+                    clearable
+                    legendHidden
+                    legend={FIRMNESS_LABEL}
+                    options={FIRMNESS_OPTIONS}
+                    value={form.cervixFirmness}
+                    onChange={(cervixFirmness) => change({ cervixFirmness })}
+                  />
+                  <OptionButtons
+                    clearable
+                    legendHidden
+                    legend={POSITION_LABEL}
+                    options={POSITION_OPTIONS}
+                    value={form.cervixPosition}
+                    onChange={(cervixPosition) => change({ cervixPosition })}
+                  />
+                </div>
+              </fieldset>
+
+              <Chips
+                legend={SYMPTOMS_LABEL}
+                options={SYMPTOM_OPTIONS}
+                values={form.symptoms}
+                onChange={(symptoms) => change({ symptoms })}
+              />
+
+              <OptionButtons
+                clearable
+                legend={INTERCOURSE_LABEL}
+                options={INTERCOURSE_OPTIONS}
+                value={form.intercourse}
+                onChange={(intercourse) => change({ intercourse })}
+              />
+            </Disclosure>
+
+            {day.entry !== null && (
+              <DangerButton ref={deleteRef} disabled={busy} onClick={askDelete}>
+                {DELETE}
+              </DangerButton>
+            )}
           </>
         )}
       </div>
@@ -392,7 +555,13 @@ export function DayPage({ date, onDone, onNotOnboarded }: Props) {
         {refusal !== null && refusal.field === undefined && (
           <FormError>{refusal.message}</FormError>
         )}
-        {asking !== null ? (
+        {confirmingDelete ? (
+          <Question
+            {...deleteQuestion(date)}
+            onYes={() => void remove()}
+            onNo={keepIt}
+          />
+        ) : asking !== null ? (
           <Question
             question={asking.question}
             yes={asking.yes}
