@@ -85,7 +85,7 @@ make db-down        # stop it (data kept); db-reset also deletes the data
 make image          # build the production image locally (docker-run also runs it)
 make deploy         # fallback: deploy the latest main from the laptop (CI deploys every merge)
 sh deploy/smoke-test.sh <url>   # routing, caching and headers of a running server (CI runs it on the image)
-make browser-check  # the screens in a real browser at phone width, plus one real onboarding; needs `make docker-run` running
+make browser-check  # the screens in a real browser at phone width, plus the real passes (onboarding, day); needs `make docker-run` running
 sh deploy/browser-check/run.sh "" onboarding.mjs  # one script only, without the real pass
 gh workflow run keepalive.yml --ref main   # run the Supabase keepalive by hand (it runs 4× a day by itself)
 gh run list --workflow keepalive.yml       # its runs; add --event schedule for the scheduled ones only
@@ -161,7 +161,8 @@ hand-edit generated code.
   **no production credential in GitHub**; keep it that way.
 - **New table checklist:** does it cascade on user delete? Does its migration
   `ENABLE` and `FORCE` RLS and add a policy `TO madam_app` with `USING` and
-  `WITH CHECK`? Does it `GRANT` `madam_app` exactly the statements it needs
+  `WITH CHECK` the same expression (an upsert hides a broken `WITH CHECK`,
+  so the test compares them)? Does it `GRANT` `madam_app` exactly the statements it needs
   (never `TRUNCATE`, which ignores RLS)? There are no default privileges for
   `madam_app`, so a missing grant fails as "permission denied". Is every query
   filtered by `user_id`? Is it in both lists in
@@ -351,7 +352,7 @@ hand-edit generated code.
   hook, and its "letters" are a to z only. All measured (`tech-stack.md` §4).
 - **Every word a screen shows is in a text module with tests:**
   `frontend/src/lib/authText.ts` for the sign-in screens,
-  `onboardingText.ts` for onboarding. Supabase's messages and our own API's
+  `onboardingText.ts` for onboarding, `dayText.ts` for the day screen. Supabase's messages and our own API's
   `message` are never shown. The browser checks look for these words, so
   changing one means changing it there too.
 - **A phone's date picker ignores `min` and `max`.** A computer's greys the
@@ -382,6 +383,15 @@ hand-edit generated code.
   onboarded_at IS NULL`; a second submit is a 409 and writes nothing. So
   anything that tests it for real must delete the account's rows first, as
   `make browser-check` does, in the local database only.
+- **A question before saving is a 409 whose `code` is the question**
+  (`no_temperature`, `unusual_temperature`). The page asks, then sends the
+  same body with that name in `confirmed`. The server decides whether to
+  ask; the page only words it (`tech-stack.md` §3). Slice 5's "Did bleeding
+  stop?" uses the same mechanism.
+- **The adjustment arithmetic exists twice:** `fam.Adjust` and the page's
+  `lib/adjust.ts`, for the live line only. Both tests expect one checksum,
+  863312314 (`fam-rules.md` §3.3). Change one side, and that side's test
+  fails, pointing at the other.
 - **Screenshots are gitignored, and the kept ones are `git add -f`.** Never
   add `r-*.png`: the real pass's screenshots show the test account's
   address, and the repository is public.
@@ -432,6 +442,14 @@ Answered in 0c (details in `docs/data-model.md` §9–§10 and `docs/tech-stack.
 §5): the pgx/sqlc type mappings, `-infinity` round-tripping, table ownership,
 how Cloud Run connects (session pooler), and the Belgium–Frankfurt latency.
 
+Still open from Slice 4:
+- The day screen on an iPhone: whether the home bar covers the sticky Save
+  (`viewport-fit=cover` isn't set), and whether a focused box zooms
+  (`docs/design-brief.md` §9). On Android, Save sits under the open
+  keyboard; accepted.
+- `day-real.mjs` onboarding the test account itself: not yet run, because
+  `onboarding-real.mjs` always runs first.
+
 Still open from Slice 3:
 - The time box on an iPhone, and on any phone set to a 12-hour clock
   (`docs/design-brief.md` §9). Checked on Android only.
@@ -441,6 +459,13 @@ Still open from Slice 2 (`docs/tech-stack.md` §4):
 - A hook host that answers nothing at all (a timeout, not an error).
 - Spam, for anyone but Pe'er: his second email reached the inbox after he
   marked the sender "not spam".
+
+Answered in Slice 4 (`docs/tech-stack.md` §3, §6, §8): sqlc's types for
+`entries` (`pgtype.Int2`, `pgtype.Text`, a `Null…` per nullable enum); the
+`updated_at` trigger fires for `madam_app`, which may not run its function;
+Supabase's API roles hold nothing on `entries`; AC-4, AC-13, AC-14 and
+AC-17 with a real token; AC-16 for `entries` and its three endpoints; on
+Android the decimal keyboard offers a comma and a dot.
 
 Answered in Slice 3 (`docs/tech-stack.md` §3, §4, §6, §8): the token
 refresh (still logged in after a day, and the server accepted a write in

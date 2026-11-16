@@ -1083,3 +1083,147 @@ in the tests' lists. It reuses the date rule, the body reader, the error
 shape, the time box and the real test account, and must decide what an
 entry endpoint answers for an account that hasn't onboarded. A day screen
 left open overnight has to work out today again. `CLAUDE.md` is due a trim.
+
+## Slice 4 — Daily entry (15–16 November 2026, PRs #52–#61)
+
+**Goal.** The screen she uses every morning: a day's entry, saved, edited
+and deleted, with every field and every validation rule. Done when AC-4,
+AC-13, AC-14 and AC-17 pass, and AC-16 holds for the new table and all
+three new endpoints.
+
+**How it was done.** One plan, then ten PRs over two days: the documents;
+the migration with its tests; `fam`; `GET` and `PUT`; the page's two rule
+modules and the components (ahead of `DELETE`, since they waited on
+nothing); `DELETE`; the screen in two parts; this record. Pe'er migrated
+production between the migration and the endpoints, and checked the screen
+on his phone after each part. The rehearsal on madam-dev moved to *before*
+the migration's merge: a merged migration can't be edited, so a failure
+only Supabase shows would have had to be fixed by a second migration. The
+screen's first part was stacked on `DELETE`, which its real browser pass
+needs, and rebased once `DELETE` merged; git dropped the duplicate commit
+by itself.
+
+**Decisions** (details in `tech-stack.md` §1.3, §3, §6, §8, `data-model.md`
+§4.2, `fam-rules.md` §9, `design-brief.md` §5, §6.3):
+
+| Decision | Choice | Why |
+|---|---|---|
+| The addresses | `GET` and `PUT /api/days/{date}`, `DELETE /api/days/{date}/entry` | A day holds more than its entry: its usual time now, a cycle start from Slice 5. Deleting the entry must leave the start |
+| Asking before saving | A 409 whose code is the question, answered by naming it in `confirmed` | A client can't save without asking. A 200 with `"saved": false` could be read as saved |
+| AC-17 | A 422, never a question | Outside 20–50 °C is a unit bug, not a typo to confirm |
+| Temperatures on the wire | Whole hundredths with the unit named | An integer, and the unit can't be misread by another tab |
+| The live line | A TypeScript copy of one formula (Pe'er), held to Go by a checksum | The line follows every keystroke; a request each time was rejected |
+| Units | The API takes both; the page is °C until Settings (Pe'er) | No account can choose °F yet |
+| The cycle-start switch | Shown, disabled (Pe'er) | The layout is final; the rules are Slice 5's |
+| `measured_at` | A whole-minute `CHECK` (Pe'er) | One hand-written row with seconds would make its day unreadable |
+| Text | Notes 2,000 characters, description 200, counted in characters | Refused about its own field, not by the body cap |
+| Deleting nothing | 204 | A second tap or a second device is not a failure |
+| Not onboarded | 409 `not_onboarded` on all three | The mirror of `already_onboarded` |
+| A day's address | `/day/YYYY-MM-DD`; the date box navigates, replacing it | One name per screen; Back leaves in one step |
+| A screen left open overnight | Keeps its day and says so, with "Go to today's entry" | It never moves by itself |
+
+**Surprise: an upsert hides a broken `WITH CHECK`.** Slice 3 wrote that
+`WITH CHECK (true)` is caught by behaviour. On `entries` it isn't: Postgres
+applies `USING` to a new row the statement can read back, and an upsert
+with `RETURNING` is exactly that. The checklist now requires the two
+expressions to be equal, which catches it on every table.
+
+**Surprise: a rounding bug from Slice 1 that every test passed.** Rounding
+with `+ 16` instead of `+ 15` changes a result only just under a half,
+which only a reading typed in Fahrenheit can produce. Building the
+checksum for the copy found it; vector T7 holds it now.
+
+**Surprise: the space bar does nothing on a chosen radio button** in
+Chrome. I had written in a comment that it clicks. The browser check
+failed, so a keyboard couldn't clear an answer the screen reader said it
+could.
+
+**Surprise: the focus behind the Save bar.** The delete question is taller
+than Save, so the sticky bar grew over the Delete link that had the focus.
+No check looked for it; the screenshot showed it. A question now moves the
+focus to its safe answer, which also mended part one, where the focus fell
+to the page when Save went away.
+
+**Surprise from the phone: the keyboard covers Save.** On Android the
+sticky bar sits under the open keyboard, and a scroll brings it back.
+Pe'er accepted it. The keyboard offers both a comma and a dot, and nothing
+zooms.
+
+**Mistakes of mine worth keeping:**
+- **My first run of the database breakages was invalid.** With a `CHECK`
+  removed, the tests stored rows it forbids, and the repair couldn't put it
+  back over them; every later run started broken. Each breakage now starts
+  from a table rebuilt from the migration.
+- **A test claimed a 12-byte escape and held a 4-byte emoji.** The escape
+  had been decoded on its way into the file, so the "largest body" was a
+  third of its size, and halving the body cap passed. Found because a
+  breakage was missed.
+- **Lint failed after a commit**, because I chained commands with `;`
+  again. Local only, fixed in the same commit. Slice 3's lesson, not yet
+  a habit.
+- **My browser checks' clicks didn't move the focus** the way a tap does,
+  so "the focus went back" passed with the code removed. The helper focuses
+  first now.
+- **One breakage run tested the previous build.** The set had half
+  applied, and the page served was the old one. Since then my breakage
+  runs wait until the served script's name changes, and look for the
+  breakage in the served file (a habit, not part of `run.sh`).
+- **Two of my new checks were wrong in the last PR:** one read `transform`
+  where Tailwind 4 sets `rotate`; one retyped identical text and expected a
+  change. Both failed for my reasons, not the page's.
+- **A count of "14 `r-` screenshots" was a grep matching "browser-check".**
+  The real count was 0. Counted again before it was written down.
+
+**Verified rather than assumed:**
+- **AC-4, AC-13, AC-14, AC-17** at the API, in the staged browser checks,
+  and against the real server with a real token.
+- **AC-16** for `entries` (I1, I2, I3, as `madam_app`) and for all three
+  endpoints, including A's delete leaving B's entry.
+- **188 deliberate breakages, from the PR records:** 44 of the database
+  and its conversions, 26 of `fam`, 45 of the endpoints, 36 of the page's
+  rule modules and `Adjust`, 4 of the components, 9 of `DELETE`, 8 and 16
+  of the screen's two parts. Each compiled or type-checked before it ran.
+  All are caught except two that no accepted input can show yet: the
+  copy's rounding to thousandths first (it only ever gets whole
+  hundredths), and a change keeping earlier answers (Slice 5).
+- **The copy of the formula:** one checksum, 863312314, over 17,285,760
+  readings, computed separately in Go and TypeScript.
+- **Both in-between states of production,** before the migration's merge.
+- **The trigger** fires for a role that may neither create triggers nor
+  run the function; on madam-dev Supabase's API roles hold nothing.
+- **In a browser,** against the built image: 339 checks in six scripts,
+  among them the exact JSON the page sends, a screen left open past
+  midnight in Israel, and a real account saving, editing and deleting.
+- **By Pe'er:** the whole screen on an Android phone, on production.
+
+**Lessons:**
+- **A catalog check must compare, not just look.** "There is a `WITH
+  CHECK`" passed; "it equals `USING`" is what catches the hole that
+  behaviour can't see.
+- **Vectors can't pin a copy; a checksum over the whole input space can,**
+  but only over the inputs it covers. The copy's own untestable change is
+  the reminder.
+- **Look at every screenshot.** The focus bug was in no check and plain in
+  the picture.
+- **A breakage must be seen in what is served,** not just applied. A build
+  that didn't change tests nothing.
+- **Rehearse before the merge when the merge can't be undone.**
+
+**Not done, and known:**
+- The screen on an iPhone: the time box, and whether the home bar covers
+  Save (`viewport-fit=cover` isn't set). A phone set to a 12-hour clock.
+- `day-real.mjs` onboarding the account itself: written, and not yet run,
+  because `onboarding-real.mjs` always onboards it first.
+- Re-saving an entry after the unit changes re-rounds its stored value
+  (Slice 9).
+- A wrong method still gets the router's own empty 405.
+- From Slice 2, still open: iOS Safari after a week unused; a hook host
+  that answers nothing; whether the confirmation email reaches other
+  people's inboxes.
+
+**Carried forward:** Slice 5 makes the switch live: a second write, in the
+same transaction, to `cycle_starts`, where `madam_app` may already insert
+and delete. "Did bleeding stop?" joins the 409-and-`confirmed` mechanism.
+`DELETE` of an entry leaves a cycle start on that day, so the screen must
+say something there. The title gains its cycle text. `CLAUDE.md` is due a
+trim, in its own PR.

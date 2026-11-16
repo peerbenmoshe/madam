@@ -29,6 +29,10 @@ _Amended after Slice 3 (14 November 2026): migration `00003` is built and in
 production. §4.3, §4.4 and §9 say what was built and measured, and the ERD
 shows `cycle_start_unknown`._
 
+_Amended after Slice 4 (16 November 2026): migration `00004` is built and in
+production. §4.2 and §9 say what was built and measured; §9's checklist now
+requires a policy's `USING` and `WITH CHECK` to be the same expression._
+
 ---
 
 ## 1. Principles
@@ -221,6 +225,18 @@ CONSTRAINT measured_at_is_a_minute_of_the_day CHECK (
 
 In the migration (`00004`, Slice 4) every one of these has a name, so an
 error says which rule refused.
+
+*As built in Slice 4 (15 November 2026, PR #53; in production the same
+day).* The six names: `reading_has_a_temperature_and_a_time`,
+`temperature_is_possible`, `measured_at_is_a_minute_of_the_day`,
+`secretion_amount_is_1_to_3`, `disturbances_are_known`,
+`symptoms_are_known`. A test shows each refusing, and removing any of them,
+or weakening it by one step (a bound moved by a thousandth, half of the
+minute rule, one tag left out), made a test fail. `updated_at` is set by the trigger
+`entries_set_updated_at`, which runs `public.set_updated_at()`; nobody but
+the owner may call that function directly, and it still fires for
+`madam_app` (`tech-stack.md` §6). Grants: `SELECT`, `INSERT`, `UPDATE`,
+`DELETE`, the first table after `users` with `UPDATE`.
 
 **Why `measured_at` has its own `CHECK` (decided in the Slice 4 plan,
 15 November 2026, by Pe'er).** The column is "minute precision", and until
@@ -810,6 +826,29 @@ new tables, so `00002`'s revocation of the default privileges holds for
 tables created later.
 
 **In production** since 14 November 2026 (`make migrate-prod`).
+
+### As built in Slice 4
+
+Migration `00004_entries.sql` gives `entries` the same treatment: `ENABLE`
+and `FORCE`, one policy `entries_own_rows FOR ALL TO madam_app` with the
+same expression on `user_id`, and the grants of §4.2. It is in both lists
+of `user_tables_test.go`, and I1 and I2 hold through the API as well
+(`tech-stack.md` §3).
+
+**One line above stopped being true for this table.** `WITH CHECK (true)`
+is no longer caught by behaviour on `entries`. Measured as user A writing a
+row for user C: a plain `INSERT` is stored, but `INSERT … RETURNING` and
+`INSERT … ON CONFLICT DO UPDATE` are refused, because Postgres also applies
+`USING` to a new row the statement can read back. `UpsertEntry` is both.
+So **`TestSchemaChecklist` now requires `USING` and `WITH CHECK` to be the
+same expression** on every table. Behaviour proves `USING` (I3), and the
+equality carries it to `WITH CHECK`. `TestBothListsNameTheSameTables` makes
+`userTables` and `tableGrants` name the same tables.
+
+**On Supabase** (madam-dev, after `00004`): only `postgres` and `madam_app`
+hold anything on `entries`, as after `00003`.
+
+**In production** since 15 November 2026 (`make migrate-prod`).
 
 ---
 

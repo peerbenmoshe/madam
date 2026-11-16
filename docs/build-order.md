@@ -67,6 +67,9 @@ today?" is answered a slice early (both below)._
 _Amended in Slice 3 (14 November 2026): Slice 3 is done. Slice 4 gains what
 it built to reuse and what it learned (below)._
 
+_Amended in Slice 4 (16 November 2026): Slice 4 is done. Slice 5 gains what
+it built to reuse and what it left for it (below)._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -685,6 +688,23 @@ behaviour, the suggestion, "Did bleeding stop?", the second write, the
 cycle text under the title), a list or range of entries, adjusted values in
 an API answer, and the unit switch.
 
+**✅ Done (15–16 November 2026, PRs #52–#61).** The day screen is live on
+production: a day's entry is saved, edited and deleted, every field
+included, from "Today's entry" or any date up to today. Pe'er checked it
+on an Android phone, on production.
+- **AC-4, AC-13, AC-14 and AC-17 pass** at the API (`day_test.go`), in the
+  staged browser checks and against the real server with a real token
+  (`day-real.mjs`).
+- **AC-16 holds for `entries` and all three endpoints** (I1, I2, and A's
+  delete leaving B's entry), as `madam_app`, locally and in CI; the
+  table's own isolation tests also on madam-dev.
+- **Built in the planned order,** except that the page's two rule modules
+  (7) and the components (6) came before `DELETE` (5), because they waited
+  on nothing.
+- **No dependency added.**
+- **Still open:** the screen on an iPhone (the time box, the home bar under
+  Save), and a phone set to a 12-hour clock.
+
 ### Slice 5 — Cycle rules
 
 The new-cycle suggestion, the manual "cycle starts on this day" toggle, and the
@@ -701,6 +721,29 @@ switch itself, highlighted, not a separate button. The switch's message
 follows its state: "Cycle N will start on …" when turned on, "… will no
 longer start a cycle" when turned off on an existing start, and the question
 when bleeding qualifies.
+
+*From Slice 4, as built* (`tech-stack.md` §3, §6, §8):
+- **The switch is on the screen, disabled,** with "Cycle starts can't be
+  changed here yet." under it (`DayPage.tsx`). This slice makes it live and
+  removes that line.
+- **"Did bleeding stop?" joins the existing mechanism:** a 409 whose code
+  is the question, answered by naming it in `confirmed`
+  (`bleeding_stopped`, planned in `tech-stack.md` §3). The page's
+  `QuestionName`, `questionFor` and `dayFailure` take one more case.
+- **A change forgets earlier answers** (`DayPage.tsx`, `change`). It
+  couldn't be seen failing in Slice 4, because no two questions could arise
+  for one entry. Once "Did bleeding stop?" can follow another, a browser
+  check can see it.
+- **`DELETE /api/days/{date}/entry` deletes only the entry,** by design: a
+  cycle start on that day stays. Decide what the screen says when an entry
+  is deleted from a day that starts a cycle.
+- **`PUT` replaces the whole entry and sends every field.** The cycle start
+  is not an entry field; it is the second write (`cycle_starts`).
+- **The grants are already there:** `madam_app` holds `SELECT`, `INSERT`
+  and `DELETE` on `cycle_starts` (`user_tables_test.go`). There is a query
+  to create and to list a start, none yet to delete one.
+- **The title has no cycle text yet** ("Cycle 4, day 8" in the mock). It
+  needs this slice's rules.
 
 ### Slice 6 — The graph, on real data
 
