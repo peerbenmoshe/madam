@@ -309,6 +309,48 @@ try {
   check("the notes box is at least 72px tall, with 16px text", notesBox[0] >= 72 && notesBox[1] === "16px", notesBox.join(", "));
   await shotOf("p-text-area", section("Text area"));
 
+  // The danger button: red words, no underline, a tap area of 44px.
+  const danger = `[...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Delete entry")`;
+  const dangerLook = await js(`(() => { const b = ${danger}, s = getComputedStyle(b); return [s.color, s.textDecorationLine, s.fontWeight, Math.round(b.getBoundingClientRect().height)]; })()`);
+  // The danger colour as the page's own CSS gives it, read from a probe.
+  const dangerColour = await js(`(() => { const p = document.createElement("p"); p.className = "text-danger"; document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return c; })()`);
+  check("the danger button is bold danger red, with no underline, 44px tall", dangerLook[0] === dangerColour && dangerLook[1] === "none" && Number(dangerLook[2]) >= 700 && dangerLook[3] >= 44, `${dangerLook.join(", ")} (danger is ${dangerColour})`);
+  await click("Delete entry");
+  check("…and a tap reaches it", await has("Tapped 1 time."));
+  await shotOf("p-buttons", section("Buttons"));
+
+  // The cervix: one heading over two rows, each row named for a screen reader.
+  const legendOf = (text) => js(`${radio(text)}.closest("fieldset").querySelector("legend").textContent`);
+  check("the cervix rows are named Firmness and Position", (await legendOf("Firm")) === "Firmness" && (await legendOf("High, open")) === "Position", `${await legendOf("Firm")} / ${await legendOf("High, open")}`);
+  check("…inside one fieldset named Cervix", await js(`${radio("Firm")}.closest("fieldset").parentElement.closest("fieldset").querySelector("legend").textContent`) === "Cervix");
+  check("…and only Cervix is shown: the row names are heard, not seen", await js(`(() => { const l = ${radio("Firm")}.closest("fieldset").querySelector("legend"); const r = l.getBoundingClientRect(); return r.width <= 1 && r.height <= 1; })()`));
+  await tap("Firm");
+  await tap("High, open");
+  await tap("Low, closed");
+  check("each row has its own answer, and both can be cleared", await has("Cervix: firm, low_closed."));
+  await tap("Firm");
+  check("…clearing one leaves the other", await has("Cervix: no firmness, low_closed."));
+
+  // The disclosure: closed by default, opened by a tap or the keyboard, and
+  // what is inside is kept while it is closed.
+  const summary = `${section("Disclosure")}.querySelector("summary")`;
+  const extraVisible = () => js(`(() => { const l = [...document.querySelectorAll("label")].find((l) => l.textContent.trim() === "Something extra"); return document.getElementById(l.htmlFor).checkVisibility(); })()`);
+  check("a disclosure starts closed, its contents hidden", (await js(`${summary}.textContent`)) === "Show all fields" && !(await extraVisible()) && (await has("Closed.")));
+  check("…its summary is at least 48px tall", (await js(`${summary}.getBoundingClientRect().height`)) >= 48, String(await js(`${summary}.getBoundingClientRect().height`)));
+  await js(`${summary}.click()`);
+  await sleep(350);
+  check("a tap opens it and the words say what the next tap does", (await js(`${summary}.textContent`)) === "Hide extra fields" && (await extraVisible()) && (await has("Open.")), await js(`${summary}.textContent`));
+  // Tailwind 4's rotate-180 sets CSS's own rotate property, not transform.
+  check("…and the chevron has turned half a circle", (await js(`getComputedStyle(${summary}.querySelector("svg")).rotate`)) === "180deg", await js(`getComputedStyle(${summary}.querySelector("svg")).rotate`));
+  await shotOf("p-disclosure", section("Disclosure"));
+  await type("Something extra", "kept");
+  await js(`${summary}.focus()`);
+  await S("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" });
+  await S("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+  await sleep(200);
+  check("Enter on the summary closes it", (await js(`${summary}.textContent`)) === "Show all fields" && !(await extraVisible()) && (await has("Closed.")));
+  check("…and what was typed inside is still there", (await value("Something extra")) === "kept", String(await value("Something extra")));
+
   // The toast: appears, says it to a screen reader, and leaves by itself.
   check("no toast until something is done", await js(`document.querySelector('[role="status"]')`) === null);
   await click('Show "Entry saved"');

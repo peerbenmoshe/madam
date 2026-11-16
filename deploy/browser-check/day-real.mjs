@@ -145,6 +145,15 @@ const boxText = (type) => js(`document.querySelector('input[type="${type}"]')?.c
 const liveLine = () => js(`document.getElementById(${temperatureInput}?.getAttribute("aria-describedby")?.split(" ")[0] ?? "")?.textContent ?? "(no line)"`);
 const toast = () => js(`document.querySelector('[role="status"]')?.textContent ?? null`);
 const ddmmyyyy = (iso) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+const chosen = () => js(`[...document.querySelectorAll("fieldset input:checked")].map((i) => i.closest("label").textContent.trim())`);
+const moreState = () => js(`(() => { const d = document.querySelector("details"); return d ? (d.open ? "open: " : "closed: ") + d.querySelector("summary").textContent : "(no details)"; })()`);
+// An answer of the question in the Save bar ("Delete entry" is also the
+// link that asks).
+async function answer(text) {
+  await js(`(() => { const b = [...document.querySelectorAll('[role="group"] button')].find((b) => b.textContent.trim() === ${q(text)});
+    if (!b) throw new Error("no answer " + ${q(text)}); b.focus(); b.click(); })()`);
+  await sleep(150);
+}
 // "07:05" plus 45 minutes, within the day.
 const later = (hhmm, minutes) => {
   const total = (Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)) + minutes) % (24 * 60);
@@ -230,6 +239,46 @@ try {
   check("a usual temperature is saved without a question", await waitFor(`location.pathname === "/"`, "home"), await bodyText());
   const changed = await api("GET", `/api/days/${yesterday}`);
   check("…replacing yesterday's entry, keeping what wasn't changed", changed.body?.entry?.temperature?.hundredths === 3662 && changed.body?.entry?.measured_at === later(fixed, 45) && changed.body?.entry?.notes === "From the real pass.", q(changed.body));
+
+  // ---- Show all fields, through the screen ----
+  await click("Today's entry");
+  await waitFor(settled, "today's entry");
+  await pick("date", yesterday);
+  await waitFor(`location.pathname === "/day/${yesterday}" && ${settled}`, "yesterday, for the extra fields");
+  check("an entry with nothing extra opens with Show all fields closed", (await moreState()) === "closed: Show all fields", await moreState());
+  await js(`document.querySelector("details summary").click()`);
+  await sleep(250);
+  await choose("Wet");
+  await choose("3");
+  await type("Secretion description", "Stretches between fingers");
+  await choose("Firm");
+  await choose("High, open");
+  await choose("Bloating");
+  await choose("Protected");
+  await click("Save entry");
+  check("the extra answers are saved without a question", await waitFor(`location.pathname === "/"`, "home"), await bodyText());
+  const extra = (await api("GET", `/api/days/${yesterday}`)).body?.entry;
+  check("the real server holds every extra answer, and kept the rest", extra?.sensation === "wet" && extra?.secretion_amount === 3 && extra?.secretion_description === "Stretches between fingers"
+    && extra?.cervix_firmness === "firm" && extra?.cervix_position === "high_open" && q(extra?.symptoms) === q(["bloating"]) && extra?.intercourse === "protected"
+    && extra?.temperature?.hundredths === 3662 && extra?.notes === "From the real pass.", q(extra));
+  await click("Today's entry");
+  await waitFor(settled, "today's entry");
+  await pick("date", yesterday);
+  await waitFor(`location.pathname === "/day/${yesterday}" && ${settled}`, "yesterday, with its extras");
+  check("…and it opens again with the section open and its answers chosen", (await moreState()) === "open: Hide extra fields" && q(await chosen()) === q(["Spotting", "Wet", "3", "Firm", "High, open", "Bloating", "Protected"]), `${await moreState()} ${q(await chosen())}`);
+  await shot("r-day-more");
+
+  // ---- Delete, through the screen ----
+  await click("Delete entry");
+  check("Delete asks first, with yesterday's date", await has(`Delete the entry for ${ddmmyyyy(yesterday)}? This can't be undone.`), await bodyText());
+  const stillThere = await api("GET", `/api/days/${yesterday}`);
+  check("…and the entry is still on the real server while she is asked", stillThere.body?.entry !== null, q(stillThere.body));
+  await answer("Delete entry");
+  check("\"Delete entry\": back home, saying so", await waitFor(`location.pathname === "/" && document.querySelector('[role="status"]')?.textContent === "Entry deleted"`, "home and the toast"), `${await path()} ${await toast()}`);
+  const gone = await api("GET", `/api/days/${yesterday}`);
+  check("the real server has no entry for yesterday now", gone.status === 200 && gone.body?.entry === null, q(gone));
+  const kept = await api("GET", `/api/days/${today}`);
+  check("…and today's entry is untouched", kept.body?.entry?.temperature?.hundredths === 3420, q(kept.body));
 
   // ---- the same real token, straight at the endpoints ----
   const impossible = await api("PUT", `/api/days/${today}`, { entry: { bleeding: "none", disturbances: [], symptoms: [], temperature: { hundredths: 5001, unit: "celsius" }, measured_at: fixed }, confirmed: ["unusual_temperature"] });

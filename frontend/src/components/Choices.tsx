@@ -19,6 +19,9 @@ const BASE = `border-rule bg-surface relative flex cursor-pointer items-center b
 
 type OptionButtonsProps<T extends string> = {
   legend: string;
+  // The legend is heard and not shown: a row of answers under a heading it
+  // shares with another row (the cervix's firmness and position).
+  legendHidden?: boolean;
   // A line of help between the question and its answers.
   hint?: string;
   options: readonly Choice<T>[];
@@ -39,7 +42,7 @@ type OptionButtonsProps<T extends string> = {
 );
 
 export function OptionButtons<T extends string>(props: OptionButtonsProps<T>) {
-  const { legend, hint, options, value } = props;
+  const { legend, legendHidden, hint, options, value } = props;
   const name = useId();
   const clearHintId = useId();
   return (
@@ -47,7 +50,11 @@ export function OptionButtons<T extends string>(props: OptionButtonsProps<T>) {
       className="min-w-0"
       aria-describedby={props.clearable ? clearHintId : undefined}
     >
-      <legend className={`font-bold ${hint ? "mb-1" : "mb-2.5"}`}>
+      <legend
+        className={
+          legendHidden ? "sr-only" : `font-bold ${hint ? "mb-1" : "mb-2.5"}`
+        }
+      >
         {legend}
       </legend>
       {hint && <p className="text-muted mb-2.5 text-sm">{hint}</p>}
