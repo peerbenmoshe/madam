@@ -900,3 +900,257 @@ func TestDayIsolation(t *testing.T) {
 		}
 	})
 }
+
+// --- DELETE /api/days/{date}/entry ---
+
+// TestDeleteEntryRefuses: the refusals of DELETE, none of which reaches the
+// database. It needs no database.
+func TestDeleteEntryRefuses(t *testing.T) {
+	router := newRouter(fakeDB{}, untouchedStore{t}, stubAuthenticator{id: stubUserID}, noHook, testConfig, fakeFrontend, fixedClock)
+
+	// The same rule for the date in the path as GET and PUT.
+	for _, tc := range []struct{ name, date, wantCode string }{
+		{"not YYYY-MM-DD", "2026-2-3", codeInvalidDate},
+		{"a word", "today", codeInvalidDate},
+		{"30 February", "2026-02-30", codeInvalidDate},
+		{"tomorrow", dayTomorrow, codeDateInFuture},
+		{"the day before the floor", "1999-12-31", codeDateTooEarly},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := sendDay(t, router, http.MethodDelete, "/api/days/"+tc.date+"/entry", "", "", nil)
+			got := decodeAPIError(t, rec, http.StatusUnprocessableEntity)
+			if got.Code != tc.wantCode || got.Field != fieldDate {
+				t.Errorf("got code %q field %q, want code %q field %q", got.Code, got.Field, tc.wantCode, fieldDate)
+			}
+		})
+	}
+
+	t.Run("only DELETE is answered there", func(t *testing.T) {
+		for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodPost} {
+			rec := sendDay(t, router, method, "/api/days/"+dayToday+"/entry", "", entryBody(celsius("3662")), nil)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s: status = %d, want 405", method, rec.Code)
+			}
+		}
+	})
+
+	// The day itself can't be deleted: only its entry.
+	t.Run("DELETE on the day is still the router's 405", func(t *testing.T) {
+		rec := sendDay(t, router, http.MethodDelete, "/api/days/"+dayToday, "", "", nil)
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("status = %d, want 405", rec.Code)
+		}
+	})
+
+	t.Run("no path below or beside it", func(t *testing.T) {
+		for _, path := range []string{"/api/days/" + dayToday + "/entry/", "/api/days/" + dayToday + "/entry/notes", "/api/days/" + dayToday + "/entries", "/api/days/entry"} {
+			rec := sendDay(t, router, http.MethodDelete, path, "", "", nil)
+			if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("DELETE %s: status = %d, want 404 or 405", path, rec.Code)
+			}
+		}
+	})
+
+	t.Run("no token", func(t *testing.T) {
+		unsigned := newRouter(fakeDB{}, untouchedStore{t}, noAuth, noHook, testConfig, fakeFrontend, fixedClock)
+		rec := sendDay(t, unsigned, http.MethodDelete, "/api/days/"+dayToday+"/entry", "", "", nil)
+		if got := decodeAPIError(t, rec, http.StatusUnauthorized); got.Code != codeUnauthorized {
+			t.Errorf("code = %q, want %q", got.Code, codeUnauthorized)
+		}
+	})
+
+	t.Run("a database failure is hidden", func(t *testing.T) {
+		failing := newRouter(fakeDB{}, failingStore{}, stubAuthenticator{id: stubUserID}, noHook, testConfig, fakeFrontend, fixedClock)
+		rec := sendDay(t, failing, http.MethodDelete, "/api/days/"+dayToday+"/entry", "", "", nil)
+		if got := decodeAPIError(t, rec, http.StatusInternalServerError); got.Code != codeInternal {
+			t.Errorf("code = %q, want %q", got.Code, codeInternal)
+		}
+		if body := rec.Body.String(); strings.Contains(body, "secret-host") || strings.Contains(body, "refused") {
+			t.Errorf("the response leaks the database error: %q", body)
+		}
+	})
+
+	t.Run("mounted without RequireUser", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		handleDeleteEntry(untouchedStore{t}, fixedClock)(rec, httptest.NewRequest(http.MethodDelete, "/api/days/"+dayToday+"/entry", nil))
+		if got := decodeAPIError(t, rec, http.StatusInternalServerError); got.Code != codeInternal {
+			t.Errorf("code = %q, want %q", got.Code, codeInternal)
+		}
+	})
+}
+
+// wantDeleted checks DELETE's answer: 204, nothing in the body, and never
+// cached.
+func wantDeleted(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body %s; want 204", rec.Code, rec.Body.String())
+	}
+	if rec.Body.Len() != 0 {
+		t.Errorf("body = %q, want none", rec.Body.String())
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+}
+
+// TestDeleteEntry deletes for real: the entry goes, only that date's, and
+// deleting what isn't there is not an error.
+func TestDeleteEntry(t *testing.T) {
+	s := newOnboardingSetup(t)
+	a := newUser(t)
+	onboard(t, s, a, "06:30")
+	token := s.token(a)
+	const before, middle = "2026-11-12", "2026-11-13"
+	path := func(date string) string { return "/api/days/" + date + "/entry" }
+	emptyDay := func(date string) string {
+		return `{"date":"` + date + `","fixed_time":"06:30","entry":null}`
+	}
+
+	for _, date := range []string{before, middle, dayToday} {
+		rec := sendDay(t, s.router, http.MethodPut, "/api/days/"+date, token, entryBody(fullEntrySent), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("save %s: status = %d, body %s", date, rec.Code, rec.Body.String())
+		}
+	}
+
+	t.Run("the entry goes, and only that date's", func(t *testing.T) {
+		wantDeleted(t, sendDay(t, s.router, http.MethodDelete, path(middle), token, "", nil))
+		if _, found := storedEntry(t, s.store, a, middle); found {
+			t.Error("the entry is still stored")
+		}
+		wantDay(t, sendDay(t, s.router, http.MethodGet, "/api/days/"+middle, token, "", nil), emptyDay(middle))
+		// The day before and the day after are untouched.
+		for _, date := range []string{before, dayToday} {
+			if _, found := storedEntry(t, s.store, a, date); !found {
+				t.Errorf("the entry for %s went too", date)
+			}
+		}
+	})
+
+	t.Run("deleting it again is a 204 too", func(t *testing.T) {
+		wantDeleted(t, sendDay(t, s.router, http.MethodDelete, path(middle), token, "", nil))
+	})
+
+	t.Run("a day that never had an entry", func(t *testing.T) {
+		wantDeleted(t, sendDay(t, s.router, http.MethodDelete, path("2020-01-01"), token, "", nil))
+	})
+
+	// A body isn't read: nothing in it can widen what is deleted.
+	t.Run("a body is ignored", func(t *testing.T) {
+		rec := sendDay(t, s.router, http.MethodDelete, path(before), token, `{"date":"`+dayToday+`","all":true}`, nil)
+		wantDeleted(t, rec)
+		if _, found := storedEntry(t, s.store, a, before); found {
+			t.Error("the entry in the path is still stored")
+		}
+		if _, found := storedEntry(t, s.store, a, dayToday); !found {
+			t.Error("the entry named in the body was deleted")
+		}
+	})
+
+	t.Run("the day can be saved again afterwards", func(t *testing.T) {
+		rec := sendDay(t, s.router, http.MethodPut, "/api/days/"+middle, token, entryBody(celsius("3662")), nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+		}
+		if row, found := storedEntry(t, s.store, a, middle); !found || row.Notes.Valid {
+			t.Errorf("after delete and save: found %v, notes %+v; want a fresh entry without the old notes", found, row.Notes)
+		}
+	})
+}
+
+// An account that hasn't onboarded is told so, as by GET and PUT, and
+// nothing is created.
+func TestDeleteEntryNeedsAnOnboardedAccount(t *testing.T) {
+	s := newOnboardingSetup(t)
+	path := "/api/days/" + dayToday + "/entry"
+
+	never := newUser(t)
+	rec := sendDay(t, s.router, http.MethodDelete, path, s.token(never), "", nil)
+	if got := decodeAPIError(t, rec, http.StatusConflict); got.Code != codeNotOnboarded {
+		t.Errorf("no users row: code = %q, want %q", got.Code, codeNotOnboarded)
+	}
+	if userExists(t, s.store, never) {
+		t.Error("a delete created the users row")
+	}
+
+	exists := newUser(t)
+	if status, _ := getMe(t, s.router, "/api/me", s.token(exists), nil); status != http.StatusOK {
+		t.Fatalf("GET /api/me: %d", status)
+	}
+	rec = sendDay(t, s.router, http.MethodDelete, path, s.token(exists), "", nil)
+	if got := decodeAPIError(t, rec, http.StatusConflict); got.Code != codeNotOnboarded {
+		t.Errorf("not onboarded: code = %q, want %q", got.Code, codeNotOnboarded)
+	}
+}
+
+// TestDeleteEntryIsolation is AC-16, part one, for DELETE: A's delete of a
+// date B has an entry on deletes nothing of B's, however A names B.
+func TestDeleteEntryIsolation(t *testing.T) {
+	s := newOnboardingSetup(t)
+	a, b := newUser(t), newUser(t)
+	onboard(t, s, a, "06:30")
+	onboard(t, s, b, "08:15")
+	tokenA, tokenB := s.token(a), s.token(b)
+	path := "/api/days/" + dayToday + "/entry"
+
+	if rec := sendDay(t, s.router, http.MethodPut, "/api/days/"+dayToday, tokenB, entryBody(fullEntrySent), nil); rec.Code != http.StatusOK {
+		t.Fatalf("B saves: status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	bStored, _ := storedEntry(t, s.store, b, dayToday)
+	wantBUntouched := func(t *testing.T) {
+		t.Helper()
+		now, found := storedEntry(t, s.store, b, dayToday)
+		if !found || !reflect.DeepEqual(now, bStored) {
+			t.Errorf("B's entry changed:\n was %+v\n now %+v (found %v)", bStored, now, found)
+		}
+	}
+
+	t.Run("A deletes the date B has an entry on", func(t *testing.T) {
+		wantDeleted(t, sendDay(t, s.router, http.MethodDelete, path, tokenA, "", nil))
+		wantBUntouched(t)
+	})
+
+	t.Run("A names B everywhere a request can", func(t *testing.T) {
+		rec := sendDay(t, s.router, http.MethodDelete, path+"?user_id="+b.String()+"&id="+b.String(), tokenA,
+			`{"user_id":"`+b.String()+`"}`,
+			map[string]string{
+				"X-User-Id":        b.String(),
+				"X-Forwarded-User": b.String(),
+				"Cookie":           "user_id=" + b.String() + "; sb-access-token=" + tokenB,
+			})
+		wantDeleted(t, rec)
+		wantBUntouched(t)
+	})
+
+	t.Run("no token: refused, and nothing is deleted", func(t *testing.T) {
+		decodeAPIError(t, sendDay(t, s.router, http.MethodDelete, path, "", "", nil), http.StatusUnauthorized)
+		wantBUntouched(t)
+	})
+
+	t.Run("no path leads to another user's entry", func(t *testing.T) {
+		for _, p := range []string{
+			"/api/users/" + b.String() + "/days/" + dayToday + "/entry",
+			"/api/days/" + dayToday + "/entry/" + b.String(),
+		} {
+			rec := sendDay(t, s.router, http.MethodDelete, p, tokenA, "", nil)
+			if rec.Code != http.StatusNotFound {
+				t.Errorf("DELETE %s: status = %d, want 404", p, rec.Code)
+			}
+		}
+		wantBUntouched(t)
+	})
+
+	t.Run("each deletes only her own", func(t *testing.T) {
+		if rec := sendDay(t, s.router, http.MethodPut, "/api/days/"+dayToday, tokenA, entryBody(celsius("3662")), nil); rec.Code != http.StatusOK {
+			t.Fatalf("A saves: status = %d", rec.Code)
+		}
+		wantDeleted(t, sendDay(t, s.router, http.MethodDelete, path, tokenB, "", nil))
+		if _, found := storedEntry(t, s.store, b, dayToday); found {
+			t.Error("B's entry is still there after B deleted it")
+		}
+		if _, found := storedEntry(t, s.store, a, dayToday); !found {
+			t.Error("A's entry went when B deleted hers")
+		}
+	})
+}
