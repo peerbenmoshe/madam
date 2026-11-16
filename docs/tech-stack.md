@@ -44,6 +44,8 @@ _Amended in the Slice 3 plan (14 November 2026):_ _§3 decides the API's convent
 
 _Amended after Slice 3 (14 November 2026):_ _§3, §6 and §8 each gain "As built in Slice 3": what was built, what was measured, and the one thing the building changed (a 405 keeps the router's own answer); §4 records that the token-refresh question is answered._
 
+_Amended after Slice 4 (16 November 2026):_ _§3, §6 and §8 each gain "As built in Slice 4": what was built and measured, and what the building changed (the checklist now compares a policy's two expressions; a question in Save's place takes the focus)._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -548,6 +550,47 @@ it, like `checkOnboarding`.
 code: notes up to 2,000 characters, the secretion description up to 200.
 Rejected: the body cap alone, which would answer a long note with a 413 and
 no field to point at.
+
+### As built in Slice 4 (15–16 November 2026, PRs #55 and #58)
+
+Everything above was built as decided, with `DELETE` as planned:
+
+```
+GET    /api/days/{date}         →  200 {"date", "fixed_time", "entry": {…} or null}
+PUT    /api/days/{date}         ←  {"entry": {…}, "confirmed": [...]}  →  200, GET's body
+DELETE /api/days/{date}/entry   →  204, no body, also when there was no entry
+```
+
+| Piece | File | What it does |
+|---|---|---|
+| The three handlers | `internal/api/day.go` | `handleGetDay`, `handlePutDay`, `handleDeleteEntry`: who, which day, the rules, one transaction |
+| The rules | `day.go`, `checkDay` | Every rule in order, a function of the request alone: no clock, no database |
+| The date in the path | `internal/api/refusal.go` | `acceptedDate`, taken out of onboarding and used by both. Onboarding's 31 refusal tests passed unchanged |
+| Onboarded or not | `day.go`, `onboardedUser` | The 409 `not_onboarded` for all three, which `readDayAccount` (the account and its measurement times) builds on |
+| Five optional enums | `day.go`, `optionalEnum[E]`, `textOf[E]` | Generic functions: one each, not five copies |
+
+**Details settled while building:**
+- **`PUT`'s body is capped at 32 KiB** (`dayMaxBytes`): the largest valid
+  body, both texts at their limits in the longest JSON escape, is 26,736
+  bytes. A test sends it through the router.
+- **`DELETE` reads no body,** so nothing in one can widen what is deleted.
+  `DELETE /api/days/{date}` itself is the router's 405: the day stays,
+  because from Slice 5 it can be a cycle start.
+- **A refusal comes before a question,** by the order of checks, so she is
+  never asked about an entry that couldn't be saved.
+
+**Tests.** 91 refusals and questions on `PUT`, each with its status, code
+and field, against a store that fails the test if reached (29 with 400, 49
+with 422, 12 with 409, 1 with 415); 9 dates in the path, on `GET` and
+`PUT`; against the database as `madam_app`, every field saved and read
+back, both questions storing nothing until "yes", and AC-16 (I1, I2, and
+A's delete leaving B's entry). The smoke test gained six checks.
+
+**Measured with a real token** (the browser checks' real pass, §8): AC-13
+and AC-14 asked by the server, nothing stored until "yes"; AC-4 through the
+date box; AC-17 refused even when "confirmed"; an unknown field 400; every
+extra field saved and read back; a delete through the screen, leaving the
+other day's entry.
 
 ---
 
@@ -1626,6 +1669,52 @@ overrides, converted in `internal/db/convert.go`.
   into `*int32` and nothing else here (measured in 0c), for two shapes of
   "maybe a number".
 
+### As built in Slice 4 (15 November 2026, PR #53)
+
+Everything above was built as decided: one file, `00004_entries.sql`, with
+the six types, the table and its six named `CHECK`s, the trigger, the
+grants, forced RLS and the policy; the three queries; `EntryValues`,
+`EntryFromRow` and `UpsertParams` in `convert.go`.
+
+**Every expected type was right** (`make sqlc`): `SMALLINT` is
+`pgtype.Int2`, a nullable `TEXT` is `pgtype.Text`, each nullable enum a
+`Null…` struct. The option is `emit_enum_valid_method`. Both queries that
+return a row name all 17 columns, so both return `db.Entry`.
+
+**The trigger, measured:**
+- it fires for `madam_app`, which holds no `TRIGGER` privilege and may not
+  `EXECUTE` the function (`REVOKE ALL … FROM PUBLIC`): firing a trigger
+  needs neither;
+- on madam-dev, only `madam_app` and `postgres` hold anything on `entries`,
+  and only `postgres` may run `set_updated_at()`. Supabase's API roles hold
+  nothing.
+
+**Surprise: a policy with `WITH CHECK (true)` changed nothing a test could
+see.** As user A writing a row for user C, locally:
+
+| Statement | Result |
+|---|---|
+| Plain `INSERT` | Stored |
+| `INSERT … RETURNING` | Refused |
+| `INSERT … ON CONFLICT DO UPDATE` | Refused |
+
+Postgres also applies `USING` to a new row the statement can read back, and
+`UpsertEntry` is both refused kinds. So `TestSchemaChecklist` now requires
+`USING` and `WITH CHECK` to be **the same expression**, for every table:
+behaviour proves `USING` (I3), and equality carries it to `WITH CHECK`. A
+second new test, `TestBothListsNameTheSameTables`, makes `userTables` and
+`tableGrants` agree.
+
+**The tag lists are held against the migration:** `entries_test.go` takes
+them from `fam` and checks each `CHECK` refuses what `fam` refuses.
+
+**Both in-between states, run before the merge:** the migration's code on
+schema version 3 passed; `main`'s code on version 4 passed the API's tests
+(its `TestSchemaChecklist` failed by design, naming the unlisted table).
+The madam-dev rehearsal also ran **before** the merge: a merged migration
+can't be edited, so a Supabase-only failure found afterwards couldn't have
+been fixed in the same file.
+
 ---
 
 ## 7. Hosting: Google Cloud Run
@@ -2574,6 +2663,65 @@ Decisions only; "as built" follows. The screen is `design-brief.md` §6.3.
   needs no new SQL. Rejected: relying on the order of the scripts;
   onboarding the account with SQL in the reset (a second description of
   what the endpoint writes).
+
+### As built in Slice 4 (15–16 November 2026, PRs #56, #57, #59 and #60)
+
+Everything above was built as decided. The pieces:
+
+| Piece | File |
+|---|---|
+| The screen | `pages/DayPage.tsx` |
+| Its words, rules and requests | `lib/dayText.ts` (with tests) |
+| The address | `lib/routes.ts`: `dayPath`, `dayOfPath` |
+| Today, kept current | `lib/useToday.ts`: read again on `visibilitychange`, `focus` and every 60 s |
+| Typed temperatures | `lib/temperature.ts` |
+| The live line's arithmetic | `lib/adjust.ts`, `countsAs` (§1.3) |
+| The calls | `lib/api.ts`: `fetchDay`, `saveDay`, `deleteEntry` (a 204 has no body) |
+| New components | `TemperatureBox`, `TextArea`, `Toast`, `Disclosure`, `DangerButton`; `OptionButtons` gained `clearable` and `legendHidden`, `Switch` gained `disabled`, `Question` takes the focus |
+
+**Details settled while building:**
+- **The screen isn't rebuilt when the date changes,** only reloaded below
+  the date box (React's "adjust state during render"). Rebuilt, it would
+  take the focus out of the box while a year is typed on a computer.
+- **The floor, 01/01/2000, isn't given to the date box as `min`.** A year
+  typed on a computer passes through 0002, and `min` would undo each digit.
+  The page says the limit instead.
+- **Saving sends every field, shown or not:** `PUT` replaces the whole
+  entry.
+- **A question in Save's place moves the focus to the answer that changes
+  nothing** ("Keep it", "No, fix it", "Add a temperature"). Found in a
+  screenshot: the taller bar covered the Delete link that had the focus, and
+  for the save questions the focus fell to the page when Save went away.
+- **"Show all fields" starts open when something under it is saved, and
+  opens for a refusal about a field inside it,** so no message is hidden.
+- **Space on a chosen radio button fires nothing in Chrome** (measured), so
+  `OptionButtons` clears on the key itself.
+- **Tailwind 4's `rotate-180` sets CSS's `rotate`, not `transform`.** A
+  check reading `transform` sees `none` on a turned chevron.
+
+**The copy of the formula is held by a checksum,** not by vectors alone:
+both sides fold the result for 17,285,760 readings (four fixed times ×
+every accepted temperature × every minute of the day) into **863312314**,
+expected by `internal/fam/copy_test.go` and `lib/adjust.test.mjs`. Building
+it showed that rounding with `+ 16` passed every Go test: new vector T7
+(`fam-rules.md` §12.1).
+
+**Checked in a browser** (`make browser-check`, against the built image):
+339 checks in six scripts, all passing: `auth-screens` 102,
+`auth-first-use` 31, `onboarding` 42, `day` 117, `onboarding-real` 12,
+`day-real` 35. The staged clock moves a screen open at 23:59 in Israel past
+midnight. The real pass saves, asks, edits, saves every extra field and
+deletes through the screen, reading the real server after each.
+
+**The browser checks' clicks focus the button first.** A script's
+`click()` doesn't move the focus as a tap does, so a check that "the focus
+went back" passed with the focusing code removed.
+
+**On Pe'er's Android phone, on production** (16 November 2026): the decimal
+keyboard offers both a comma and a dot; the page doesn't zoom when the
+temperature is focused; with the keyboard open, the sticky Save bar sits
+under it and comes back with a scroll (accepted by Pe'er); "Show all
+fields", its answers and Delete work as staged.
 
 ---
 

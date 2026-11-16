@@ -8,6 +8,10 @@ _Amended in Slice 3 (14 November 2026): §5 and §9 gain the time box, and
 §10 the onboarding screen, which the mock doesn't have. Both are built;
 the time box is checked on Android and not yet on an iPhone._
 
+_Amended after Slice 4 (16 November 2026): §5 and §6.3 say what was built
+for the day screen, and where it differs from the mock; §9 gains what the
+phone showed with its keyboard open._
+
 This file is the **source of truth for how Madam looks and how its screens
 behave to the touch**. `spec-v1.md` says what the app does, and
 `fam-rules.md` says how each rule computes. Where this file and the mock
@@ -154,6 +158,29 @@ day screen uses it:*
 - **The temperature box:** the mock's large number (2.5rem, weight 800)
   over an ink underline, with the unit beside it.
 - **The toast** of the table above, which nothing has needed until now.
+
+*As built in Slice 4* (15–16 November 2026; PRs #57 and #60): all five, as
+planned, and four more:
+- **A disclosure** (`Disclosure.tsx`, a native `<details>`) for "Show all
+  fields": the mock's berry label over a hairline, at least 48px tall, with
+  a chevron that turns (not with reduced motion). Its owner decides whether
+  it starts open.
+- **A danger button** (`DangerButton` in `Button.tsx`), the mock's
+  danger-link: bold text in `danger`, no fill and no underline, 44px tall.
+  For "Delete entry" now and "Delete account" in Slice 9. It never acts by
+  itself.
+- **Option buttons with a hidden legend** (`legendHidden`), for two rows of
+  answers under one heading (the cervix): each row is named for a screen
+  reader, not on screen.
+- **A question takes the focus.** When it replaces Save, the focus moves to
+  the answer that changes nothing. Without that, the focus fell to the page
+  when Save went, or stayed on a Delete link the taller bar now covered.
+
+Measured while building: the space bar on an already-chosen radio button
+fires no event in Chrome, so clearable option buttons clear on the key
+itself. The temperature box is a text input with `inputmode="decimal"`, not
+`type="number"`, which drops what it can't read and gives back `36,` as
+empty.
 
 Questions that need an answer (save without a temperature, unusual
 temperature, "Did bleeding stop?", delete) **replace the Save button in
@@ -325,6 +352,28 @@ the switch on confirms it, and leaving it off dismisses it.
 - **A "Back" button** at the top, where the mock has "Graph", until the
   graph exists.
 
+**As built in Slice 4** (16 November 2026; PRs #59 and #60). All nine parts,
+in the order above. Where it differs from the mock:
+- **"Measured at" is a full-width time box** in the card, not a label and a
+  time on one row: the same component as onboarding's, and it reads cleanly
+  at 390px.
+- **The disabled switch has a line under it,** "Cycle starts can't be
+  changed here yet." A switch showing "off" on a day that *is* a cycle start
+  would otherwise read as a statement.
+- **The description is labelled "Secretion description",** not
+  "Description": a label is read alone by a screen reader and by the
+  too-long message ("Keep the description under 200 characters.").
+- **Every single answer under "Show all fields" can be cleared,** as
+  secretion can: each may be "not said".
+- **"Show all fields" also opens for a refusal about a field inside it,**
+  so no message is hidden.
+
+*Checked by Pe'er on an Android phone, on production* (16 November 2026):
+the whole screen, the extra fields and Delete. The decimal keyboard offers
+both a comma and a dot, and the page doesn't zoom when the temperature is
+focused. Zooming on focus is iOS's habit, so an iPhone is still the real
+test of that (`TextField.tsx` keeps inputs at 16px or more for it).
+
 ### 6.4 Cycles and stats
 
 - Title "Cycle 4, day 8", then "Started Sunday 01/11/2026."
@@ -400,6 +449,12 @@ cycle. It can't be undone.").
   iPhone, and a phone set to a 12-hour clock, where the picker may offer AM
   and PM (the box's own text is 24-hour either way). Rejected: two lists, hours and minutes
   (a 60-item list); typed text (a phone's number pad has no colon).
+- **The sticky Save bar and a phone's keyboard.** *Measured on Pe'er's
+  Android phone (16 November 2026):* with the keyboard open, the bar sits
+  under the keyboard, and a scroll brings it back. Accepted by Pe'er.
+  *Not checked:* an iPhone. `index.html` doesn't set `viewport-fit=cover`,
+  so `env(safe-area-inset-bottom)` is 0 there, and whether the home bar
+  overlaps Save is unknown.
 - **The rows under the graph with Recharts.** *Unverified:* the mock draws
   its own SVG. In Recharts they could be a custom X-axis tick with four
   lines, or an HTML grid below the chart that uses the plot's exact left
