@@ -1,4 +1,5 @@
 import { useId } from "react";
+import type { Ref } from "react";
 
 // The temperature, typed: the largest thing on the day screen
 // (docs/design-brief.md §5 and §6.3). A number at 2.5rem and weight 800
@@ -23,6 +24,8 @@ type Props = {
   // The id of a line elsewhere that describes the reading: the day
   // screen's "counts as" line. A screen reader reads it with the box.
   describedBy?: string;
+  // The input itself, for putting the focus back in it.
+  ref?: Ref<HTMLInputElement>;
 };
 
 export function TemperatureBox({
@@ -33,6 +36,7 @@ export function TemperatureBox({
   placeholder,
   error,
   describedBy,
+  ref,
 }: Props) {
   const id = useId();
   const errorId = error ? `${id}-error` : undefined;
@@ -47,6 +51,7 @@ export function TemperatureBox({
         className={`flex items-baseline gap-1.5 border-b-[2.5px] focus-within:shadow-[0_4px_0_0_var(--color-blush)] ${error ? "border-danger" : "border-ink focus-within:border-berry"}`}
       >
         <input
+          ref={ref}
           id={id}
           inputMode="decimal"
           autoComplete="off"

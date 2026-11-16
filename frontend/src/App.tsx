@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/auth-js";
 import { Button } from "./components/Button.tsx";
 import { Screen } from "./components/Screen.tsx";
+import { Toast } from "./components/Toast.tsx";
 import { ApiError, fetchMe } from "./lib/api.ts";
 import type { Me } from "./lib/api.ts";
 import { accountProblem } from "./lib/authText.ts";
 import { navigate, usePath } from "./lib/router.ts";
+import { HOME, dayOfPath } from "./lib/routes.ts";
+import { useToday } from "./lib/useToday.ts";
 import { useAuth } from "./lib/useAuth.ts";
+import { DayPage } from "./pages/DayPage.tsx";
 import DesignPage from "./pages/DesignPage.tsx";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage.tsx";
 import { HomePage } from "./pages/HomePage.tsx";
@@ -29,6 +33,12 @@ export default function App() {
   return <Account path={path} />;
 }
 
+// The paths a signed-in person can be on: the home page, and a day's own
+// address, whose date SignedIn checks once it knows her account.
+function isSignedInPath(path: string): boolean {
+  return path === HOME || path.startsWith("/day/");
+}
+
 // The paths a signed-out person can be on. "/" is the log-in screen.
 const SIGNED_OUT_PATHS = [
   "/",
@@ -47,7 +57,7 @@ function Account({ path }: { path: string }) {
   useEffect(() => {
     if (recovering && path !== "/reset-password") {
       navigate("/reset-password", { replace: true });
-    } else if (signedIn && !recovering && path !== "/") {
+    } else if (signedIn && !recovering && !isSignedInPath(path)) {
       navigate("/", { replace: true });
     } else if (
       state.status === "signedOut" &&
@@ -79,7 +89,13 @@ function Account({ path }: { path: string }) {
       }
       // Keyed by the user, so a different account never inherits what was
       // read for the last one.
-      return <SignedIn key={state.session.user.id} session={state.session} />;
+      return (
+        <SignedIn
+          key={state.session.user.id}
+          session={state.session}
+          path={path}
+        />
+      );
 
     case "signedOut":
       return <SignedOut path={path} linkFailed={state.linkFailed} />;
@@ -97,11 +113,40 @@ type Account =
 // The screens for someone who is signed in. Which one depends on her
 // account, read from GET /api/me: until she has answered onboarding she
 // sees only that. Onboarding has no address of its own, so it can't be
-// skipped by typing one (docs/tech-stack.md §8).
-function SignedIn({ session }: { session: Session }) {
+// skipped by typing one (docs/tech-stack.md §8). Once she has, the address
+// decides: the home page, or one day (/day/2026-11-15).
+function SignedIn({ session, path }: { session: Session; path: string }) {
   const [account, setAccount] = useState<Account>({ state: "checking" });
   // Counts the reads, so "Try again" can ask for another.
   const [attempt, setAttempt] = useState(0);
+  // What was just done ("Entry saved"), shown over whichever screen is next.
+  const [toast, setToast] = useState<string | null>(null);
+  const today = useToday();
+
+  // Stable functions: DayPage reads the day again whenever one changes.
+  const hideToast = useCallback(() => setToast(null), []);
+  const readAgain = useCallback(() => {
+    setAccount({ state: "checking" });
+    setAttempt((n) => n + 1);
+  }, []);
+  const dayDone = useCallback((message: string) => {
+    setToast(message);
+    navigate(HOME, { replace: true });
+  }, []);
+
+  // The day the address names, once she may see days at all.
+  const day =
+    account.state === "ready" && account.me.onboarded_at !== null
+      ? dayOfPath(path, today)
+      : null;
+
+  // The address names the screen that is shown. Anything else, a day she
+  // can't open or any address before onboarding, becomes the home page's.
+  useEffect(() => {
+    if (account.state !== "checking" && path !== HOME && day === null) {
+      navigate(HOME, { replace: true });
+    }
+  }, [account.state, path, day]);
 
   useEffect(() => {
     // Ignore an answer that arrives after the page has gone.
@@ -134,14 +179,7 @@ function SignedIn({ session }: { session: Session }) {
           session={session}
           problem={accountProblem(account.status)}
           // A refused session won't get better by asking again: log out.
-          onRetry={
-            account.status === 401
-              ? undefined
-              : () => {
-                  setAccount({ state: "checking" });
-                  setAttempt((n) => n + 1);
-                }
-          }
+          onRetry={account.status === 401 ? undefined : readAgain}
         />
       );
 
@@ -151,7 +189,16 @@ function SignedIn({ session }: { session: Session }) {
           <OnboardingPage onDone={(me) => setAccount({ state: "ready", me })} />
         );
       }
-      return <HomePage session={session} />;
+      return (
+        <>
+          {day !== null ? (
+            <DayPage date={day} onDone={dayDone} onNotOnboarded={readAgain} />
+          ) : (
+            <HomePage session={session} />
+          )}
+          {toast !== null && <Toast message={toast} onDone={hideToast} />}
+        </>
+      );
   }
 }
 

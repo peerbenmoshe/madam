@@ -25,7 +25,7 @@ mkdir -p "$work"
 cp "$here"/*.mjs "$work"/
 
 status=0
-for script in auth-screens.mjs auth-first-use.mjs onboarding.mjs; do
+for script in auth-screens.mjs auth-first-use.mjs onboarding.mjs day.mjs; do
 	[ -z "$only" ] || [ "$only" = "$script" ] || continue
 	echo "=== $script"
 	# cmd.exe needs a Windows folder as its working directory. Its exit
@@ -35,20 +35,24 @@ for script in auth-screens.mjs auth-first-use.mjs onboarding.mjs; do
 	printf '%s\n' "$out" | grep -q "ALL CHECKS PASSED" || status=1
 done
 
-# The real pass needs a test account (README.md). Its email and password
+# The real passes need a test account (README.md). Its email and password
 # reach Windows' Node through the environment: WSLENV names the variables
 # WSL hands to a Windows program. They are never put on a command line.
-if [ -n "$only" ] && [ "$only" != onboarding-real.mjs ]; then
-	: # another script was asked for
-elif [ -n "${MADAM_CHECK_EMAIL:-}" ] && [ -n "${MADAM_CHECK_PASSWORD:-}" ]; then
-	echo "=== onboarding-real.mjs"
+# onboarding-real.mjs needs an account that hasn't onboarded, which
+# `make browser-check` gives it; day-real.mjs onboards one itself if
+# needed, so it can also run alone.
+for script in onboarding-real.mjs day-real.mjs; do
+	[ -z "$only" ] || [ "$only" = "$script" ] || continue
+	if [ -z "${MADAM_CHECK_EMAIL:-}" ] || [ -z "${MADAM_CHECK_PASSWORD:-}" ]; then
+		echo "=== $script: skipped (no test account in the environment; see \"The test account\" in README.md)"
+		continue
+	fi
+	echo "=== $script"
 	out=$(cd "$work" && WSLENV="MADAM_CHECK_EMAIL:MADAM_CHECK_PASSWORD${WSLENV:+:$WSLENV}" \
-		cmd.exe /c "node onboarding-real.mjs . $base" 2>&1 | tr -d '\r')
+		cmd.exe /c "node $script . $base" 2>&1 | tr -d '\r')
 	printf '%s\n' "$out"
 	printf '%s\n' "$out" | grep -q "ALL CHECKS PASSED" || status=1
-else
-	echo "=== onboarding-real.mjs: skipped (no test account in the environment; see \"The test account\" in README.md)"
-fi
+done
 
 mkdir -p "$here/screenshots"
 cp "$work"/*.png "$here/screenshots"/ 2>/dev/null || true

@@ -103,6 +103,8 @@ export function OptionButtons<T extends string>(props: OptionButtonsProps<T>) {
 
 type ChipsProps<T extends string> = {
   legend: string;
+  // A line of help between the question and its answers.
+  hint?: string;
   options: readonly Choice<T>[];
   values: readonly T[];
   onChange: (values: T[]) => void;
@@ -110,6 +112,7 @@ type ChipsProps<T extends string> = {
 
 export function Chips<T extends string>({
   legend,
+  hint,
   options,
   values,
   onChange,
@@ -124,7 +127,10 @@ export function Chips<T extends string>({
   }
   return (
     <fieldset className="min-w-0">
-      <legend className="mb-2.5 font-bold">{legend}</legend>
+      <legend className={`font-bold ${hint ? "mb-1" : "mb-2.5"}`}>
+        {legend}
+      </legend>
+      {hint && <p className="text-muted mb-2.5 text-sm">{hint}</p>}
       <div className="flex flex-wrap gap-2">
         {options.map((option) => (
           <label
