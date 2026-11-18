@@ -5,7 +5,7 @@
 # the Node in .nvmrc (CI fails if the two differ); Debian, like the Go stage,
 # because the lockfile's native packages are the glibc ones. Nothing from this
 # stage reaches the runtime image except the built files.
-FROM node:26.13.0-trixie-slim AS frontend
+FROM node:26.13.1-trixie-slim AS frontend
 WORKDIR /src
 
 # Dependencies first, cached until the lockfile changes. .npmrc turns off
