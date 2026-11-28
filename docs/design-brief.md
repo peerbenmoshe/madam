@@ -12,6 +12,10 @@ _Amended after Slice 4 (16 November 2026): §5 and §6.3 say what was built
 for the day screen, and where it differs from the mock; §9 gains what the
 phone showed with its keyboard open._
 
+_Amended in the Slice 5 plan (28 November 2026): §6.3 gains the words of
+the cycle line under the title, of a start saved alone, of deleting a
+start's entry, and of "Did bleeding stop?"._
+
 This file is the **source of truth for how Madam looks and how its screens
 behave to the touch**. `spec-v1.md` says what the app does, and
 `fam-rules.md` says how each rule computes. Where this file and the mock
@@ -373,6 +377,24 @@ the whole screen, the extra fields and Delete. The decimal keyboard offers
 both a comma and a dot, and the page doesn't zoom when the temperature is
 focused. Zooming on focus is iOS's habit, so an iPhone is still the real
 test of that (`TextField.tsx` keeps inputs at 16px or more for it).
+
+**In Slice 5** (planned 28 November 2026; `tech-stack.md` §3 and §8):
+- **The switch is live,** with the table above. "Cycle starts can't be
+  changed here yet." goes. The frame is the `Switch`'s own option, shown on
+  `/design`.
+- **The line under the title:** "Cycle 4, day 8" in a cycle with a known
+  start; "Cycle ? (start unknown), day ?" in the unknown-start cycle, both
+  of `fam-rules.md` §5.2's spellings (Pe'er); nothing outside any cycle
+  (§5.3). "No entry yet." stays under it on a day without an entry.
+- **A start saved on its own** (a day without an entry, nothing typed):
+  the toast says "Cycle start saved" or "Cycle start removed", by §7's rule
+  that a toast names what was done. An entry saved with it is still "Entry
+  saved".
+- **Deleting the entry of a day that starts a cycle:** "Delete the entry
+  for 01/11/2026? This can't be undone. Cycle 4 still starts on this day."
+  The start stays, and she is told so.
+- **"Did bleeding stop?"** in Save's place, with "Yes, it stopped" and
+  "No" (§7). "No" takes her to the chosen Bleeding button.
 
 ### 6.4 Cycles and stats
 

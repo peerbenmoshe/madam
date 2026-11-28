@@ -15,6 +15,11 @@ the server doesn't know her time zone, adds a floor (1 January 2000), and
 fixes how a date and a time of day are written; §12 gains vectors FD1–FD8
 (§12.9), and P1–P10 and H1–H12 (§12.10)._
 
+_Amended in the Slice 5 plan (28 November 2026): §5.1 defines
+`start_number`, the number a cycle starting on a date has or would have;
+§6.2 says what "moving" a start means on the day screen; §12.3 gains
+vectors C15–C17._
+
 ---
 
 ## 1. Provenance and honesty
@@ -221,7 +226,14 @@ automatically (AC-8).
 cycle_day(date)    = date − (greatest start_date ≤ date) + 1
 cycle_length(s)    = (next start_date after s) − s
 cycle_number(s)    = position of s in the user's ordered start dates, from 1
+start_number(d)    = (number of start dates before d) + 1
 ```
+
+`start_number` is the number a cycle starting on `d` has if `d` is a start, or
+would have if `d` were made one. The day screen says it before saving:
+"Cycle 5 will start on 08/11/2026 when you save" (`spec-v1.md` §8.2). It is
+the same as `cycle_number(d)` once `d` is a start, and it is 1 for a date
+before every start, inside the unknown-start cycle included (§5.2).
 
 - Cycles have **no maximum length**. Day 41 and beyond are normal and must never
   be treated as an error.
@@ -288,6 +300,13 @@ entirely — a deliberate override always wins.
 
 Moving a cycle start is a delete plus an insert **in one transaction**
 (`data-model.md` §4.3).
+
+*Added in the Slice 5 plan (28 November 2026):* the day screen has no
+"move". Its switch adds or removes the start on the one day it shows, so
+moving a start there is two saves, on two days, and each leaves a
+consistent set of starts. The one-transaction rule is for a future control
+that moves a start in one step. Saving a day, its entry and its start
+together, is one transaction whatever it holds.
 
 ### 6.3 "Did bleeding stop?"
 
@@ -601,6 +620,31 @@ and her first entry is 10 Dec of the year before.
 | C12 | Cycle day of 5 Dec (before her first entry) | blank, no cycle |
 | C13 | Number of the cycle starting 1 Jan | 1; the unknown-start cycle has no number |
 | C14 | No cycle starts at all; cycle day of 15 Jan | **?** (AC-12) |
+
+Added in the Slice 5 plan (28 November 2026): `start_number` (§5.1), with
+the starts at the top of this section (1 Jan, 29 Jan, 26 Feb; known start).
+
+| # | Case | Expected |
+|---|---|---|
+| C15a | `start_number` of 10 Feb | 3 |
+| C15b | `start_number` of 20 Dec (before every start) | 1 |
+| C15c | `start_number` of 29 Jan (already a start) | 2, its own number |
+| C15d | `start_number` of 1 Mar (after every start) | 4 |
+
+Also added in the Slice 5 plan: a start marked inside the unknown-start cycle,
+and one before her first entry (§5.2). Each starts from C11's setup: starts
+1 Jan, 29 Jan, 26 Feb, "I don't know", first entry 10 Dec of the year
+before.
+
+| # | Case | Expected |
+|---|---|---|
+| C16a | Mark 20 Dec as a start; cycle day of 15 Dec | **?**: the unknown-start cycle now ends on 19 Dec |
+| C16b | The same; cycle day and number of 20 Dec | day 1 of cycle 1 |
+| C16c | The same; cycle day of 25 Dec | 6 |
+| C16d | The same; number of the cycle starting 1 Jan | 2: everything after renumbers |
+| C17a | Mark 1 Dec (before her first entry) as a start; cycle day of 10 Dec | day 10 of cycle 1: no unknown-start cycle is left |
+| C17b | The same; cycle day of 30 Nov | blank, no cycle |
+| C17c | The same; number of the cycle starting 1 Jan | 2 |
 
 ### 12.4 Cycle suggestion
 
