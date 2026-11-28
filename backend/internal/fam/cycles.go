@@ -48,6 +48,12 @@ func NewCycles(f CycleFacts) (Cycles, error) {
 	c := Cycles{starts: starts}
 	// §5.2: an unknown-start cycle exists when she answered "I don't know"
 	// and has entries that no known start covers.
+	//
+	// DayOf asks the starts first, so a start before her first entry is
+	// already answered there, and this check is a second guard behind it
+	// (measured in Slice 5: with it removed every test passes, and C17 fails
+	// only when DayOf's order goes too). It matters by itself to anything
+	// that reads hasUnknown besides DayOf, such as Slice 8's cycle list.
 	if f.StartUnknown && f.HasEntries && (len(starts) == 0 || f.FirstEntry.Before(starts[0])) {
 		c.hasUnknown = true
 		c.unknownFrom = f.FirstEntry
@@ -142,4 +148,16 @@ func (c Cycles) All() []Cycle {
 func (c Cycles) IsStart(d Date) bool {
 	_, found := slices.BinarySearchFunc(c.starts, d, Date.Compare)
 	return found
+}
+
+// StartNumber is the number of the cycle that starts on d if d is a start,
+// or would start on it if d were made one (fam-rules §5.1): the number of
+// starts before d, plus 1. The day screen says it before saving: "Cycle 5
+// will start on … when you save." It is 1 before every start, inside the
+// unknown-start cycle included.
+func (c Cycles) StartNumber(d Date) int {
+	// BinarySearchFunc returns the index of the first start on or after d,
+	// which is how many starts come before it.
+	before, _ := slices.BinarySearchFunc(c.starts, d, Date.Compare)
+	return before + 1
 }

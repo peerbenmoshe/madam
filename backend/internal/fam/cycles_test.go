@@ -117,6 +117,57 @@ func TestCycles(t *testing.T) {
 			t.Errorf("DayOf(1 Jan).Number = %d, want 1", got)
 		}
 	})
+
+	// C15: start_number (fam-rules §5.1), the number a cycle starting on a
+	// date has, or would have, with the known starts.
+	numbers := []struct {
+		id   string
+		date string
+		want int
+	}{
+		{"C15a", "2026-02-10", 3},
+		{"C15b", "2025-12-20", 1}, // before every start
+		{"C15c", "2026-01-29", 2}, // already a start: its own number
+		{"C15d", "2026-03-01", 4}, // after every start
+	}
+	for _, tc := range numbers {
+		t.Run(tc.id, func(t *testing.T) {
+			if got := cycles(t, known).StartNumber(date(t, tc.date)); got != tc.want {
+				t.Errorf("StartNumber(%s) = %d, want %d", tc.date, got, tc.want)
+			}
+		})
+	}
+
+	// C16 and C17 start from C11's setup ("I don't know", first entry
+	// 10 Dec 2025) and mark one more start: C16 inside the unknown-start
+	// cycle, C17 before her first entry (fam-rules §5.2).
+	marked := func(start string) CycleFacts {
+		f := unknown
+		f.Starts = append([]Date{date(t, start)}, starts...)
+		return f
+	}
+	inside, before := marked("2025-12-20"), marked("2025-12-01")
+	marks := []struct {
+		id    string
+		facts CycleFacts
+		date  string
+		want  CycleDay
+	}{
+		{"C16a", inside, "2025-12-15", CycleDay{Kind: Unknown}}, // "?" until 19 Dec
+		{"C16b", inside, "2025-12-20", CycleDay{InCycle, 1, 1}},
+		{"C16c", inside, "2025-12-25", CycleDay{InCycle, 6, 1}},
+		{"C16d", inside, "2026-01-01", CycleDay{InCycle, 1, 2}}, // renumbered
+		{"C17a", before, "2025-12-10", CycleDay{InCycle, 10, 1}},
+		{"C17b", before, "2025-11-30", CycleDay{Kind: Outside}}, // blank
+		{"C17c", before, "2026-01-01", CycleDay{InCycle, 1, 2}}, // renumbered
+	}
+	for _, tc := range marks {
+		t.Run(tc.id, func(t *testing.T) {
+			if got := cycles(t, tc.facts).DayOf(date(t, tc.date)); got != tc.want {
+				t.Errorf("DayOf(%s) = %+v, want %+v", tc.date, got, tc.want)
+			}
+		})
+	}
 }
 
 // TestCyclesInputs checks what NewCycles accepts and refuses, and IsStart.
