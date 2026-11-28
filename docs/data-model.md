@@ -33,6 +33,9 @@ _Amended after Slice 4 (16 November 2026): migration `00004` is built and in
 production. §4.2 and §9 say what was built and measured; §9's checklist now
 requires a policy's `USING` and `WITH CHECK` to be the same expression._
 
+_Amended in the Slice 5 plan (28 November 2026): §4.3 says what the day
+screen writes to `cycle_starts`, and that Slice 5 needs no migration._
+
 ---
 
 ## 1. Principles
@@ -313,6 +316,16 @@ above is the reason, and now the database enforces it. `DELETE` is granted
 now although Slice 5 is the first to use it. Granting it later would be a
 migration holding one `GRANT`, with its own two-PR round to production
 (`tech-stack.md` §6).
+
+**Decided in the Slice 5 plan** (28 November 2026). The day screen's switch
+adds or removes the start on the one date it shows, in the same transaction
+as that day's entry (`tech-stack.md` §3). It never moves one: moving is two
+saves on two days, each leaving a consistent set of starts (`fam-rules.md`
+§6.2). **No migration is needed.** The primary key `(user_id, start_date)`
+makes "add it if it isn't there" an `INSERT … ON CONFLICT DO NOTHING`, and
+the grants above already cover it and the `DELETE`. The two new lookups on
+`entries` (her most recent entry before a date, her first entry) are served
+by its primary key `(user_id, entry_date)`.
 
 ### 4.4 `measurement_time_periods`
 

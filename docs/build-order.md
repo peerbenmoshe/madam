@@ -70,6 +70,10 @@ it built to reuse and what it learned (below)._
 _Amended in Slice 4 (16 November 2026): Slice 4 is done. Slice 5 gains what
 it built to reuse and what it left for it (below)._
 
+_Amended in the Slice 5 plan (28 November 2026): Slice 5 is planned as nine
+PRs, without a migration; Slice 8 gains the half of AC-8 that needs
+statistics._
+
 `docs/spec-v1.md` says what the app does. `docs/fam-rules.md` says how each rule
 computes. This file says what to build next.
 
@@ -745,6 +749,54 @@ when bleeding qualifies.
 - **The title has no cycle text yet** ("Cycle 4, day 8" in the mock). It
   needs this slice's rules.
 
+*Planned (28 November 2026).* Things the lines above didn't say:
+- **No migration.** The grants and both tables' primary keys already serve
+  the four new queries, so there is no production round
+  (`data-model.md` §4.3).
+- **The suggestion must show before saving, and the server decides it.**
+  GET answers what choosing Bleeding would mean (`suggest_if_bleeding`)
+  and the number a start would have (`start_number`), so the page picks
+  a sentence without holding a rule (`tech-stack.md` §1.3).
+- **A start can sit on a day with no entry** (onboarding writes one; a
+  deleted entry leaves one), and `PUT` required an entry. `entry` and
+  `cycle_start` are now each optional, at least one of them (Pe'er).
+- **The unknown-start line** is "Cycle ? (start unknown), day ?" (Pe'er).
+- **"No" to a question keeps the earlier answers;** only a change forgets
+  them.
+- **AC-8's "stats update" can't be seen before Slice 8,** which has the
+  first stats endpoint. Here it is checked where the stats come from
+  (`fam`'s cycle lengths, C10) and on the title line; Slice 8 carries the
+  rest.
+- **The vectors gain `start_number` and starts marked inside the
+  unknown-start cycle or before her first entry** (C15–C17,
+  `fam-rules.md` §12.3).
+
+The decisions are in `tech-stack.md` (§1.3; §3: GET's `cycle`, `PUT`'s
+body, `bleeding_stopped`; §8: the screen and its browser checks),
+`fam-rules.md` (§5.1, §6.2, §12.3), `data-model.md` (§4.3) and
+`design-brief.md` (§6.3). One concern per PR, merged one at a time, in this
+order:
+1. these documents;
+2. `internal/fam`: `Cycles.StartNumber`, with C15–C17 first;
+3. the four queries (`GetMostRecentEarlierEntry`, `GetFirstEntryDate`,
+   `EnsureCycleStart`, `DeleteCycleStart`), with their isolation tests and
+   a test that `InUserTx` rolls back. No handler uses them yet;
+4. `GET`'s `cycle`, built in one place that `PUT` will share;
+5. the page's rule module: the cycle line, the switch's message, the third
+   question's words, the delete sentence, the toasts. The body it sends is
+   unchanged, so the live server still accepts it, and the live page can
+   word `bleeding_stopped` before the server asks it;
+6. the framed switch, shown on `/design`;
+7. `PUT`: optional `entry`, `cycle_start`, `bleeding_stopped`;
+8. the day screen: the live switch, the title line, a start saved alone,
+   "No" to the bleeding field, the delete sentence, and the browser checks,
+   staged and real;
+9. the record: what was built and measured, `build-log.md`, `CLAUDE.md`.
+
+No new dependency. Not in this slice: a list or range of entries (Slice 6),
+a control that moves a start in one step, statistics (Slice 8), and the
+unit switch (Slice 9).
+
 ### Slice 6 — The graph, on real data
 
 Take the spike's result and connect it to the API. Date view, presets, custom
@@ -792,6 +844,11 @@ shown once under them, the bar chart with the ongoing cycle faded, and the
 cycle list (`design-brief.md` §6.4).
 
 *Acceptance criteria:* AC-12 in full.
+
+*From the Slice 5 plan:* **AC-8's last half.** Marking an earlier start must
+change the statistics shown, and Slice 5 could check that only in `fam`
+(C10's lengths) and on the day screen's title. Check it here through the
+stats endpoint and screen.
 
 ### Slice 9 — Settings and account
 

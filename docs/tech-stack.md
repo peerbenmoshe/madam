@@ -46,6 +46,8 @@ _Amended after Slice 3 (14 November 2026):_ _§3, §6 and §8 each gain "As buil
 
 _Amended after Slice 4 (16 November 2026):_ _§3, §6 and §8 each gain "As built in Slice 4": what was built and measured, and what the building changed (the checklist now compares a policy's two expressions; a question in Save's place takes the focus)._
 
+_Amended in the Slice 5 plan (28 November 2026):_ _§1.3 says why the cycle-start switch's message is not a third copy of a rule; §3 decides what the day endpoints add for cycles (GET's `cycle`, PUT's optional `entry` and `cycle_start`, the question `bleeding_stopped`); §8 decides the switch, the line under the title and how both are checked in a browser; §8.4 records the `minimatch` advisory as resolved._
+
 This document records **what** was chosen and **why**, including the options that
 were rejected and the honest trade-offs accepted. It is the source of truth for
 stack questions; `project-brief.md` only summarises it.
@@ -165,6 +167,26 @@ from raw", as in `fam-rules.md` §3.4.
   JavaScript, so the text is split at the decimal point and the two halves
   are read as whole numbers. A test reads and writes back every value from
   20.00 to 50.00.
+
+**Not an exception, decided in the Slice 5 plan (28 November 2026): the
+cycle-start switch's message.** The switch says what saving will change
+(`design-brief.md` §6.3), and it must say it as she taps Bleeding, before
+anything is saved. The page doesn't decide whether a new cycle is
+suggested, or which number it would have. `GET /api/days/{date}` sends
+both, worked out by Go: `suggest_if_bleeding` is `fam.SuggestCycleStart`
+asked about this date with `bleeding`, and `start_number` is
+`fam-rules.md` §5.1's `start_number` (§3). The page only compares the
+switch and the chosen button with those answers, to pick one of four
+sentences. No rule is copied.
+
+| Option | For | Against |
+|---|---|---|
+| **GET answers what "Bleeding" would mean** | Instant on a tap, as the mock shows. The rule stays in Go | It can go stale if another device saves an earlier day meanwhile. Harmless: the suggestion writes nothing, and she decides |
+| A 409 at save | Server-enforced | A blocking question for an advisory rule, an extra tap on the first day of every period, and not the design's highlighted switch |
+| A TypeScript copy of §6.1 | No new field | Domain logic in the browser; the WhatsApp bot would skip it (`fam-rules.md` §6.4) |
+
+"Did bleeding stop?" stays a question at save (§3): it holds the save back,
+so the server must ask it.
 
 ### 1.4 Backend internal structure
 
@@ -591,6 +613,89 @@ and AC-14 asked by the server, nothing stored until "yes"; AC-4 through the
 date box; AC-17 refused even when "confirmed"; an unknown field 400; every
 extra field saved and read back; a delete through the screen, leaving the
 other day's entry.
+
+### Decided in the Slice 5 plan (28 November 2026): cycles on the day endpoints
+
+Decisions only; "as built" follows. The addresses stay; the bodies grow.
+
+**`GET /api/days/{date}` gains `cycle`,** everything the screen says about
+cycles, worked out in Go (§1.3):
+
+```json
+{
+  "date": "2026-11-08",
+  "fixed_time": "07:00",
+  "entry": null,
+  "cycle": {
+    "day": {"kind": "in_cycle", "number": 4, "day": 8},
+    "is_start": false,
+    "start_number": 5,
+    "suggest_if_bleeding": true
+  }
+}
+```
+
+- `day` is where the date falls (`fam.Cycles.DayOf`): `"in_cycle"` with
+  `number` and `day`, or `"unknown"` (shown "?", `fam-rules.md` §5.2), or
+  `"outside"` (blank, §5.3), both without numbers. It is worked out from the
+  stored facts as they are, so a new day before her first entry is
+  `"outside"` until it is saved.
+- `is_start`: the date is a cycle start.
+- `start_number`: the number a cycle starting on this date has, or would
+  have (`fam-rules.md` §5.1).
+- `suggest_if_bleeding`: whether saving this date with `bleeding` would
+  suggest a new cycle (`fam.SuggestCycleStart`, §6.1). False on a start.
+- To build it, GET reads the cycle starts, `users.cycle_start_unknown`, her
+  first entry's date and her most recent entry before this date, whatever
+  its date. That last one is passed to `fam` alone: only it matters. The
+  answer is built in one place, so `PUT` answers with it too, read after
+  its writes.
+
+**`PUT /api/days/{date}` saves the entry, the cycle start, or both,** in one
+transaction:
+
+```
+{"entry": { the thirteen fields }, "cycle_start": true, "confirmed": [...]}
+```
+
+| Option | For | Against |
+|---|---|---|
+| **One `PUT`, `entry` and `cycle_start` each optional** (Pe'er) | One transaction for both writes. A start can be added or removed on a day with no entry (onboarding's start date, or a day whose entry was deleted) | A body may hold either or both |
+| `entry` stays required | Smaller change | Removing a wrong onboarding start, or marking a forgotten day 1, would create an entry she may not want |
+| A separate `/api/days/{date}/cycle-start` | Each body has one shape | Two ways to write one row, and a day's two writes no longer share a transaction |
+
+- **At least one of the two.** A body with neither is a 400 that names
+  `entry`. An `entry` that is `null` counts as left out: deleting it is
+  `DELETE …/entry`.
+- **`cycle_start` left out leaves the start as it was.** `true` makes the
+  date a start, and is not an error if it already is. `false` removes it,
+  and is not an error if it wasn't one. So the page deployed before this
+  change, which never sends the field, changes no start.
+- **Without an entry, nothing is asked**: the questions are about an entry.
+- **The order inside the transaction:** the account (`not_onboarded`), the
+  question that needs stored data, the entry, the start, and the answer.
+  A 409 comes before either write, so a question stores nothing in either
+  table.
+
+**"Did bleeding stop?" is the third question: `bleeding_stopped`,** on the
+field `bleeding`. It is asked when the entry's bleeding is `none` or
+`spotting` and her most recent earlier entry, whatever its date, is
+`bleeding` (`fam.AskBleedingStopped`). It is the only question that needs
+the database, so it is asked after `checkDay`'s two. A save can now meet
+two questions, one after the other (34.20 °C, then this). The answers
+gather in `confirmed`, and a name that doesn't apply is still ignored,
+which is what lets an answer stay right when the stored data moves between
+the question and the answer.
+
+| Status | New codes |
+|---|---|
+| 409 | `bleeding_stopped` |
+| 400 | `bad_request` on `entry`, now meaning "neither `entry` nor `cycle_start`" |
+| 422 | `invalid_value` on `confirmed` keeps its meaning, with one more known name |
+
+**No migration** (`data-model.md` §4.3). Four new queries, each filtered by
+`user_id`: `GetMostRecentEarlierEntry`, `GetFirstEntryDate`,
+`EnsureCycleStart` (`ON CONFLICT DO NOTHING`) and `DeleteCycleStart`.
 
 ---
 
@@ -2509,6 +2614,10 @@ in `minimatch` 11, and both packages require `^10`. Dependabot's security
 update concluded "update not possible" for the same reason. Its alert stays
 open and should close by itself once the fix reaches `main`, as 0c′'s `cel-go`
 alert did. npm's suggested "fix" is a downgrade to ESLint 9.
+*Resolved 28 November 2026:* ESLint 10.15.0 and typescript-eslint 8.73.0
+accept `minimatch` 11. Dependabot's weekly update (#65, through the 7-day
+cooldown) brought `minimatch` 11.0.9, and the alert closed itself seven
+seconds after the merge, as expected.
 
 **Expected to change, not yet verified:**
 - ~~`connect-src` gains the Supabase URL in Slice 2, if the browser calls
@@ -2722,6 +2831,49 @@ keyboard offers both a comma and a dot; the page doesn't zoom when the
 temperature is focused; with the keyboard open, the sticky Save bar sits
 under it and comes back with a scroll (accepted by Pe'er); "Show all
 fields", its answers and Delete work as staged.
+
+### Decided in the Slice 5 plan (28 November 2026): cycles on the day screen
+
+Decisions only; "as built" follows. The words are `design-brief.md` §6.3's.
+
+- **The switch is live.** It starts at the day's `is_start`, and flipping
+  it is a change to the form like any other: it forgets earlier answers.
+- **Its message is chosen, not computed** (§1.3), from the switch, the
+  chosen Bleeding button and GET's `cycle`: "Cycle 5 will start on …",
+  "… will no longer start a cycle …", or the suggestion when Bleeding is
+  chosen and `suggest_if_bleeding` is true. With a message, the switch is
+  framed in `berry` on `blush`.
+- **The line under the title** is "Cycle 4, day 8", "Cycle ? (start
+  unknown), day ?" (Pe'er), or nothing outside any cycle. "No entry yet."
+  stays under it.
+- **A day without an entry can save its start alone:** when the form still
+  holds nothing, the switch aside, Save sends only `cycle_start`, and the
+  toast says "Cycle start saved" or "Cycle start removed". Otherwise Save
+  sends the entry with `cycle_start`. Saving an untouched blank day still
+  asks "Save without a temperature?".
+- **Deleting the entry of a start** says so in its question: "… This can't
+  be undone. Cycle 4 still starts on this day." The start stays (§3).
+- **"No" to "Did bleeding stop?"** moves the focus to the chosen Bleeding
+  button. **"No" now keeps the answers already given**: only a change
+  forgets them, and "No" is not a change. (Slice 4's "No" forgot them,
+  which made no difference while a save could meet only one question.)
+- **The order of PRs keeps the live page working:** the page learns to word
+  `bleeding_stopped` before the server can ask it, and it sends
+  `cycle_start` only after the server accepts it.
+
+**How it is checked in a browser:**
+- `day.mjs`, staged: the frame appears when Bleeding is tapped and not for
+  Spotting (AC-5), not at all when `suggest_if_bleeding` is false (AC-6);
+  the on and off messages with their dates and numbers; the body of a
+  start-only save; 34.20 °C then "Did bleeding stop?"; and **a change
+  forgetting the answers,** which Slice 4 couldn't show failing: "Yes" to
+  34.20, "No" to the second question, a change of Bleeding, Save, and the
+  body sent must hold `"confirmed": []`.
+- `day-real.mjs`, nothing staged: the test account onboards as "I don't
+  know" and shows "?"; AC-5, AC-6 and AC-7 against the server; AC-8, the
+  title line renumbering after a start is marked earlier; a start saved on
+  a day without an entry; a deleted entry leaving its start; and how long
+  GET now takes, measured rather than guessed.
 
 ---
 
